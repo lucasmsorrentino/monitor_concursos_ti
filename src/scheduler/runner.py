@@ -1,7 +1,7 @@
 import schedule
 import time
 import logging
-from core.bot import ConcursoBot
+from src.core.bot import ConcursoBot
 
 class DailyScheduler:
     def __init__(self, bot: ConcursoBot):

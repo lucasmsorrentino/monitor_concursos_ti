@@ -1,6 +1,6 @@
 # 🏠 Monitor de Concursos TI (Inteligente)
 
-Este projeto é um ecossistema automatizado para monitorar, analisar e notificar atualizações de **Concursos Públicos de TI** no Brasil. Ele utiliza raspagem de dados de portais especializados, processamento de linguagem natural (LLM) local para evitar alertas redundantes e envio de notificações via Telegram.
+Este projeto é um ecossistema automatizado para monitorar, analisar e notificar atualizações de **Concursos Públicos de TI** no Brasil. Ele utiliza raspagem de dados de portais especializados, processamento de linguagem natural (LLM) local para evitar alertas redundantes,* e envio de notificações via Telegram.
 
 ## 🚀 Funcionalidades
 

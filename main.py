@@ -1,9 +1,9 @@
 import os
 import logging
 from dotenv import load_dotenv
-from utils.logger import setup_logger
-from core.bot import ConcursoBot
-from scheduler.runner import DailyScheduler 
+from src.utils.logger import setup_logger
+from src.core.bot import ConcursoBot
+from src.scheduler.runner import DailyScheduler 
 
 # Carrega as variáveis do arquivo .env
 load_dotenv()
@@ -16,7 +16,7 @@ def main():
     config = {
         "token": os.getenv("TELEGRAM_TOKEN"),
         "chat_id": os.getenv("TELEGRAM_CHAT_ID"),
-        "ollama_model": os.getenv("OLLAMA_MODEL", "llama3"),
+        "ollama_model": os.getenv("OLLAMA_MODEL", "llama3.1"),
         "url_alvo": os.getenv("URL_ALVO"),
         "horario_execucao": os.getenv("HORARIO_EXECUCAO", "08:00") # Novo parâmetro
     }

@@ -1,0 +1,30 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# --- Configurações Sensíveis (CRÍTICO) ---
+.env
+
+# --- Banco de Dados Local ---
+# Ignoramos o arquivo .db para que cada instalação tenha o seu próprio histórico
+data/*.db
+
+# --- Logs ---
+# Não queremos subir o histórico de logs para o Git
+logs/
+*.log
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Sistema Operacional ---
+.DS_Store
+Thumbs.db

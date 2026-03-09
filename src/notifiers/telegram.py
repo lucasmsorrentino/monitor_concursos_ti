@@ -20,7 +20,7 @@ class TelegramNotifier:
         payload = {
             "chat_id": self.chat_id,
             "text": mensagem,
-            "parse_mode": "Markdown" # Permite negrito, itálico, etc.
+            "parse_mode": "HTML" # Permite formatação em HTML como negrito, itálico, links, etc.
         }
 
         try:
