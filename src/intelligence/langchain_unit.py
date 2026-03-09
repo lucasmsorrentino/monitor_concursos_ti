@@ -1,14 +1,39 @@
+"""Módulo de inteligência artificial — cérebro duplo do sistema.
+
+Contém a classe :class:`IntelligenceUnit`, que expõe duas chains LangChain
+operando sobre uma LLM local (Ollama):
+
+1. **Chain de Extração** (HTML → JSON): recebe um bloco de HTML bruto e
+   devolve um dicionário estruturado com ``nome``, ``status``, ``link`` e
+   uma flag ``ignorar``.
+2. **Chain de Análise** (Texto → Texto): compara dois textos de status e
+   decide se a mudança é relevante o suficiente para gerar uma notificação.
+"""
+
 import json
 from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+
 class IntelligenceUnit:
-    def __init__(self, model_name="llama3.1"):
-        # 1. LLM para Extração de Dados (Forçando saída em JSON estrito)
+    """Unidade de inteligência que orquestra extração e análise via LLM local.
+
+    Utiliza duas instâncias do ``OllamaLLM`` (Llama 3.1 por padrão):
+
+    - ``llm_json``: configurada com ``format='json'`` para forçar saída JSON
+      estrita na chain de extração.
+    - ``llm_text``: saída em texto livre para a chain de análise de mudanças.
+
+    Args:
+        model_name: Nome do modelo Ollama a ser utilizado (default: ``'llama3.1'``).
+    """
+
+    def __init__(self, model_name: str = "llama3.1"):
+        # LLM para Extração de Dados (saída JSON estrita)
         self.llm_json = OllamaLLM(model=model_name, temperature=0, format="json")
-        
-        # 2. LLM para Análise de Mudanças (Saída em Texto normal)
+
+        # LLM para Análise de Mudanças (saída em texto normal)
         self.llm_text = OllamaLLM(model=model_name, temperature=0)
 
         # --- PROMPT 1: EXTRAÇÃO (HTML -> JSON) ---
@@ -48,121 +73,60 @@ class IntelligenceUnit:
 
 
     def extrair_dados(self, bloco_html: str) -> dict:
-        """Lê um bloco de HTML e retorna um dicionário JSON limpo."""
+        """Envia um bloco de HTML bruto à LLM e obtém dados estruturados em JSON.
+
+        A chain de extração instrui a LLM a:
+
+        - Retornar ``{"ignorar": true}`` quando o bloco for conteúdo genérico
+          (listas de cidades/cargos, "Notícias Recomendadas", etc.).
+        - Retornar um JSON com ``nome``, ``status``, ``link`` e ``ignorar: false``
+          quando o bloco contiver uma notícia real de concurso.
+
+        Args:
+            bloco_html: String HTML bruta de um bloco delimitado por ``<h3>``.
+
+        Returns:
+            dict: Dicionário com as chaves ``ignorar``, ``nome``, ``status`` e
+                  ``link``. Em caso de falha na LLM ou JSON malformado, retorna
+                  ``{"ignorar": True}`` por segurança.
+        """
         try:
             resposta = self.chain_extracao.invoke({"bloco": bloco_html})
             dados = json.loads(resposta)
             return dados
         except Exception as e:
             print(f"❌ Erro na extração via IA: {e}")
-            # Se a IA falhar ou o JSON vier quebrado, mandamos ignorar por segurança
             return {"ignorar": True}
 
 
-    def analisar_mudanca(self, antigo: str, novo: str) -> str:
-        """Compara dois textos e decide se a mudança vale a pena ser notificada."""
+    def analisar_mudanca(self, antigo: str, novo: str) -> str | None:
+        """Compara dois textos de status e decide se a mudança é relevante.
+
+        Utiliza a chain de análise para pedir à LLM que avalie se houve
+        avanço real no concurso (ex.: edital publicado, banca escolhida)
+        ou apenas uma reformulação textual sem valor informativo.
+
+        Args:
+            antigo: Texto do status salvo anteriormente no banco.
+            novo: Texto do status recém-extraído pela chain de extração.
+
+        Returns:
+            str | None: Resumo de até 15 palavras descrevendo a mudança,
+                        ou ``None`` se os textos forem idênticos, a mudança
+                        for irrelevante (IA retorna IGNORE) ou ocorrer erro.
+        """
         try:
             if antigo.strip() == novo.strip():
                 return None
-            
+
             resultado = self.chain_analise.invoke({"antigo": antigo, "novo": novo})
             resposta = resultado.strip()
-            
+
             if "IGNORE" in resposta.upper():
                 return None
-            
+
             return resposta
-            
+
         except Exception as e:
             print(f"❌ Erro na análise de mudança via IA: {e}")
             return None
-
-# import json
-# from langchain_ollama import OllamaLLM
-# from langchain_core.prompts import ChatPromptTemplate
-# from langchain_core.output_parsers import StrOutputParser
-
-
-# class IntelligenceUnit:
-#     def __init__(self, model_name="llama3.1"):
-#         self.llm = OllamaLLM(model=model_name, temperature=0, format="json") # Forçamos saída JSON
-
-#         self.prompt = ChatPromptTemplate.from_messages([
-#             ("system", """
-#             Você é um extrator de dados de alta precisão. Sua tarefa é analisar um bloco de HTML de um blog de concursos e extrair informações.
-
-#             REGRAS CRÍTICAS:
-#             1. Se o bloco for apenas uma lista resumida (ex: apenas nomes de cidades ou cargos sem link de detalhes), responda: {{"ignorar": true}}
-#             2. Se o bloco for uma notícia detalhada, extraia o Nome do Órgão, o Status Atual e a URL do link 'Saiba Mais'.
-#             3. Responda APENAS com JSON no formato:
-#             {{
-#                 "ignorar": false,
-#                 "nome": "Nome do Concurso",
-#                 "status": "Resumo do status atual",
-#                 "link": "URL completa do link saiba mais"
-#             }}
-#             """),
-#             ("human", "Analise este bloco: {bloco}")
-#         ])
-#         self.chain = self.prompt | self.llm
-
-#     def extrair_dados(self, bloco_html: str) -> dict:
-#         try:
-#             # O Llama 3.1 vai ler o HTML e entender onde está o link dinamicamente
-#             resposta = self.chain.invoke({"bloco": bloco_html})
-#             dados = json.loads(resposta)
-#             return dados
-#         except Exception as e:
-#             return {"ignorar": True}
-# class IntelligenceUnit:
-#     def __init__(self, model_name="llama3.1"):
-#         """
-#         Inicializa o modelo Ollama e define a estratégia de análise.
-#         Certifique-se de que o Ollama está rodando localmente.
-#         """
-#         # 1. Configuração do Modelo (pode ser trocado por OpenAI futuramente)
-#         self.llm = OllamaLLM(model=model_name, temperature=0) # Temp 0 para ser mais objetivo
-
-#         # 2. Definição do Prompt (O "Cérebro" do bot)
-#         self.prompt = ChatPromptTemplate.from_messages([
-#             ("system", """
-#             Você é um assistente especialista em concursos públicos de TI no Brasil.
-#             Sua missão é comparar dois textos de status de um concurso e decidir se houve uma atualização real e importante.
-
-#             Regras de Saída:
-#             - Se a mudança for significativa (Ex: edital publicado, banca escolhida, inscrições abertas, prova remarcada), 
-#               responda com um resumo de NO MÁXIMO 15 palavras para um alerta de Telegram.
-#             - Se a mudança for irrelevante (Ex: apenas mudou uma data de 'última atualização', mudou uma vírgula, 
-#               ou o sentido do texto continua exatamente o mesmo), responda APENAS a palavra: IGNORE
-#             """),
-#             ("human", "STATUS ANTERIOR: {antigo}\nSTATUS ATUAL: {novo}")
-#         ])
-
-#         # 3. Criação da Chain (Prompt -> LLM -> Parser de Texto)
-#         self.chain = self.prompt | self.llm | StrOutputParser()
-
-#     def analisar_mudanca(self, antigo: str, novo: str) -> str:
-#         """
-#         Processa a comparação e retorna o resumo da mudança ou None.
-#         """
-#         try:
-#             # Remove ruídos básicos de espaço antes de enviar para a IA
-#             if antigo.strip() == novo.strip():
-#                 return None
-            
-#             # Chama a IA para processar a lógica
-#             resultado = self.chain.invoke({"antigo": antigo, "novo": novo})
-            
-#             # Limpa o resultado
-#             resposta = resultado.strip()
-            
-#             if "IGNORE" in resposta.upper():
-#                 return None
-            
-#             return resposta
-            
-#         except Exception as e:
-#             print(f"❌ Erro no processamento da IA: {e}")
-#             # IMPORTANTE: Se a IA falhar, retornamos None para o bot NÃO postar lixo
-#             print(f"❌ Erro no Ollama: {e}")
-#             return None

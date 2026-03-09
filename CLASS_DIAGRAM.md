@@ -1,58 +1,72 @@
 ```mermaid
 classDiagram
-    class Main {
-        +run()
+    direction LR
+
+    class main {
+        +main() void
     }
 
     class ConcursoBot {
-        -scraper: BaseScraper
+        -logger: Logger
+        -scraper: GranScraper
         -db: DatabaseManager
-        -intelligence: IntelligenceUnit
+        -ai: IntelligenceUnit
         -notifier: TelegramNotifier
-        +executar()
+        +executar() void
     }
 
     class BaseScraper {
         <<abstract>>
-        +url: String
-        +headers: Dict
-        +capturar_concursos()* List~Dict~
+        #url: str
+        #headers: dict
+        +capturar_concursos()* List
+        +get_html() str
     }
 
     class GranScraper {
-        +capturar_concursos() List~Dict~
-    }
-
-    class DatabaseManager {
-        -conn: Connection
-        +buscar_status_antigo(nome: String) String
-        +atualizar_concurso(nome: String, status: String, link: String)
+        +capturar_concursos() List~str~
     }
 
     class IntelligenceUnit {
-        -llm: OllamaLLM
-        -template: PromptTemplate
-        +analisar_mudanca(antigo: String, novo: String) String
+        -llm_json: OllamaLLM
+        -llm_text: OllamaLLM
+        -prompt_extracao: ChatPromptTemplate
+        -prompt_analise: ChatPromptTemplate
+        -chain_extracao: RunnableSequence
+        -chain_analise: RunnableSequence
+        +extrair_dados(bloco_html: str) dict
+        +analisar_mudanca(antigo: str, novo: str) str
+    }
+
+    class DatabaseManager {
+        -db_path: str
+        -conn: Connection
+        +buscar_status_antigo(nome: str) str
+        +atualizar_concurso(nome: str, status: str, link: str) void
+        +fechar_conexao() void
     }
 
     class TelegramNotifier {
-        -token: String
-        -chat_id: String
-        +notificar(mensagem: String)
+        -token: str
+        -chat_id: str
+        -base_url: str
+        +notificar(mensagem: str) void
     }
 
-    class Settings {
-        <<config>>
-        +URL_ALVO: String
-        +TELEGRAM_TOKEN: String
-        +OLLAMA_MODEL: String
+    class DailyScheduler {
+        -bot: ConcursoBot
+        -logger: Logger
+        +agendar_diariamente(horario: str) void
+        +executar_tarefa() void
+        +iniciar() void
     }
 
-    Main ..> ConcursoBot : instancia
-    ConcursoBot *-- BaseScraper : composição
-    ConcursoBot *-- DatabaseManager : composição
-    ConcursoBot *-- IntelligenceUnit : composição
-    ConcursoBot *-- TelegramNotifier : composição
-    BaseScraper <|-- GranScraper : herança
-    ConcursoBot ..> Settings : consulta
+    main --> ConcursoBot : cria
+    main --> DailyScheduler : cria
+    DailyScheduler --> ConcursoBot : agenda execução
+    ConcursoBot --> GranScraper : fatia HTML
+    ConcursoBot --> IntelligenceUnit : extrai JSON e analisa mudanças
+    ConcursoBot --> DatabaseManager : persiste estado
+    ConcursoBot --> TelegramNotifier : envia alertas
+    GranScraper --|> BaseScraper : herda
 ```

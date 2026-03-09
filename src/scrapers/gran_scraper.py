@@ -1,35 +1,55 @@
+"""Scraper especializado para o blog Gran Cursos Online.
+
+Na arquite
+tura AI-First, este módulo atua apenas como **Slicer** (fatiador):
+ele usa o BeautifulSoup para dividir a página HTML em blocos independentes
+delimitados por tags ``<h3>``, sem extrair textos ou links diretamente.
+A interpretação semântica do conteúdo é delegada à ``IntelligenceUnit``.
+"""
+
 from bs4 import BeautifulSoup
 from .base_scraper import BaseScraper
 
 
-blacklist = ["NOTÍCIAS RECOMENDADAS", "VEJA TAMBÉM", "LEIA MAIS", "COMENTÁRIOS", ] # termos para ignorar
-
 class GranScraper(BaseScraper):
-    def capturar_concursos(self):
+    """Fatiador de HTML para o blog do Gran Cursos Online — seção Concursos TI.
+
+    Herda de :class:`BaseScraper` e implementa ``capturar_concursos()``.
+    Não realiza extração de dados; apenas recorta a página em blocos de HTML
+    bruto para que a LLM os interprete.
+    """
+
+    def capturar_concursos(self) -> list[str]:
+        """Fatia a página HTML em blocos independentes delimitados por ``<h3>``.
+
+        Cada bloco contém o ``<h3>`` de um concurso e todos os elementos-irmãos
+        seguintes até o próximo ``<h3>``, formando um trecho de HTML
+        autocontido que será enviado à LLM para extração de dados.
+
+        Returns:
+            list[str]: Lista de strings HTML brutas, uma por bloco/concurso.
+                       Retorna lista vazia se a página não puder ser obtida.
+        """
         html = self.get_html()
         if not html:
             return []
 
         soup = BeautifulSoup(html, 'html.parser')
-        #lista_concursos = []
-        chunks = []
-        # No blog do Gran Cursos TI, os concursos geralmente ficam em títulos H3
-        # e o status logo no parágrafo abaixo.
+        chunks: list[str] = []
         titulos = soup.find_all('h3')
-        
 
         for t in titulos:
-            # Pega o HTML do título e de tudo que vem depois dele até o próximo h3
+            # Coleta o <h3> e todos os irmãos seguintes até o próximo <h3>
             conteudo_bloco = [str(t)]
             for irmao in t.find_next_siblings():
-                if irmao.name == 'h3': break
+                if irmao.name == 'h3':
+                    break
                 conteudo_bloco.append(str(irmao))
 
-            # Junta tudo em um único texto HTML e adiciona à lista
             bloco_completo = "\n".join(conteudo_bloco)
             chunks.append(bloco_completo)
-            
-        return chunks # Agora retornamos uma lista de blocos de texto/HTML
+
+        return chunks
     
         #     nome_concurso = titulo.text.strip()
             
