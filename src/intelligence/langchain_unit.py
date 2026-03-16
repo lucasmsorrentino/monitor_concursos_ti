@@ -11,6 +11,8 @@ operando sobre uma LLM local (Ollama):
 """
 
 import json
+import logging
+import time
 from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -29,12 +31,35 @@ class IntelligenceUnit:
         model_name: Nome do modelo Ollama a ser utilizado (default: ``'llama3.1'``).
     """
 
-    def __init__(self, model_name: str = "llama3.1"):
+    def __init__(
+        self,
+        model_name: str = "llama3.1",
+        base_url: str = "http://127.0.0.1:11434",
+        timeout_s: float = 120.0,
+        retries: int = 2,
+        retry_delay_s: float = 2.0,
+    ):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.timeout_s = timeout_s
+        self.retries = max(0, retries)
+        self.retry_delay_s = max(0.0, retry_delay_s)
+
         # LLM para Extração de Dados (saída JSON estrita)
-        self.llm_json = OllamaLLM(model=model_name, temperature=0, format="json")
+        self.llm_json = self._create_llm(
+            model_name=model_name,
+            base_url=base_url,
+            timeout_s=timeout_s,
+            temperature=0,
+            format="json",
+        )
 
         # LLM para Análise de Mudanças (saída em texto normal)
-        self.llm_text = OllamaLLM(model=model_name, temperature=0)
+        self.llm_text = self._create_llm(
+            model_name=model_name,
+            base_url=base_url,
+            timeout_s=timeout_s,
+            temperature=0,
+        )
 
         # --- PROMPT 1: EXTRAÇÃO (HTML -> JSON) ---
         self.prompt_extracao = ChatPromptTemplate.from_messages([
@@ -71,6 +96,35 @@ class IntelligenceUnit:
         ])
         self.chain_analise = self.prompt_analise | self.llm_text | StrOutputParser()
 
+    @staticmethod
+    def _create_llm(
+        model_name: str,
+        base_url: str,
+        timeout_s: float,
+        temperature: float,
+        format: str | None = None,
+    ) -> OllamaLLM:
+        """Cria OllamaLLM com fallback para diferentes versões do wrapper."""
+        base_kwargs = {
+            "model": model_name,
+            "temperature": temperature,
+            "base_url": base_url,
+        }
+        if format is not None:
+            base_kwargs["format"] = format
+
+        # Versão atual (langchain-ollama) costuma aceitar timeout em client_kwargs.
+        try:
+            return OllamaLLM(**base_kwargs, client_kwargs={"timeout": timeout_s})
+        except TypeError:
+            pass
+
+        # Compatibilidade com versões antigas que aceitam request_timeout.
+        try:
+            return OllamaLLM(**base_kwargs, request_timeout=timeout_s)
+        except TypeError:
+            return OllamaLLM(**base_kwargs)
+
 
     def extrair_dados(self, bloco_html: str) -> dict:
         """Envia um bloco de HTML bruto à LLM e obtém dados estruturados em JSON.
@@ -90,13 +144,21 @@ class IntelligenceUnit:
                   ``link``. Em caso de falha na LLM ou JSON malformado, retorna
                   ``{"ignorar": True}`` por segurança.
         """
-        try:
-            resposta = self.chain_extracao.invoke({"bloco": bloco_html})
-            dados = json.loads(resposta)
-            return dados
-        except Exception as e:
-            print(f"❌ Erro na extração via IA: {e}")
-            return {"ignorar": True}
+        total_tentativas = self.retries + 1
+        for tentativa in range(1, total_tentativas + 1):
+            try:
+                resposta = self.chain_extracao.invoke({"bloco": bloco_html})
+                dados = json.loads(resposta)
+                return dados
+            except Exception as e:
+                self.logger.warning(
+                    f"⚠️ Falha na extração via IA (tentativa {tentativa}/{total_tentativas}): {e}"
+                )
+                if tentativa < total_tentativas:
+                    time.sleep(self.retry_delay_s)
+
+        self.logger.error("❌ Extração falhou após todas as tentativas; bloco será ignorado.")
+        return {"ignorar": True}
 
 
     def analisar_mudanca(self, antigo: str, novo: str) -> str | None:
@@ -115,18 +177,25 @@ class IntelligenceUnit:
                         ou ``None`` se os textos forem idênticos, a mudança
                         for irrelevante (IA retorna IGNORE) ou ocorrer erro.
         """
-        try:
-            if antigo.strip() == novo.strip():
-                return None
-
-            resultado = self.chain_analise.invoke({"antigo": antigo, "novo": novo})
-            resposta = resultado.strip()
-
-            if "IGNORE" in resposta.upper():
-                return None
-
-            return resposta
-
-        except Exception as e:
-            print(f"❌ Erro na análise de mudança via IA: {e}")
+        if antigo.strip() == novo.strip():
             return None
+
+        total_tentativas = self.retries + 1
+        for tentativa in range(1, total_tentativas + 1):
+            try:
+                resultado = self.chain_analise.invoke({"antigo": antigo, "novo": novo})
+                resposta = resultado.strip()
+
+                if "IGNORE" in resposta.upper():
+                    return None
+
+                return resposta
+            except Exception as e:
+                self.logger.warning(
+                    f"⚠️ Falha na análise de mudança via IA (tentativa {tentativa}/{total_tentativas}): {e}"
+                )
+                if tentativa < total_tentativas:
+                    time.sleep(self.retry_delay_s)
+
+        self.logger.error("❌ Análise de mudança falhou após todas as tentativas; atualização será ignorada.")
+        return None

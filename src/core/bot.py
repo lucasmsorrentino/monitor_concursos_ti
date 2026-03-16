@@ -32,7 +32,13 @@ class ConcursoBot:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.scraper = GranScraper(config['url_alvo'])
         self.db = DatabaseManager()
-        self.ai = IntelligenceUnit(model_name=config['ollama_model'])
+        self.ai = IntelligenceUnit(
+            model_name=config['ollama_model'],
+            base_url=config.get('ollama_base_url', 'http://127.0.0.1:11434'),
+            timeout_s=config.get('ollama_timeout_s', 120.0),
+            retries=config.get('ollama_retries', 2),
+            retry_delay_s=config.get('ollama_retry_delay_s', 2.0),
+        )
         self.notifier = TelegramNotifier(config['token'], config['chat_id'])
 
     def executar(self) -> None:
@@ -66,7 +72,8 @@ class ConcursoBot:
             # Contador para sabermos quantos concursos reais sobraram após a IA filtrar a redundância
             total_concursos_validos = 0
 
-            for bloco in blocos_html:
+            for indice, bloco in enumerate(blocos_html, start=1):
+                self.logger.info(f"🧩 Processando bloco {indice}/{total_blocos}...")
                 # --- NOVIDADE: A IA lê o HTML e extrai o JSON limpo ---
                 dados = self.ai.extrair_dados(bloco)
 
