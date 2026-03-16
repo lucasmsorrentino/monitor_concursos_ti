@@ -19,6 +19,22 @@ class GranScraper(BaseScraper):
     bruto para que a LLM os interprete.
     """
 
+    _CARREIRA_SECOES = {
+        "mais procurados",
+        "edital publicado",
+        "edital em breve",
+        "preparacao a medio e a longo prazo",
+    }
+
+    _RUIDO_MARCADORES = (
+        "#### GRAN",
+        "#### SUPORTE",
+        "#### CURSOS ONLINE",
+        "#### PAGINAS UTEIS",
+        "#### CONCURSOS NO",
+        "#### CONTEUDO JURIDICO",
+    )
+
     def capturar_concursos(self) -> list[str]:
         """Fatia a página HTML em blocos independentes delimitados por ``<h3>``.
 
@@ -35,6 +51,10 @@ class GranScraper(BaseScraper):
             return []
 
         soup = BeautifulSoup(html, 'html.parser')
+
+        if "/cursos/carreira/" in self.url:
+            return self._capturar_por_carreira(soup)
+
         chunks: list[str] = []
         titulos = soup.find_all('h3')
 
@@ -50,6 +70,49 @@ class GranScraper(BaseScraper):
             chunks.append(bloco_completo)
 
         return chunks
+
+    def _capturar_por_carreira(self, soup: BeautifulSoup) -> list[str]:
+        """Extrai blocos limpos das paginas de carreira do Gran."""
+        chunks: list[str] = []
+
+        for heading in soup.find_all(["h3", "h4"]):
+            titulo = heading.get_text(" ", strip=True)
+            titulo_norm = self._normalizar(titulo)
+            if titulo_norm not in self._CARREIRA_SECOES:
+                continue
+
+            for sibling in heading.find_next_siblings():
+                if sibling.name in {"h3", "h4"}:
+                    break
+
+                bloco_html = str(sibling)
+                bloco_texto = self._normalizar(sibling.get_text(" ", strip=True))
+
+                if not bloco_texto:
+                    continue
+
+                if any(self._normalizar(item) in bloco_texto for item in self._RUIDO_MARCADORES):
+                    continue
+
+                if "/concurso/" not in bloco_html and "curso" not in bloco_texto:
+                    continue
+
+                chunks.append(f"<h3>{titulo}</h3>\n{bloco_html}")
+
+        return chunks
+
+    @staticmethod
+    def _normalizar(texto: str) -> str:
+        """Normaliza texto para comparacoes simples de filtro."""
+        sem_acentos = (
+            texto.replace("á", "a").replace("à", "a").replace("â", "a").replace("ã", "a")
+            .replace("é", "e").replace("ê", "e")
+            .replace("í", "i")
+            .replace("ó", "o").replace("ô", "o").replace("õ", "o")
+            .replace("ú", "u")
+            .replace("ç", "c")
+        )
+        return " ".join(sem_acentos.lower().split())
     
         #     nome_concurso = titulo.text.strip()
             

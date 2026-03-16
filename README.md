@@ -1,6 +1,18 @@
-# 🏠 Monitor de Concursos TI — AI-First Web Scraping
+# 🏠 Monitor de Concursos (TI + Multi-Area) — AI-First Web Scraping
 
-Sistema automatizado para monitorar, analisar e notificar atualizações de **Concursos Públicos de TI** no Brasil. Utiliza uma arquitetura **AI-First**, onde uma LLM local (Llama 3.1 via Ollama) lê diretamente o HTML bruto da página, extrai dados estruturados e decide quais mudanças são relevantes — tudo sem depender de seletores CSS frágeis.
+Sistema automatizado para monitorar, analisar e notificar atualizações de concursos em diferentes áreas. A versão atual suporta monitoramento multi-area com roteamento de mensagens por chat do Telegram (ex.: TI para você, Sociologia/Artes para sua namorada).
+
+Utiliza uma arquitetura **AI-First**, onde uma LLM local (Llama 3.1 via Ollama) lê blocos de HTML, extrai dados estruturados e decide quais mudanças são relevantes.
+
+## Novidades desta versao
+
+- Execucao multi-area no mesmo ciclo via `MONITOR_TARGETS_JSON`.
+- Roteamento de notificacoes para um ou mais `chat_id` por area.
+- Filtragem area-aware no Llama 3.1 com palavras-chave de inclusao/exclusao.
+- Scraper adaptado para as paginas de carreira do Gran:
+    - `https://www.grancursosonline.com.br/cursos/carreira/educacao`
+    - `https://www.grancursosonline.com.br/cursos/carreira/outras`
+- Banco SQLite migrado para chave composta `(area, nome)`.
 
 ---
 
@@ -226,17 +238,47 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Variáveis de Ambiente
+### 3. Variaveis de Ambiente
 
-Crie um arquivo `.env` na raiz do projeto:
+Copie `.env.example` e ajuste para seu caso.
+
+Modo recomendado (multi-area):
 
 ```env
 TELEGRAM_TOKEN=seu_token_aqui
-TELEGRAM_CHAT_ID=seu_chat_id_aqui
 OLLAMA_MODEL=llama3.1
-URL_ALVO=https://blog.grancursosonline.com.br/concursos-ti/
-HORARIO_EXECUCAO=08:30
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+HORARIO_EXECUCAO=08:00
+
+MONITOR_TARGETS_JSON=[
+    {
+        "area": "TI",
+        "display_name": "Tecnologia da Informacao",
+        "url": "https://blog.grancursosonline.com.br/concursos-ti/",
+        "chat_ids": ["SEU_CHAT_ID"],
+        "keywords_include": ["ti", "tecnologia", "informatica"],
+        "keywords_exclude": ["sociologia", "artes"]
+    },
+    {
+        "area": "SOCIOLOGIA",
+        "display_name": "Sociologia",
+        "url": "https://www.grancursosonline.com.br/cursos/carreira/educacao",
+        "chat_ids": ["CHAT_ID_NAMORADA"],
+        "keywords_include": ["sociologia", "professor", "docente", "educacao"],
+        "keywords_exclude": ["ti", "informatica", "policial", "juridico"]
+    },
+    {
+        "area": "PROF_ARTES",
+        "display_name": "Professor de Artes",
+        "url": "https://www.grancursosonline.com.br/cursos/carreira/outras",
+        "chat_ids": ["CHAT_ID_NAMORADA"],
+        "keywords_include": ["artes", "professor", "docente", "educacao"],
+        "keywords_exclude": ["ti", "informatica", "policial", "juridico"]
+    }
+]
 ```
+
+Modo legado (single-area) continua disponivel com `URL_ALVO` e `TELEGRAM_CHAT_ID`.
 
 ---
 
@@ -249,6 +291,15 @@ python main.py
 O bot irá:
 1. Executar uma varredura imediata ao iniciar.
 2. Entrar em loop infinito, repetindo a varredura diariamente no horário configurado.
+
+No modo multi-area, cada ciclo executa todos os alvos configurados e aplica deduplicacao por area no banco.
+
+## Migracao de banco
+
+Ao iniciar, o sistema migra automaticamente o schema legado para suportar chave composta `(area, nome)`.
+
+- Dados antigos sao preservados e marcados com area `TI`.
+- Recomendado: fazer backup de `data/concursos.db` antes da primeira execucao nesta versao.
 
 ### Monitoramento
 

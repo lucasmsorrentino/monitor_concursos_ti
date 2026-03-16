@@ -38,11 +38,17 @@ class IntelligenceUnit:
         timeout_s: float = 120.0,
         retries: int = 2,
         retry_delay_s: float = 2.0,
+        area_context: str = "TI",
+        include_keywords: list[str] | None = None,
+        exclude_keywords: list[str] | None = None,
     ):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.timeout_s = timeout_s
         self.retries = max(0, retries)
         self.retry_delay_s = max(0.0, retry_delay_s)
+        self.area_context = area_context
+        self.include_keywords = include_keywords or []
+        self.exclude_keywords = exclude_keywords or []
 
         # LLM para Extração de Dados (saída JSON estrita)
         self.llm_json = self._create_llm(
@@ -61,12 +67,16 @@ class IntelligenceUnit:
             temperature=0,
         )
 
-        # --- PROMPT 1: EXTRAÇÃO (HTML -> JSON) ---
-        self.prompt_extracao = ChatPromptTemplate.from_messages([
-            ("system", """
+        include_keywords = ", ".join(self.include_keywords) if self.include_keywords else "nenhuma"
+        exclude_keywords = ", ".join(self.exclude_keywords) if self.exclude_keywords else "nenhuma"
+        extraction_system_prompt = f"""
             Você é um extrator de dados de alta precisão. Analise o bloco de HTML de um blog de concursos.
-            
+
             REGRAS:
+            0. Você está filtrando para a área alvo: {self.area_context}.
+               Palavras obrigatórias (se houver): {include_keywords}.
+               Palavras proibidas (se houver): {exclude_keywords}.
+               Se o bloco não tiver aderência à área alvo, responda {{"ignorar": true}}.
             1. Se o bloco for apenas uma lista genérica (ex: apenas nomes de cidades/cargos sem explicações) ou for "Notícias Recomendadas", responda: {{"ignorar": true}}
             2. Se for uma notícia de concurso real, extraia as informações.
             3. O link deve ser a URL do edital ou da notícia detalhada (procure em tags <a>).
@@ -77,7 +87,11 @@ class IntelligenceUnit:
                 "status": "Resumo do status atual em até 2 frases",
                 "link": "https://..."
             }}
-            """),
+        """
+
+        # --- PROMPT 1: EXTRAÇÃO (HTML -> JSON) ---
+        self.prompt_extracao = ChatPromptTemplate.from_messages([
+            ("system", extraction_system_prompt),
             ("human", "Analise este HTML:\n{bloco}")
         ])
         self.chain_extracao = self.prompt_extracao | self.llm_json | StrOutputParser()
