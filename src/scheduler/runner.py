@@ -1,11 +1,11 @@
 import schedule
 import time
 import logging
-from src.core.bot import ConcursoBot
+
 
 class DailyScheduler:
-    def __init__(self, bot: ConcursoBot):
-        self.bot = bot
+    def __init__(self, runner):
+        self.runner = runner
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def agendar_diariamente(self, horario: str = "08:00"):
@@ -22,7 +22,7 @@ class DailyScheduler:
         """Encapsula a execução do bot para o scheduler."""
         self.logger.info("🔔 Hora de trabalhar! Iniciando execução agendada...")
         try:
-            self.bot.executar()
+            self.runner.executar()
         except Exception as e:
             self.logger.error(f"❌ Falha durante a execução agendada: {e}")
 

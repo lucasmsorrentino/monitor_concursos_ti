@@ -1,6 +1,6 @@
 # 🏠 Monitor de Concursos (TI + Multi-Area) — AI-First Web Scraping
 
-Sistema automatizado para monitorar, analisar e notificar atualizações de concursos em diferentes áreas. A versão atual suporta monitoramento multi-area com roteamento de mensagens por chat do Telegram (ex.: TI para você, Sociologia/Artes para sua namorada).
+Sistema automatizado para monitorar, analisar e notificar atualizações de concursos em diferentes áreas. A versão atual suporta monitoramento multi-area com roteamento de mensagens por chat do Telegram (ex.: TI para você, Educação para sua namorada).
 
 Utiliza uma arquitetura **AI-First**, onde uma LLM local (Llama 3.1 via Ollama) lê blocos de HTML, extrai dados estruturados e decide quais mudanças são relevantes.
 
@@ -9,9 +9,7 @@ Utiliza uma arquitetura **AI-First**, onde uma LLM local (Llama 3.1 via Ollama) 
 - Execucao multi-area no mesmo ciclo via `MONITOR_TARGETS_JSON`.
 - Roteamento de notificacoes para um ou mais `chat_id` por area.
 - Filtragem area-aware no Llama 3.1 com palavras-chave de inclusao/exclusao.
-- Scraper adaptado para as paginas de carreira do Gran:
-    - `https://www.grancursosonline.com.br/cursos/carreira/educacao`
-    - `https://www.grancursosonline.com.br/cursos/carreira/outras`
+- Suporte a paginas de blog (`concursos-ti/`, `concursos-educacao/`) e paginas de carreira do Gran.
 - Banco SQLite migrado para chave composta `(area, nome)`.
 
 ---
@@ -52,7 +50,10 @@ Na abordagem tradicional de Web Scraping, o código quebra toda vez que o site m
 main.py
   │
   ▼
-ConcursoBot (Orquestrador)
+MultiAreaRunner ──▶ executa N bots em sequencia
+  │
+  ▼
+ConcursoBot (Orquestrador, um por area)
   │
   ├──▶ GranScraper.capturar_concursos()
   │       │  Faz GET na URL ──▶ Fatia HTML em blocos <h3>
@@ -132,17 +133,24 @@ classDiagram
         +notificar(mensagem: str) void
     }
 
+    class MultiAreaRunner {
+        -bots: List~ConcursoBot~
+        -logger: Logger
+        +executar() void
+    }
+
     class DailyScheduler {
-        -bot: ConcursoBot
+        -runner: MultiAreaRunner
         -logger: Logger
         +agendar_diariamente(horario: str) void
         +executar_tarefa() void
         +iniciar() void
     }
 
-    main --> ConcursoBot : cria
+    main --> MultiAreaRunner : cria
     main --> DailyScheduler : cria
-    DailyScheduler --> ConcursoBot : agenda execução
+    MultiAreaRunner --> ConcursoBot : executa N bots
+    DailyScheduler --> MultiAreaRunner : agenda execução
     ConcursoBot --> GranScraper : fatia HTML
     ConcursoBot --> IntelligenceUnit : extrai JSON e analisa mudanças
     ConcursoBot --> DatabaseManager : persiste estado
@@ -160,6 +168,7 @@ monitor_concursos_ti/
 ├── requirements.txt            # Dependências do projeto
 ├── .env                        # Variáveis sensíveis (Tokens, IDs, modelo)
 ├── config/
+│   ├── loader.py               # Carregador multi-area / legado
 │   └── settings.py             # Configurações auxiliares
 ├── data/
 │   └── concursos.db            # Banco SQLite (gerado automaticamente)
@@ -169,7 +178,8 @@ monitor_concursos_ti/
     ├── __init__.py
     ├── core/
     │   ├── __init__.py
-    │   └── bot.py              # ConcursoBot — Orquestrador principal
+    │   ├── bot.py              # ConcursoBot — Orquestrador principal
+    │   └── multi_area_runner.py # MultiAreaRunner — Executor multi-area
     ├── scrapers/
     │   ├── __init__.py
     │   ├── base_scraper.py     # BaseScraper — Classe abstrata (ABC)
@@ -197,15 +207,16 @@ monitor_concursos_ti/
 
 | Módulo | Responsabilidade |
 |---|---|
-| `main.py` | Carrega variáveis de ambiente, instancia o `ConcursoBot` e o `DailyScheduler`, e inicia o loop de monitoramento. |
-| `src/core/bot.py` | **Orquestrador.** Recebe blocos HTML do scraper, envia para a IA extrair JSON, consulta o banco, chama a IA de análise e dispara notificações. |
+| `main.py` | Carrega variáveis de ambiente, instancia os `ConcursoBot`s via `config/loader.py`, cria o `MultiAreaRunner` e o `DailyScheduler`, e inicia o loop. |
+| `src/core/bot.py` | **Orquestrador por area.** Recebe blocos HTML do scraper, envia para a IA extrair JSON, consulta o banco, chama a IA de análise e dispara notificações. |
+| `src/core/multi_area_runner.py` | Executa uma lista de `ConcursoBot`s em sequência a cada ciclo. |
 | `src/scrapers/` | Fatiamento do HTML. O `GranScraper` usa `<h3>` como delimitador para recortar a página em blocos independentes. |
 | `src/intelligence/` | **Cérebro duplo.** Chain de Extração (HTML → JSON) e Chain de Análise (status antigo vs. novo → veredicto de relevância). |
 | `src/database/` | Persistência SQLite. Armazena nome, status, link e timestamp de cada concurso para controle de histórico. |
 | `src/notifiers/` | Integração de saída. Envia mensagens formatadas em HTML para o Telegram via API REST. |
 | `src/scheduler/` | Agendamento com `schedule`. Executa o bot diariamente no horário configurado no `.env`. |
 | `src/utils/` | Logger com rotação de arquivos (1 MB por arquivo, até 5 backups). |
-| `config/` | Centraliza parâmetros para evitar *magic strings* espalhadas pelo código. |
+| `config/loader.py` | Carrega alvos de `MONITOR_TARGETS_JSON` ou modo legado (`URL_ALVO`). |
 
 ---
 
@@ -256,24 +267,16 @@ MONITOR_TARGETS_JSON=[
         "display_name": "Tecnologia da Informacao",
         "url": "https://blog.grancursosonline.com.br/concursos-ti/",
         "chat_ids": ["SEU_CHAT_ID"],
-        "keywords_include": ["ti", "tecnologia", "informatica"],
-        "keywords_exclude": ["sociologia", "artes"]
+        "keywords_include": ["ti", "tecnologia", "informacao", "sistemas"],
+        "keywords_exclude": ["sociologia", "artes", "pedagogia"]
     },
     {
-        "area": "SOCIOLOGIA",
-        "display_name": "Sociologia",
-        "url": "https://www.grancursosonline.com.br/cursos/carreira/educacao",
+        "area": "EDUCACAO",
+        "display_name": "Educacao",
+        "url": "https://blog.grancursosonline.com.br/concursos-educacao/",
         "chat_ids": ["CHAT_ID_NAMORADA"],
-        "keywords_include": ["sociologia", "professor", "docente", "educacao"],
-        "keywords_exclude": ["ti", "informatica", "policial", "juridico"]
-    },
-    {
-        "area": "PROF_ARTES",
-        "display_name": "Professor de Artes",
-        "url": "https://www.grancursosonline.com.br/cursos/carreira/outras",
-        "chat_ids": ["CHAT_ID_NAMORADA"],
-        "keywords_include": ["artes", "professor", "docente", "educacao"],
-        "keywords_exclude": ["ti", "informatica", "policial", "juridico"]
+        "keywords_include": [],
+        "keywords_exclude": []
     }
 ]
 ```

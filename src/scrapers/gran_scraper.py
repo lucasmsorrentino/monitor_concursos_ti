@@ -19,12 +19,13 @@ class GranScraper(BaseScraper):
     bruto para que a LLM os interprete.
     """
 
-    _CARREIRA_SECOES = {
+    _CARREIRA_SECOES = (
         "mais procurados",
         "edital publicado",
         "edital em breve",
         "preparacao a medio e a longo prazo",
-    }
+        "outros concursos",
+    )
 
     _RUIDO_MARCADORES = (
         "#### GRAN",
@@ -72,32 +73,46 @@ class GranScraper(BaseScraper):
         return chunks
 
     def _capturar_por_carreira(self, soup: BeautifulSoup) -> list[str]:
-        """Extrai blocos limpos das paginas de carreira do Gran."""
+        """Extrai blocos limpos das paginas de carreira do Gran.
+
+        Cada <li> dentro de uma secao relevante vira um bloco independente,
+        para que o pipeline de IA processe um concurso por vez.
+        """
         chunks: list[str] = []
 
         for heading in soup.find_all(["h3", "h4"]):
             titulo = heading.get_text(" ", strip=True)
             titulo_norm = self._normalizar(titulo)
-            if titulo_norm not in self._CARREIRA_SECOES:
+
+            # Usa substring match: "concursos mais procurados" contém "mais procurados"
+            if not any(secao in titulo_norm for secao in self._CARREIRA_SECOES):
                 continue
 
             for sibling in heading.find_next_siblings():
                 if sibling.name in {"h3", "h4"}:
                     break
 
-                bloco_html = str(sibling)
                 bloco_texto = self._normalizar(sibling.get_text(" ", strip=True))
 
                 if not bloco_texto:
                     continue
 
-                if any(self._normalizar(item) in bloco_texto for item in self._RUIDO_MARCADORES):
+                if any(self._normalizar(m) in bloco_texto for m in self._RUIDO_MARCADORES):
                     continue
 
-                if "/concurso/" not in bloco_html and "curso" not in bloco_texto:
-                    continue
-
-                chunks.append(f"<h3>{titulo}</h3>\n{bloco_html}")
+                # Cada <li> vira um bloco independente
+                items = sibling.find_all("li")
+                if items:
+                    for li in items:
+                        li_html = str(li)
+                        if "concurso/" not in li_html and "concurso" not in li_html.lower():
+                            continue
+                        chunks.append(f"<h3>{titulo}</h3>\n{li_html}")
+                else:
+                    bloco_html = str(sibling)
+                    if "concurso/" not in bloco_html and "curso" not in bloco_texto:
+                        continue
+                    chunks.append(f"<h3>{titulo}</h3>\n{bloco_html}")
 
         return chunks
 
