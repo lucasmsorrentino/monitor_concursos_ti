@@ -34,7 +34,7 @@ def main():
     logger.info("🎬 Sistema de Monitoramento Iniciado.") 
     base_config = {
         "token": os.getenv("TELEGRAM_TOKEN"),
-        "ollama_model": os.getenv("OLLAMA_MODEL", "llama3.1"),
+        "ollama_model": os.getenv("LLM_MODEL") or os.getenv("OLLAMA_MODEL", "llama3.1"),
         "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
         "ollama_timeout_s": _get_float_env("OLLAMA_TIMEOUT_S", 120.0),
         "ollama_retries": _get_int_env("OLLAMA_RETRIES", 2),
@@ -49,7 +49,7 @@ def main():
         config = {
             **base_config,
             **target,
-            "chat_id": target.get("chat_ids", [None])[0],
+            "chat_id": (target.get("chat_ids") or [None])[0],
         }
 
         if not config.get("url_alvo"):

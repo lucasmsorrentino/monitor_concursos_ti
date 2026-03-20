@@ -1,7 +1,7 @@
 """Módulo de inteligência artificial — cérebro duplo do sistema.
 
 Contém a classe :class:`IntelligenceUnit`, que expõe duas chains LangChain
-operando sobre uma LLM local (Ollama):
+operando sobre uma LLM (Ollama local ou API remota via LiteLLM):
 
 1. **Chain de Extração** (HTML → JSON): recebe um bloco de HTML bruto e
    devolve um dicionário estruturado com ``nome``, ``status``, ``link`` e
@@ -12,23 +12,24 @@ operando sobre uma LLM local (Ollama):
 
 import json
 import logging
+import re
 import time
-from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 
 class IntelligenceUnit:
-    """Unidade de inteligência que orquestra extração e análise via LLM local.
+    """Unidade de inteligência que orquestra extração e análise via LLM.
 
-    Utiliza duas instâncias do ``OllamaLLM`` (Llama 3.1 por padrão):
+    Suporta dois backends:
 
-    - ``llm_json``: configurada com ``format='json'`` para forçar saída JSON
-      estrita na chain de extração.
-    - ``llm_text``: saída em texto livre para a chain de análise de mudanças.
+    - **Ollama** (local): modelo sem prefixo (ex: ``llama3.1``).
+    - **LiteLLM** (API remota): modelo com prefixo de provider
+      (ex: ``minimax/MiniMax-M2``, ``openai/gpt-4o``). Requer a API key
+      correspondente configurada via variável de ambiente (ex: ``MINIMAX_API_KEY``).
 
     Args:
-        model_name: Nome do modelo Ollama a ser utilizado (default: ``'llama3.1'``).
+        model_name: Nome do modelo (default: ``'llama3.1'``).
     """
 
     def __init__(
@@ -49,6 +50,12 @@ class IntelligenceUnit:
         self.area_context = area_context
         self.include_keywords = include_keywords or []
         self.exclude_keywords = exclude_keywords or []
+        self._use_litellm = "/" in model_name
+
+        if self._use_litellm:
+            self.logger.info(f"🌐 Usando LiteLLM com modelo remoto: {model_name}")
+        else:
+            self.logger.info(f"🏠 Usando Ollama local com modelo: {model_name}")
 
         # LLM para Extração de Dados (saída JSON estrita)
         self.llm_json = self._create_llm(
@@ -76,17 +83,17 @@ class IntelligenceUnit:
             0. Você está filtrando para a área alvo: {self.area_context}.
                Palavras obrigatórias (se houver): {include_keywords}.
                Palavras proibidas (se houver): {exclude_keywords}.
-               Se o bloco não tiver aderência à área alvo, responda {{"ignorar": true}}.
-            1. Se o bloco for apenas uma lista genérica (ex: apenas nomes de cidades/cargos sem explicações) ou for "Notícias Recomendadas", responda: {{"ignorar": true}}
+               Se o bloco não tiver aderência à área alvo, responda {{{{"ignorar": true}}}}.
+            1. Se o bloco for apenas uma lista genérica (ex: apenas nomes de cidades/cargos sem explicações) ou for "Notícias Recomendadas", responda: {{{{"ignorar": true}}}}
             2. Se for uma notícia de concurso real, extraia as informações.
             3. O link deve ser a URL do edital ou da notícia detalhada (procure em tags <a>).
             4. Responda APENAS com JSON válido:
-            {{
+            {{{{
                 "ignorar": false,
                 "nome": "Nome do Concurso ou Órgão",
                 "status": "Resumo do status atual em até 2 frases",
                 "link": "https://..."
-            }}
+            }}}}
         """
 
         # --- PROMPT 1: EXTRAÇÃO (HTML -> JSON) ---
@@ -110,15 +117,30 @@ class IntelligenceUnit:
         ])
         self.chain_analise = self.prompt_analise | self.llm_text | StrOutputParser()
 
-    @staticmethod
     def _create_llm(
+        self,
         model_name: str,
         base_url: str,
         timeout_s: float,
         temperature: float,
         format: str | None = None,
-    ) -> OllamaLLM:
+    ):
+        """Cria LLM adequada ao backend (Ollama local ou LiteLLM remoto)."""
+        if self._use_litellm:
+            return self._create_litellm(model_name, timeout_s, temperature, format)
+        return self._create_ollama(model_name, base_url, timeout_s, temperature, format)
+
+    @staticmethod
+    def _create_ollama(
+        model_name: str,
+        base_url: str,
+        timeout_s: float,
+        temperature: float,
+        format: str | None = None,
+    ):
         """Cria OllamaLLM com fallback para diferentes versões do wrapper."""
+        from langchain_ollama import OllamaLLM
+
         base_kwargs = {
             "model": model_name,
             "temperature": temperature,
@@ -139,6 +161,45 @@ class IntelligenceUnit:
         except TypeError:
             return OllamaLLM(**base_kwargs)
 
+    @staticmethod
+    def _create_litellm(
+        model_name: str,
+        timeout_s: float,
+        temperature: float,
+        format: str | None = None,
+    ):
+        """Cria ChatLiteLLM para APIs remotas (MiniMax, OpenAI, etc.)."""
+        from langchain_litellm import ChatLiteLLM
+
+        kwargs = {
+            "model": model_name,
+            "temperature": temperature,
+            "timeout": timeout_s,
+        }
+        if format == "json":
+            kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+
+        return ChatLiteLLM(**kwargs)
+
+
+    @staticmethod
+    def _parse_json_response(resposta: str) -> dict:
+        """Extrai JSON da resposta da LLM, mesmo que venha envolto em markdown."""
+        text = resposta.strip()
+        # Tenta parse direto
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+        # Remove code fences (```json ... ``` ou ``` ... ```)
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+        # Encontra o primeiro objeto JSON na resposta
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        raise json.JSONDecodeError("Nenhum JSON encontrado na resposta", text, 0)
 
     def extrair_dados(self, bloco_html: str) -> dict:
         """Envia um bloco de HTML bruto à LLM e obtém dados estruturados em JSON.
@@ -162,7 +223,7 @@ class IntelligenceUnit:
         for tentativa in range(1, total_tentativas + 1):
             try:
                 resposta = self.chain_extracao.invoke({"bloco": bloco_html})
-                dados = json.loads(resposta)
+                dados = self._parse_json_response(resposta)
                 return dados
             except Exception as e:
                 self.logger.warning(

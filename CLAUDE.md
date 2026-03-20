@@ -52,6 +52,7 @@ SQLite at `data/concursos.db`. Table `editais` with composite primary key `(area
 ## Key Design Decisions
 
 - **AI-first extraction**: LLM reads raw HTML semantically, making the system resilient to website layout changes
+- **Dual LLM backend**: supports Ollama (local) or any LiteLLM-compatible API (e.g. `minimax/MiniMax-M2`) via the `LLM_MODEL` env var — model names with a `/` automatically route through LiteLLM
 - **Keyword pre-filtering** happens before LLM calls to save compute
 - **All code and logs are in Portuguese** (Brazilian Portuguese)
 - **BaseScraper** (`src/scrapers/base_scraper.py`) is abstract — extend it for other websites
