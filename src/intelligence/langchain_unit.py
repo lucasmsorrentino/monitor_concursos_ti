@@ -21,12 +21,14 @@ from langchain_core.output_parsers import StrOutputParser
 class IntelligenceUnit:
     """Unidade de inteligência que orquestra extração e análise via LLM.
 
-    Suporta dois backends:
+    Suporta três backends, selecionados pelo formato de ``model_name``:
 
-    - **Ollama** (local): modelo sem prefixo (ex: ``llama3.1``).
-    - **LiteLLM** (API remota): modelo com prefixo de provider
-      (ex: ``minimax/MiniMax-M2``, ``openai/gpt-4o``). Requer a API key
-      correspondente configurada via variável de ambiente (ex: ``MINIMAX_API_KEY``).
+    - **Ollama** (local): nome simples, ex: ``llama3.1``.
+    - **LiteLLM** (API remota): nome com ``/``, ex: ``minimax/MiniMax-M2``,
+      ``anthropic/claude-haiku-4-5-20251001``. Requer a API key do provider.
+    - **Claude Code CLI** (assinatura local): ``claude-cli`` ou
+      ``claude-cli:<alias>`` (ex: ``claude-cli:haiku``). Usa o binario
+      ``claude`` autenticado na maquina — mais lento, custo marginal zero.
 
     Args:
         model_name: Nome do modelo (default: ``'llama3.1'``).
@@ -50,12 +52,14 @@ class IntelligenceUnit:
         self.area_context = area_context
         self.include_keywords = include_keywords or []
         self.exclude_keywords = exclude_keywords or []
-        self._use_litellm = "/" in model_name
+        self._backend = self._detect_backend(model_name)
 
-        if self._use_litellm:
-            self.logger.info(f"🌐 Usando LiteLLM com modelo remoto: {model_name}")
+        if self._backend == "claude_cli":
+            self.logger.info(f"Usando Claude Code CLI (modelo: {model_name})")
+        elif self._backend == "litellm":
+            self.logger.info(f"Usando LiteLLM com modelo remoto: {model_name}")
         else:
-            self.logger.info(f"🏠 Usando Ollama local com modelo: {model_name}")
+            self.logger.info(f"Usando Ollama local com modelo: {model_name}")
 
         # LLM para Extração de Dados (saída JSON estrita)
         self.llm_json = self._create_llm(
@@ -117,6 +121,15 @@ class IntelligenceUnit:
         ])
         self.chain_analise = self.prompt_analise | self.llm_text | StrOutputParser()
 
+    @staticmethod
+    def _detect_backend(model_name: str) -> str:
+        """Determina o backend a partir do formato de ``model_name``."""
+        if model_name.startswith("claude-cli"):
+            return "claude_cli"
+        if "/" in model_name:
+            return "litellm"
+        return "ollama"
+
     def _create_llm(
         self,
         model_name: str,
@@ -125,10 +138,18 @@ class IntelligenceUnit:
         temperature: float,
         format: str | None = None,
     ):
-        """Cria LLM adequada ao backend (Ollama local ou LiteLLM remoto)."""
-        if self._use_litellm:
+        """Cria LLM adequada ao backend selecionado."""
+        if self._backend == "claude_cli":
+            return self._create_claude_cli(model_name, timeout_s)
+        if self._backend == "litellm":
             return self._create_litellm(model_name, timeout_s, temperature, format)
         return self._create_ollama(model_name, base_url, timeout_s, temperature, format)
+
+    @staticmethod
+    def _create_claude_cli(model_name: str, timeout_s: float):
+        """Cria o wrapper do Claude Code CLI."""
+        from src.intelligence.claude_cli_backend import ClaudeCliLLM, parse_model_spec
+        return ClaudeCliLLM(model=parse_model_spec(model_name), timeout_s=timeout_s)
 
     @staticmethod
     def _create_ollama(
