@@ -6,9 +6,12 @@ Utiliza uma arquitetura **AI-First**, onde uma LLM local (Llama 3.1 via Ollama) 
 
 ## Novidades desta versao
 
+- **Modo single-run**: `main.py` executa uma varredura e encerra. Agendamento diario fica por conta do Windows Task Scheduler (veja `scripts/install_schedule.ps1`).
+- **Tres backends de LLM** selecionaveis via `LLM_MODEL`: Ollama local, API remota (LiteLLM), ou Claude Code CLI (usa assinatura local, custo zero).
+- **Bateria de testes**: 88 testes unitarios e de integracao com pytest (`pip install -r requirements-dev.txt && pytest`).
 - Execucao multi-area no mesmo ciclo via `MONITOR_TARGETS_JSON`.
 - Roteamento de notificacoes para um ou mais `chat_id` por area.
-- Filtragem area-aware no Llama 3.1 com palavras-chave de inclusao/exclusao.
+- Filtragem area-aware com palavras-chave de inclusao/exclusao (pre-filtro textual + reforco no prompt da IA).
 - Suporte a paginas de blog (`concursos-ti/`, `concursos-educacao/`) e paginas de carreira do Gran.
 - Banco SQLite migrado para chave composta `(area, nome)`.
 
@@ -251,49 +254,70 @@ pip install -r requirements.txt
 
 ### 3. Variaveis de Ambiente
 
-Copie `.env.example` e ajuste para seu caso.
+Copie `.env.example` e ajuste para seu caso. Veja o proprio `.env.example` para a lista completa — abaixo estao apenas os blocos principais.
 
-Modo recomendado (multi-area):
-
-```env
-TELEGRAM_TOKEN=seu_token_aqui
-OLLAMA_MODEL=llama3.1
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-HORARIO_EXECUCAO=08:00
-
-MONITOR_TARGETS_JSON=[
-    {
-        "area": "TI",
-        "display_name": "Tecnologia da Informacao",
-        "url": "https://blog.grancursosonline.com.br/concursos-ti/",
-        "chat_ids": ["SEU_CHAT_ID"],
-        "keywords_include": ["ti", "tecnologia", "informacao", "sistemas"],
-        "keywords_exclude": ["sociologia", "artes", "pedagogia"]
-    },
-    {
-        "area": "EDUCACAO",
-        "display_name": "Educacao",
-        "url": "https://blog.grancursosonline.com.br/concursos-educacao/",
-        "chat_ids": ["CHAT_ID_NAMORADA"],
-        "keywords_include": [],
-        "keywords_exclude": []
-    }
-]
-```
+**IMPORTANTE:** `MONITOR_TARGETS_JSON` deve ficar em UMA unica linha no `.env`. O `python-dotenv` nao suporta valores multilinha — se voce formatar bonito vai quebrar silenciosamente e cair no modo legado.
 
 Modo legado (single-area) continua disponivel com `URL_ALVO` e `TELEGRAM_CHAT_ID`.
 
 ---
 
-## ▶️ Como Executar
+## Opcoes de LLM
+
+O backend e escolhido exclusivamente pelo formato de `LLM_MODEL`:
+
+| `LLM_MODEL`                          | Backend         | Custo            | Latencia | Notas                                              |
+| ------------------------------------ | --------------- | ---------------- | -------- | -------------------------------------------------- |
+| `llama3.1`, `qwen2.5:7b`, etc        | Ollama local    | Zero             | Baixa    | Precisa do Ollama rodando; pesa no hardware local. |
+| `anthropic/claude-haiku-4-5-...`     | LiteLLM (API)   | Por token        | Muito baixa | Requer `ANTHROPIC_API_KEY` (ou provider equivalente). |
+| `claude-cli:haiku` (`sonnet`/`opus`) | Claude Code CLI | Zero (assinatura) | Alta    | Usa o `claude` autenticado na maquina. Indicado para agendamentos de baixa frequencia. |
+
+**Regra de selecao** (em `src/intelligence/langchain_unit.py`):
+- Se o nome comeca com `claude-cli` → Claude Code CLI
+- Se contem `/` → LiteLLM
+- Caso contrario → Ollama
+
+Todos os tres compartilham `OLLAMA_TIMEOUT_S`, `OLLAMA_RETRIES` e `OLLAMA_RETRY_DELAY_S` (prefixo `OLLAMA_` e historico — aplica-se a qualquer backend).
+
+---
+
+## Como Executar
+
+### Execucao manual (uma varredura)
 
 ```bash
 python main.py
 ```
 
-O bot irá:
-1. Executar uma varredura imediata ao iniciar.
-2. Entrar em loop infinito, repetindo a varredura diariamente no horário configurado.
+O bot executa uma varredura em todas as areas configuradas e encerra com exit code `0` (sucesso) ou `1` (erro). **Nao fica mais em loop** — o agendamento diario e feito pelo sistema operacional.
+
+### Agendamento diario (Windows Task Scheduler)
+
+O projeto inclui um script PowerShell que registra uma tarefa no Windows para rodar diariamente. Execute **uma vez** para instalar:
+
+```powershell
+# Rodar na raiz do projeto, em PowerShell normal (nao precisa admin):
+.\scripts\install_schedule.ps1
+
+# Para um horario diferente do padrao (03:00):
+.\scripts\install_schedule.ps1 -Time 04:30
+
+# Para inspecionar/testar/remover:
+schtasks /query /tn MonitorConcursos /v /fo LIST
+schtasks /run /tn MonitorConcursos
+schtasks /delete /tn MonitorConcursos /f
+```
+
+A tarefa chama `scripts\run_daily.bat`, que:
+1. Ativa o `.venv` local.
+2. Roda `python main.py`.
+3. Grava stdout/stderr em `logs\run_YYYYMMDD.log` (um arquivo por dia).
+
+Configuracoes relevantes da tarefa:
+- **StartWhenAvailable**: se o PC estava desligado no horario agendado, roda assim que ligar.
+- **MultipleInstances=IgnoreNew**: nao empilha execucoes.
+- **ExecutionTimeLimit=1h**: mata se passar disso.
+- **RunLevel Limited**: roda sem elevacao.
 
 No modo multi-area, cada ciclo executa todos os alvos configurados e aplica deduplicacao por area no banco.
 
@@ -308,6 +332,41 @@ Ao iniciar, o sistema migra automaticamente o schema legado para suportar chave 
 
 * **Logs:** pasta `logs/` — histórico de decisões da IA, erros e ciclos de execução.
 * **Banco de Dados:** pasta `data/` — visualize os editais salvos com qualquer leitor SQLite.
+
+---
+
+## Testes
+
+O projeto usa `pytest` + `pytest-mock`. Todas as dependencias externas (HTTP, LLM, subprocess) sao mockadas — nenhum teste precisa de Ollama, API key ou rede.
+
+```bash
+# Instalar dependencias de desenvolvimento
+pip install -r requirements-dev.txt
+
+# Rodar a suite completa
+pytest
+
+# Apenas um arquivo
+pytest tests/test_config_loader.py
+
+# Um teste especifico
+pytest tests/test_concurso_bot.py::TestExecutarFlow::test_new_concurso_triggers_notification_and_db_insert
+
+# Com cobertura
+pytest --cov=src --cov=config --cov-report=term-missing
+```
+
+Organizacao dos testes (`tests/`):
+
+| Arquivo | Cobertura |
+| --- | --- |
+| `test_config_loader.py`    | Parse de `MONITOR_TARGETS_JSON`, fallback legado, normalizacao de keywords. |
+| `test_database_manager.py` | Criacao de schema, migracao legado→v2, isolamento por area, upsert. |
+| `test_intelligence_unit.py` | Selecao de backend (Ollama/LiteLLM/Claude CLI), parser JSON, retry/fallback. |
+| `test_gran_scraper.py`     | Slicer padrao por `<h3>`, slicer de pagina de carreira, filtros de ruido. |
+| `test_telegram_notifier.py` | Dedup de `chat_ids`, no-op sem token, resiliencia a erros HTTP. |
+| `test_concurso_bot.py`     | Integracao: novo / atualizado relevante / atualizado irrelevante / sem novidades. |
+| `test_claude_cli_backend.py` | Montagem do comando, stdin, timeout, parsing de alias, tratamento de erros. |
 
 ---
 

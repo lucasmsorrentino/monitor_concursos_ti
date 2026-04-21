@@ -1,11 +1,30 @@
-import sqlite3
+"""Persistencia SQLite com chave composta `(area, nome)`.
+
+Cada instancia do `DatabaseManager` e vinculada a uma area — todas as
+operacoes de busca e update usam essa area como filtro implicito. Isso
+permite que concursos com o mesmo `nome` em areas diferentes coexistam
+sem colisao de chave primaria.
+
+Ao inicializar, o schema e criado (se nao existir) ou migrado do formato
+legado single-area (PK somente em `nome`) — linhas existentes sao tagueadas
+com area `TI` por compatibilidade.
+"""
 import os
+import sqlite3
+
 
 class DatabaseManager:
-    def __init__(self, area: str = "TI", db_path="data/concursos.db"):
-        # Garante que a pasta 'data' exista antes de criar o banco
+    """Gerencia a tabela `editais` para uma area especifica."""
+
+    def __init__(self, area: str = "TI", db_path: str = "data/concursos.db"):
+        """Abre (ou cria) o banco SQLite e garante o schema atualizado.
+
+        Args:
+            area: Slug da area monitorada (ex: `TI`, `EDUCACAO`).
+            db_path: Caminho do arquivo SQLite. A pasta-pai e criada se ausente.
+        """
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        
+
         self.area = area
         self.db_path = db_path
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)

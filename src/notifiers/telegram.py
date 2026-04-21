@@ -1,9 +1,23 @@
+"""Integracao com a API do Telegram para envio de alertas.
+
+O notifier aceita um unico `chat_id` (legado) e/ou uma lista `chat_ids`
+(multi-area). Os valores sao mesclados, vazios/duplicados sao removidos
+preservando a ordem. Se o token ou a lista final estiver vazia, o envio
+vira no-op e registra aviso — a varredura continua normalmente.
+"""
 import requests
 
+
 class TelegramNotifier:
+    """Envia mensagens HTML via Bot API do Telegram para N chat_ids."""
+
     def __init__(self, token: str, chat_id: str | None = None, chat_ids: list[str] | None = None):
-        """
-        Inicializa o notificador com as credenciais do bot.
+        """Inicializa com token do bot e a lista final de destinatarios.
+
+        Args:
+            token: Token do bot (vazio → notificacoes desativadas).
+            chat_id: Compatibilidade com modo single-area; concatenado em chat_ids.
+            chat_ids: Lista de chat IDs alvos. Duplicados e vazios sao removidos.
         """
         self.token = token
         ids = chat_ids[:] if chat_ids else []
@@ -14,8 +28,11 @@ class TelegramNotifier:
         self.base_url = f"https://api.telegram.org/bot{token}/sendMessage"
 
     def notificar(self, mensagem: str):
-        """
-        Envia uma mensagem formatada em HTML para o(s) chat(s) configurado(s).
+        """Envia a mensagem (HTML) para cada chat configurado.
+
+        Erros de rede sao registrados mas nao levantados — uma falha em um
+        chat nao bloqueia os demais, e o pipeline de scraping nao e
+        interrompido por indisponibilidade do Telegram.
         """
         if not self.token or not self.chat_ids:
             print("⚠️ Telegram não configurado. Pulando notificação.")

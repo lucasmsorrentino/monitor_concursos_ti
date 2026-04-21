@@ -1,10 +1,21 @@
-import schedule
-import time
+"""Agendador diario legado baseado na lib `schedule`.
+
+Nao e mais usado pelo `main.py` (que roda em modo single-run). Mantido
+para compatibilidade com cenarios em que o usuario prefere um processo
+residente em vez de delegar ao Windows Task Scheduler. Para o uso padrao,
+veja `scripts/install_schedule.ps1`.
+"""
 import logging
+import time
+
+import schedule
 
 
 class DailyScheduler:
+    """Wrapper fino sobre `schedule` para disparar um runner 1x/dia."""
+
     def __init__(self, runner):
+        """Recebe qualquer objeto com metodo `executar()` (ex: MultiAreaRunner)."""
         self.runner = runner
         self.logger = logging.getLogger(self.__class__.__name__)
 
