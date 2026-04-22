@@ -80,7 +80,7 @@ $task = New-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Monitor de Concursos — varredura diaria via Gran Cursos Online"
+    -Description "Monitor de Concursos - varredura diaria via Gran Cursos Online"
 
 # Register-ScheduledTask substitui se ja existir.
 Register-ScheduledTask `
