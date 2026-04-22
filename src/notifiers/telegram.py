@@ -5,6 +5,8 @@ O notifier aceita um unico `chat_id` (legado) e/ou uma lista `chat_ids`
 preservando a ordem. Se o token ou a lista final estiver vazia, o envio
 vira no-op e registra aviso — a varredura continua normalmente.
 """
+import logging
+
 import requests
 
 
@@ -19,6 +21,7 @@ class TelegramNotifier:
             chat_id: Compatibilidade com modo single-area; concatenado em chat_ids.
             chat_ids: Lista de chat IDs alvos. Duplicados e vazios sao removidos.
         """
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.token = token
         ids = chat_ids[:] if chat_ids else []
         if chat_id:
@@ -35,7 +38,7 @@ class TelegramNotifier:
         interrompido por indisponibilidade do Telegram.
         """
         if not self.token or not self.chat_ids:
-            print("⚠️ Telegram não configurado. Pulando notificação.")
+            self.logger.warning("⚠️ Telegram não configurado. Pulando notificação.")
             return
 
         for chat_id in self.chat_ids:
@@ -46,8 +49,8 @@ class TelegramNotifier:
             }
 
             try:
-                response = requests.post(self.base_url, data=payload, timeout=10)
+                response = requests.post(self.base_url, data=payload, timeout=25)
                 response.raise_for_status()
-                print(f"✉️ Notificação enviada com sucesso para chat {chat_id}.")
+                self.logger.info(f"✉️ Notificação enviada com sucesso para chat {chat_id}.")
             except Exception as e:
-                print(f"❌ Falha ao enviar notificação para chat {chat_id}: {e}")
+                self.logger.error(f"❌ Falha ao enviar notificação para chat {chat_id}: {e}")

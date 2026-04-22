@@ -68,7 +68,6 @@ class ConcursoBot:
             6. Ao final, se nenhuma novidade foi encontrada, envia uma mensagem
                de status ao Telegram confirmando a varredura.
         """
-        print("🚀 Iniciando ciclo de monitoramento...")
         self.logger.info(f"🔍 Iniciando captura de novos editais para area [{self.area_name}]...")
         
         # 1. Inicializamos contadores para saber o que aconteceu no ciclo
@@ -110,7 +109,6 @@ class ConcursoBot:
 
                 # Caso A: Concurso inédito
                 if status_antigo is None:
-                    print(f"🆕 Novo concurso detectado: {nome}")
                     self.logger.info(f"✨ [NOVO] {nome} detectado pela primeira vez.")
                     novos_cont += 1
 
@@ -126,7 +124,6 @@ class ConcursoBot:
 
                 # Caso B: Já existia, mas o texto mudou
                 elif status_antigo != status_novo:
-                    print(f"🔄 Possível atualização em: {nome}")
                     self.logger.info(f"🔄 [MUDANÇA BRUTA] Detectada alteração de texto em: {nome}")
 
                     # 3. Inteligência Artificial decide se a mudança importa
@@ -134,7 +131,6 @@ class ConcursoBot:
                     analise = self.ai.analisar_mudanca(status_antigo, status_novo)
 
                     if analise:
-                        print("🔔 Mudança relevante confirmada pela IA!")
                         self.logger.info(f"🔔 [RELEVANTE] IA confirmou mudança importante para {nome}.")
 
                         analise_esc = html.escape(analise)
@@ -150,7 +146,6 @@ class ConcursoBot:
                         atualizados_cont += 1
                         self.logger.info(f"✅ Banco de dados atualizado para {nome}.")
                     else:
-                        print(f"😴 IA ignorou mudança irrelevante em {nome}.")
                         self.logger.info(f"😴 [IRRELEVANTE] IA decidiu ignorar a mudança em {nome}.")
                 
                 # Caso C: Já existia e o texto continua igual
@@ -170,7 +165,7 @@ class ConcursoBot:
                 self.notifier.notificar(status_msg)
             else:
                 self.logger.info(f"📊 Ciclo finalizado: {novos_cont} novos e {atualizados_cont} atualizações enviadas.")
-            print("🏁 Ciclo finalizado. Até a próxima!")
+            self.logger.info("🏁 Ciclo finalizado.")
 
         except Exception as e:
             self.logger.error(f"❌ Erro crítico durante o loop de execução: {e}", exc_info=True)

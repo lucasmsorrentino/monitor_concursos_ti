@@ -62,7 +62,7 @@ class TestNotificar:
 
         args, kwargs = post.call_args
         assert args[0] == "https://api.telegram.org/botTOKEN_XYZ/sendMessage"
-        assert kwargs["timeout"] == 10
+        assert kwargs["timeout"] == 25
 
     def test_http_error_is_caught_not_raised(self, mocker):
         post = mocker.patch("src.notifiers.telegram.requests.post")
