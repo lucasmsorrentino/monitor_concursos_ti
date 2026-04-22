@@ -104,8 +104,10 @@ class ConcursoBot:
                 status_novo = html.escape(dados.get('status', 'Status não detalhado'))
                 link = dados.get('link', self.scraper.url)
 
-                # 2. Consulta o passado (Banco de Dados)
-                status_antigo = self.db.buscar_status_antigo(nome)
+                # 2. Consulta o passado (Banco de Dados) — prioriza link como chave.
+                status_antigo = self.db.buscar_status_antigo(
+                    nome, link=link, url_indice=self.scraper.url
+                )
 
                 # Caso A: Concurso inédito
                 if status_antigo is None:
@@ -119,7 +121,9 @@ class ConcursoBot:
                         f"🔗 <a href='{link}'>Clique aqui para ver os detalhes</a>"
                     )
                     self.notifier.notificar(msg)
-                    self.db.atualizar_concurso(nome, status_novo, link)
+                    self.db.atualizar_concurso(
+                        nome, status_novo, link, url_indice=self.scraper.url
+                    )
                     self.logger.info(f"✅ {nome} salvo no banco de dados.")
 
                 # Caso B: Já existia, mas o texto mudou
@@ -142,7 +146,9 @@ class ConcursoBot:
 
                         self.notifier.notificar(msg)
                         # Atualiza o banco para não notificar a mesma coisa de novo
-                        self.db.atualizar_concurso(nome, status_novo, link)
+                        self.db.atualizar_concurso(
+                            nome, status_novo, link, url_indice=self.scraper.url
+                        )
                         atualizados_cont += 1
                         self.logger.info(f"✅ Banco de dados atualizado para {nome}.")
                     else:

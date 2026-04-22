@@ -8,6 +8,11 @@ sem colisao de chave primaria.
 Ao inicializar, o schema e criado (se nao existir) ou migrado do formato
 legado single-area (PK somente em `nome`) — linhas existentes sao tagueadas
 com area `TI` por compatibilidade.
+
+Deduplicacao por link: o `nome` extraido pelo LLM varia entre execucoes
+(ex: "CRM ES" vs "Concurso CRM ES"), entao quando o bloco traz um link
+especifico (diferente da URL-indice do scraper) usamos ele como chave de
+identidade. O nome humano continua sendo atualizado na mesma linha.
 """
 import os
 import sqlite3
@@ -81,23 +86,71 @@ class DatabaseManager:
         except sqlite3.Error as e:
             print(f"❌ Erro ao criar tabela: {e}")
 
-    def buscar_status_antigo(self, nome: str) -> str:
-        """Retorna o status salvo anteriormente para um concurso específico."""
-        query = "SELECT status FROM editais WHERE area = ? AND nome = ?"
+    @staticmethod
+    def _link_e_especifico(link: str, url_indice: str) -> bool:
+        """Decide se `link` aponta pra um edital individual (nao a pagina-indice)."""
+        if not link:
+            return False
+        if not url_indice:
+            return True
+        return link.rstrip("/") != url_indice.rstrip("/")
+
+    def buscar_status_antigo(self, nome: str, link: str = "", url_indice: str = "") -> str:
+        """Retorna o status previo deste edital.
+
+        Quando `link` e especifico (diferente de `url_indice`), a busca usa ele
+        como chave canonica — imune a variacoes do `nome` entre execucoes do LLM.
+        Caso contrario, cai no match por nome (comportamento legado).
+        """
         cursor = self.conn.cursor()
-        cursor.execute(query, (self.area, nome))
+        if self._link_e_especifico(link, url_indice):
+            cursor.execute(
+                "SELECT status FROM editais WHERE area = ? AND link = ?",
+                (self.area, link),
+            )
+            resultado = cursor.fetchone()
+            if resultado:
+                return resultado[0]
+        cursor.execute(
+            "SELECT status FROM editais WHERE area = ? AND nome = ?",
+            (self.area, nome),
+        )
         resultado = cursor.fetchone()
         return resultado[0] if resultado else None
 
-    def atualizar_concurso(self, nome: str, status: str, link: str = ""):
-        """Insere um novo concurso ou atualiza o status de um existente."""
-        query = '''
-        INSERT OR REPLACE INTO editais (area, nome, status, link, ultima_atualizacao)
-        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-        '''
+    def atualizar_concurso(self, nome: str, status: str, link: str = "", url_indice: str = ""):
+        """Insere um novo concurso ou atualiza um existente.
+
+        Se `link` for especifico, faz upsert pelo par `(area, link)` — pode
+        sobrescrever `nome` caso o LLM tenha extraido uma variacao diferente,
+        mantendo uma unica linha por edital.
+        """
+        cursor = self.conn.cursor()
         try:
-            cursor = self.conn.cursor()
-            cursor.execute(query, (self.area, nome, status, link))
+            if self._link_e_especifico(link, url_indice):
+                cursor.execute(
+                    "SELECT nome FROM editais WHERE area = ? AND link = ?",
+                    (self.area, link),
+                )
+                existente = cursor.fetchone()
+                if existente:
+                    cursor.execute(
+                        """
+                        UPDATE editais
+                           SET nome = ?, status = ?, ultima_atualizacao = CURRENT_TIMESTAMP
+                         WHERE area = ? AND link = ?
+                        """,
+                        (nome, status, self.area, link),
+                    )
+                    self.conn.commit()
+                    return
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO editais (area, nome, status, link, ultima_atualizacao)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (self.area, nome, status, link),
+            )
             self.conn.commit()
         except sqlite3.Error as e:
             print(f"❌ Erro ao salvar dados no banco: {e}")

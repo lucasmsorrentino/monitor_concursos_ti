@@ -120,6 +120,60 @@ class TestMigration:
         assert count == 1
 
 
+class TestLinkCanonicalIdentity:
+    """Dedupe por link quando o LLM extrai variacoes do mesmo edital."""
+
+    URL_INDICE = "https://blog.grancursosonline.com.br/concursos-ti/"
+    LINK_EDITAL = "https://blog.grancursosonline.com.br/concurso-crm-es/"
+
+    def test_link_especifico_serve_de_chave(self, db):
+        db.atualizar_concurso(
+            "CRM ES", "v1", self.LINK_EDITAL, url_indice=self.URL_INDICE
+        )
+        # LLM extrai o mesmo edital com nome diferente no proximo ciclo.
+        status = db.buscar_status_antigo(
+            "Concurso CRM ES - Conselho Regional de Medicina do ES",
+            link=self.LINK_EDITAL,
+            url_indice=self.URL_INDICE,
+        )
+        assert status == "v1"
+
+    def test_upsert_por_link_sobrescreve_nome(self, db):
+        db.atualizar_concurso(
+            "CRM ES", "v1", self.LINK_EDITAL, url_indice=self.URL_INDICE
+        )
+        db.atualizar_concurso(
+            "Concurso CRM ES - variacao longa",
+            "v2",
+            self.LINK_EDITAL,
+            url_indice=self.URL_INDICE,
+        )
+
+        conn = sqlite3.connect(db.db_path)
+        rows = conn.execute(
+            "SELECT nome, status FROM editais WHERE link = ?", (self.LINK_EDITAL,)
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) == 1
+        assert rows[0] == ("Concurso CRM ES - variacao longa", "v2")
+
+    def test_link_igual_ao_indice_cai_no_fallback_de_nome(self, db):
+        db.atualizar_concurso("CRM ES", "v1", self.URL_INDICE, url_indice=self.URL_INDICE)
+
+        # Sem link especifico, nome diferente = registro novo.
+        assert (
+            db.buscar_status_antigo(
+                "Concurso CRM ES", link=self.URL_INDICE, url_indice=self.URL_INDICE
+            )
+            is None
+        )
+
+    def test_sem_link_mantem_comportamento_legado(self, db):
+        db.atualizar_concurso("TRF1", "v1", "")
+        assert db.buscar_status_antigo("TRF1") == "v1"
+
+
 class TestConnectionLifecycle:
     def test_fechar_conexao_is_safe_to_call(self, db_path):
         db = DatabaseManager(area="TI", db_path=db_path)

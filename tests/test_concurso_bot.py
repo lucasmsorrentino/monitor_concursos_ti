@@ -88,7 +88,10 @@ class TestExecutarFlow:
         assert "NOVO CONCURSO" in msg
         assert "TRF1" in msg
         mock_deps["db"].atualizar_concurso.assert_called_once_with(
-            "TRF1", "edital publicado", "https://example.com/trf1"
+            "TRF1",
+            "edital publicado",
+            "https://example.com/trf1",
+            url_indice="https://example.com",
         )
 
     def test_ignorar_block_is_skipped(self, mock_deps, base_config):
