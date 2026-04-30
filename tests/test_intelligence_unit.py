@@ -81,12 +81,45 @@ class TestExtrairDados:
     def test_returns_parsed_dict_on_success(self, ollama_unit, mocker):
         ollama_unit.chain_extracao = mocker.MagicMock()
         ollama_unit.chain_extracao.invoke.return_value = (
+            '{"ignorar": false, "nome": "TRF1", "status": "aberto", "link": "https://x", "data_fim_inscricao": "2026-12-31"}'
+        )
+
+        result = ollama_unit.extrair_dados("<h3>bloco</h3>")
+
+        assert result == {
+            "ignorar": False, "nome": "TRF1", "status": "aberto",
+            "link": "https://x", "data_fim_inscricao": "2026-12-31",
+        }
+
+    def test_sanitiza_data_malformada_para_none(self, ollama_unit, mocker):
+        ollama_unit.chain_extracao = mocker.MagicMock()
+        ollama_unit.chain_extracao.invoke.return_value = (
+            '{"ignorar": false, "nome": "TRF1", "status": "aberto", "link": "https://x", "data_fim_inscricao": "31/12/2026"}'
+        )
+
+        result = ollama_unit.extrair_dados("<h3>bloco</h3>")
+
+        assert result["data_fim_inscricao"] is None
+
+    def test_sanitiza_data_null_string(self, ollama_unit, mocker):
+        ollama_unit.chain_extracao = mocker.MagicMock()
+        ollama_unit.chain_extracao.invoke.return_value = (
+            '{"ignorar": false, "nome": "TRF1", "status": "aberto", "link": "https://x", "data_fim_inscricao": "null"}'
+        )
+
+        result = ollama_unit.extrair_dados("<h3>bloco</h3>")
+
+        assert result["data_fim_inscricao"] is None
+
+    def test_sanitiza_data_ausente(self, ollama_unit, mocker):
+        ollama_unit.chain_extracao = mocker.MagicMock()
+        ollama_unit.chain_extracao.invoke.return_value = (
             '{"ignorar": false, "nome": "TRF1", "status": "aberto", "link": "https://x"}'
         )
 
         result = ollama_unit.extrair_dados("<h3>bloco</h3>")
 
-        assert result == {"ignorar": False, "nome": "TRF1", "status": "aberto", "link": "https://x"}
+        assert result["data_fim_inscricao"] is None
 
     def test_retries_on_decode_error_then_succeeds(self, ollama_unit, mocker):
         ollama_unit.chain_extracao = mocker.MagicMock()
@@ -94,7 +127,7 @@ class TestExtrairDados:
 
         result = ollama_unit.extrair_dados("<h3>x</h3>")
 
-        assert result == {"ignorar": True}
+        assert result == {"ignorar": True, "data_fim_inscricao": None}
         assert ollama_unit.chain_extracao.invoke.call_count == 2
 
     def test_returns_ignorar_true_after_all_retries_fail(self, ollama_unit, mocker):

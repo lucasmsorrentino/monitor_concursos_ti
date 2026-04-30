@@ -72,13 +72,53 @@ Config loading logic is in `config/loader.py`.
 
 ## Database
 
-SQLite at `data/concursos.db`. Table `editais` with composite primary key `(area, nome)`. Auto-migrates from the old single-area schema (PK on `nome` only) into `editais_v2` and renames it back on startup — legacy rows are tagged with area `TI`. Connection is opened with `check_same_thread=False`. Manager in `src/database/manager.py`.
+SQLite at `data/concursos.db`. Table `editais` (schema v3):
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | INTEGER PK AUTOINCREMENT | Stable across updates — used in Telegram `callback_data` |
+| `area` | TEXT NOT NULL | Area slug (TI, EDUCACAO, ...) |
+| `nome` | TEXT NOT NULL | `UNIQUE(area, nome)` — LLM name may vary, dedup also falls back to `link` |
+| `status` | TEXT NOT NULL | Raw 2-sentence summary from the extraction chain |
+| `link` | TEXT | Canonical identity when specific (different from scraper's index URL) |
+| `data_fim_inscricao` | TEXT NULL | ISO `YYYY-MM-DD` or NULL — gates whether new contests trigger notifications |
+| `status_hash` | TEXT NULL | sha1[:16] of `status_fingerprint(status)` — deduplicates LLM reformulations |
+| `estado_usuario` | TEXT DEFAULT `'ativo'` | `ativo` \| `ignorado` \| `seguindo` — controlled by Telegram inline buttons |
+| `ultima_atualizacao` | TIMESTAMP | Auto-updated on every upsert |
+
+Auto-migrates v1 (PK `nome`) and v2 (PK `(area, nome)`) into v3 on startup; legacy v1 rows are tagged with area `TI`. Connection opened with `check_same_thread=False`. Manager in `src/database/manager.py`.
+
+`atualizar_concurso` does explicit UPDATE-if-exists (by `link` if specific, else by `(area, nome)`) before INSERT — this preserves `id` between runs, which is required for the Telegram callback buttons to stay valid.
+
+## User state flow (new/update decisions)
+
+Each row has one of three `estado_usuario` states controlling notifications:
+
+- **`ativo`** (default): notifications until the inscription deadline. After `date.today() > data_fim_inscricao`, updates go silent (DB still refreshes).
+- **`ignorado`**: set by clicking ❌ on the Telegram notification. All future scans skip this row (no DB update either).
+- **`seguindo`**: set by clicking ⭐. Relevant changes are notified forever, even past the deadline.
+
+Brand-new contests whose deadline has already passed are saved silently (no first notification) — see matrix in `ConcursoBot._decidir_e_notificar`. The cheap dedup step compares `status_fingerprint` hashes before spending an LLM analysis call, which fixes the "keeps repeating" bug from minor reformulations.
+
+Note: legacy rows inserted before v3 migration have `status_hash = NULL` — they count as "hash different" on first post-deploy scan, which may trigger one cycle of no-op analysis/updates before converging.
+
+## Telegram interactive buttons
+
+New concurso messages and relevant-change messages go through `TelegramNotifier.notificar_concurso(id_interno, msg)`, which attaches an inline keyboard with two callback buttons:
+
+- `callback_data=estado:<id>:seguindo` → ⭐ Seguir
+- `callback_data=estado:<id>:ignorado` → ❌ Não tenho interesse
+
+Callbacks are processed in batch at the start of each run via `TelegramCallbackProcessor.processar_pendentes()` (called from `ConcursoBot.executar()`). It polls `getUpdates?offset=N` with `allowed_updates=[callback_query]`, applies the state to the DB, sends `answerCallbackQuery` for visual feedback, and calls `editMessageReplyMarkup` to strip the buttons from the original message. Offset is persisted at `data/telegram_offset.json`.
+
+The processor is single-run (no daemon) — clicks are applied at the next scheduled scan. Network errors are swallowed so scraping never blocks on Telegram. Offset always advances even on parse errors to prevent infinite loops.
 
 ## Key Design Decisions
 
 - **AI-first extraction**: LLM reads raw HTML semantically, making the system resilient to website layout changes — the scraper intentionally does no field extraction.
 - **Three LLM backends**: Ollama (local, no slash), LiteLLM (API, with slash), Claude Code CLI (prefix `claude-cli`). Selection is purely by `LLM_MODEL` string format — no extra env var needed.
 - **Keyword pre-filtering** happens before LLM calls to save compute — applied at bot level (`_passa_filtro_palavras`) AND reinforced inside the extraction prompt.
+- **Hash-based dedup before LLM analysis**: `status_fingerprint` (lowercase + strip accents + collapse whitespace + border punct + sha1[:16]) catches trivial reformulations without spending a second LLM call.
 - **All code, logs, prompts, and Telegram messages are in Brazilian Portuguese** — keep this when editing.
 - **BaseScraper** (`src/scrapers/base_scraper.py`) is abstract — extend it for other websites.
-- **Graceful degradation**: missing Telegram config logs a warning and skips notifications; bad HTML blocks return `{"ignorar": True}` rather than raising.
+- **Graceful degradation**: missing Telegram config logs a warning and skips notifications; bad HTML blocks return `{"ignorar": True}` rather than raising; Telegram callback failures never block the scrape.

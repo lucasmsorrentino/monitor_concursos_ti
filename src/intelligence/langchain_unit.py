@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import time
+from datetime import date
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -91,12 +92,25 @@ class IntelligenceUnit:
             1. Se o bloco for apenas uma lista genérica (ex: apenas nomes de cidades/cargos sem explicações) ou for "Notícias Recomendadas", responda: {{{{"ignorar": true}}}}
             2. Se for uma notícia de concurso real, extraia as informações.
             3. O link deve ser a URL do edital ou da notícia detalhada (procure em tags <a>).
-            4. Responda APENAS com JSON válido:
+            4. `data_fim_inscricao` é a ÚLTIMA data possível de inscrição no formato ISO `YYYY-MM-DD`.
+               Procure AGRESSIVAMENTE por marcadores como:
+                 - "inscrições até DD/MM/YYYY"
+                 - "prazo final DD/MM/YYYY"
+                 - "período de inscrição: DD/MM a DD/MM/YYYY" (usa a SEGUNDA data)
+                 - "encerram-se em DD/MM", "encerram dia DD/MM"
+                 - "inscrições de DD/MM a DD/MM" (usa a SEGUNDA data)
+                 - "com inscrições abertas até DD/MM/YYYY"
+               Se o bloco diz "inscrições encerradas", "prazo encerrado", "inscrições finalizadas"
+               e mencionar UMA data passada, use essa data.
+               Se NÃO houver NENHUMA data clara, use `null`. Nunca invente.
+               Converta DD/MM/YYYY para YYYY-MM-DD. Se o ano estiver ausente, assuma o ano corrente.
+            5. Responda APENAS com JSON válido:
             {{{{
                 "ignorar": false,
                 "nome": "Nome do Concurso ou Órgão",
                 "status": "Resumo do status atual em até 2 frases",
-                "link": "https://..."
+                "link": "https://...",
+                "data_fim_inscricao": "YYYY-MM-DD ou null"
             }}}}
         """
 
@@ -245,6 +259,9 @@ class IntelligenceUnit:
             try:
                 resposta = self.chain_extracao.invoke({"bloco": bloco_html})
                 dados = self._parse_json_response(resposta)
+                dados["data_fim_inscricao"] = self._sanitizar_data(
+                    dados.get("data_fim_inscricao")
+                )
                 return dados
             except Exception as e:
                 self.logger.warning(
@@ -255,6 +272,25 @@ class IntelligenceUnit:
 
         self.logger.error("❌ Extração falhou após todas as tentativas; bloco será ignorado.")
         return {"ignorar": True}
+
+    def _sanitizar_data(self, valor) -> str | None:
+        """Valida e normaliza a data de fim de inscricao extraida pela LLM.
+
+        Aceita apenas ISO `YYYY-MM-DD`. Valores malformados, vazios,
+        strings `null`/`none` ou tipos nao-string viram `None` (comportamento
+        seguro: sem prazo conhecido = nao bloqueia notificacao).
+        """
+        if not valor or not isinstance(valor, str):
+            return None
+        texto = valor.strip()
+        if texto.lower() in ("null", "none", ""):
+            return None
+        try:
+            date.fromisoformat(texto)
+            return texto
+        except ValueError:
+            self.logger.debug(f"data_fim_inscricao malformada descartada: {valor!r}")
+            return None
 
 
     def analisar_mudanca(self, antigo: str, novo: str) -> str | None:

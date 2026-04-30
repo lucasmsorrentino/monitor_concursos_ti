@@ -83,3 +83,30 @@ class TestNotificar:
         n.notificar("ola")
 
         assert post.call_count == 2
+
+
+class TestNotificarConcurso:
+    def test_inclui_reply_markup_com_dois_botoes(self, mocker):
+        import json as _json
+        post = mocker.patch("src.notifiers.telegram.requests.post")
+        post.return_value.raise_for_status = mocker.MagicMock()
+        n = TelegramNotifier("TOKEN", chat_ids=["111"])
+
+        n.notificar_concurso(42, "<b>novo concurso</b>")
+
+        payload = post.call_args.kwargs["data"]
+        assert "reply_markup" in payload
+        markup = _json.loads(payload["reply_markup"])
+        botoes = markup["inline_keyboard"][0]
+        assert len(botoes) == 2
+        assert botoes[0]["callback_data"] == "estado:42:seguindo"
+        assert botoes[1]["callback_data"] == "estado:42:ignorado"
+
+    def test_reply_markup_ausente_quando_nao_passado(self, mocker):
+        post = mocker.patch("src.notifiers.telegram.requests.post")
+        post.return_value.raise_for_status = mocker.MagicMock()
+        n = TelegramNotifier("TOKEN", chat_ids=["111"])
+
+        n.notificar("mensagem simples")
+
+        assert "reply_markup" not in post.call_args.kwargs["data"]

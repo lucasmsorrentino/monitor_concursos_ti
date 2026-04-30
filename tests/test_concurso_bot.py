@@ -1,8 +1,11 @@
 """Testes de integracao para src/core/bot.py.
 
-Foco no orquestrador — todos os subsistemas (scraper, IA, DB, notifier)
-sao substituidos por mocks para verificar o fluxo de decisao por bloco.
+Foco no orquestrador — todos os subsistemas (scraper, IA, DB, notifier,
+callback processor) sao substituidos por mocks para verificar o fluxo
+de decisao por bloco.
 """
+from datetime import date, timedelta
+
 import pytest
 
 from src.core.bot import ConcursoBot
@@ -15,16 +18,24 @@ def mock_deps(mocker):
     db_cls = mocker.patch("src.core.bot.DatabaseManager")
     ai_cls = mocker.patch("src.core.bot.IntelligenceUnit")
     notifier_cls = mocker.patch("src.core.bot.TelegramNotifier")
+    cb_proc_cls = mocker.patch("src.core.bot.TelegramCallbackProcessor")
 
     scraper = scraper_cls.return_value
     db = db_cls.return_value
     ai = ai_cls.return_value
     notifier = notifier_cls.return_value
+    cb_proc = cb_proc_cls.return_value
 
-    # Default: url sem alteracao (usado em mensagem "tudo na mesma")
     scraper.url = "https://example.com"
+    # Default: concurso nao existe no DB.
+    db.buscar_registro.return_value = None
+    # Default: upsert retorna id=42.
+    db.atualizar_concurso.return_value = 42
 
-    return {"scraper": scraper, "db": db, "ai": ai, "notifier": notifier}
+    return {
+        "scraper": scraper, "db": db, "ai": ai, "notifier": notifier,
+        "cb_proc": cb_proc,
+    }
 
 
 @pytest.fixture
@@ -42,34 +53,55 @@ def base_config():
     }
 
 
+def _amanha() -> str:
+    return (date.today() + timedelta(days=1)).isoformat()
+
+
+def _ontem() -> str:
+    return (date.today() - timedelta(days=1)).isoformat()
+
+
 class TestKeywordPreFilter:
     def test_include_filter_accepts_matching_block(self, base_config):
         base_config["keywords_include"] = ["concurso"]
         bot = ConcursoBot(base_config)
-
         assert bot._passa_filtro_palavras("<p>edital de concurso</p>") is True
 
     def test_include_filter_rejects_non_matching(self, base_config):
         base_config["keywords_include"] = ["mega-sena"]
         bot = ConcursoBot(base_config)
-
         assert bot._passa_filtro_palavras("<p>edital de concurso</p>") is False
 
     def test_exclude_filter_rejects_matching(self, base_config):
         base_config["keywords_exclude"] = ["artes"]
         bot = ConcursoBot(base_config)
-
         assert bot._passa_filtro_palavras("<p>concurso de artes</p>") is False
 
     def test_empty_filters_accept_everything(self, base_config):
         bot = ConcursoBot(base_config)
-
         assert bot._passa_filtro_palavras("<p>qualquer coisa</p>") is True
 
 
+class TestPrazoEncerrado:
+    def test_none_nao_encerrado(self):
+        assert ConcursoBot._prazo_encerrado(None) is False
+
+    def test_string_invalida_nao_encerrado(self):
+        assert ConcursoBot._prazo_encerrado("invalido") is False
+
+    def test_ontem_encerrado(self):
+        assert ConcursoBot._prazo_encerrado(_ontem()) is True
+
+    def test_hoje_ainda_aberto(self):
+        assert ConcursoBot._prazo_encerrado(date.today().isoformat()) is False
+
+    def test_amanha_aberto(self):
+        assert ConcursoBot._prazo_encerrado(_amanha()) is False
+
+
 class TestExecutarFlow:
-    def test_new_concurso_triggers_notification_and_db_insert(
-        self, mock_deps, base_config, mocker
+    def test_new_concurso_triggers_notification_with_buttons(
+        self, mock_deps, base_config
     ):
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
         mock_deps["ai"].extrair_dados.return_value = {
@@ -77,22 +109,48 @@ class TestExecutarFlow:
             "nome": "TRF1",
             "status": "edital publicado",
             "link": "https://example.com/trf1",
+            "data_fim_inscricao": _amanha(),
         }
-        mock_deps["db"].buscar_status_antigo.return_value = None
+        mock_deps["db"].buscar_registro.return_value = None
+        mock_deps["db"].atualizar_concurso.return_value = 99
 
         bot = ConcursoBot(base_config)
         bot.executar()
 
-        mock_deps["notifier"].notificar.assert_called_once()
-        msg = mock_deps["notifier"].notificar.call_args.args[0]
-        assert "NOVO CONCURSO" in msg
-        assert "TRF1" in msg
-        mock_deps["db"].atualizar_concurso.assert_called_once_with(
-            "TRF1",
-            "edital publicado",
-            "https://example.com/trf1",
-            url_indice="https://example.com",
-        )
+        # notificar_concurso foi chamado (com id interno para botoes).
+        mock_deps["notifier"].notificar_concurso.assert_called_once()
+        call = mock_deps["notifier"].notificar_concurso.call_args
+        assert call.args[0] == 99
+        assert "NOVO CONCURSO" in call.args[1]
+        assert "TRF1" in call.args[1]
+        mock_deps["db"].atualizar_concurso.assert_called_once()
+        kwargs = mock_deps["db"].atualizar_concurso.call_args.kwargs
+        assert kwargs["status_hash"]
+        assert kwargs["data_fim_inscricao"] == _amanha()
+
+    def test_new_concurso_com_prazo_encerrado_nao_notifica(
+        self, mock_deps, base_config
+    ):
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "TRF1",
+            "status": "aberto",
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": _ontem(),
+        }
+        mock_deps["db"].buscar_registro.return_value = None
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        # NAO notifica o novo concurso (prazo encerrou).
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        # Mas salva silenciosamente no DB.
+        mock_deps["db"].atualizar_concurso.assert_called_once()
+        # So envia o "Varredura Concluida".
+        assert mock_deps["notifier"].notificar.call_count == 1
+        assert "Varredura Conclu" in mock_deps["notifier"].notificar.call_args.args[0]
 
     def test_ignorar_block_is_skipped(self, mock_deps, base_config):
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>lixo</h3>"]
@@ -101,33 +159,114 @@ class TestExecutarFlow:
         bot = ConcursoBot(base_config)
         bot.executar()
 
-        # Somente a mensagem de "varredura concluida" (nao teve novidades).
         mock_deps["db"].atualizar_concurso.assert_not_called()
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
         assert mock_deps["notifier"].notificar.call_count == 1
-        msg = mock_deps["notifier"].notificar.call_args.args[0]
-        assert "Varredura Conclu" in msg
 
-    def test_unchanged_status_sends_no_update_notification(
+    def test_estado_ignorado_pula_completamente(self, mock_deps, base_config):
+        """Concurso marcado ❌ pelo usuario nao e notificado nem atualizado."""
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "TRF1",
+            "status": "novissimo status",
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": _amanha(),
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 5, "area": "TI", "nome": "TRF1", "status": "antigo",
+            "status_hash": "aaaa", "estado_usuario": "ignorado",
+            "data_fim_inscricao": None, "link": "https://example.com/trf1",
+        }
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        mock_deps["db"].atualizar_concurso.assert_not_called()
+
+    def test_legacy_row_sem_hash_backfill_silencioso(self, mock_deps, base_config):
+        """Linhas legadas (status_hash=NULL) sao SEMPRE backfilled sem notificar na 1a varredura."""
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "TRF1",
+            # Texto completamente DIFERENTE do armazenado — mesmo assim nao notifica.
+            "status": "reformulacao totalmente nova",
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": None,
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 5, "area": "TI", "nome": "TRF1",
+            "status": "texto armazenado ha 24h",
+            "status_hash": None,  # legado
+            "estado_usuario": "ativo", "data_fim_inscricao": None,
+            "link": "https://example.com/trf1",
+        }
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        # NAO chama analise (evita falsos positivos pos-migracao).
+        mock_deps["ai"].analisar_mudanca.assert_not_called()
+        # NAO notifica.
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        # Backfill: faz update (preenche status_hash).
+        mock_deps["db"].atualizar_concurso.assert_called_once()
+
+    def test_hash_identico_skipa_sem_chamar_analise(self, mock_deps, base_config):
+        """Corrige a repeticao: texto reformulado com mesmo fingerprint nao dispara."""
+        from src.utils.text import status_fingerprint
+        status_antigo = "Edital publicado"
+        # Variacoes triviais: case, whitespace e pontuacao de borda.
+        status_novo = "  EDITAL   publicado.  "
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "TRF1",
+            "status": status_novo,
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": None,
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 5, "area": "TI", "nome": "TRF1", "status": status_antigo,
+            "status_hash": status_fingerprint(status_antigo),
+            "estado_usuario": "ativo", "data_fim_inscricao": None,
+            "link": "https://example.com/trf1",
+        }
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["ai"].analisar_mudanca.assert_not_called()
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+
+    def test_hash_diferente_analise_ignore_atualiza_silencioso(
         self, mock_deps, base_config
     ):
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
         mock_deps["ai"].extrair_dados.return_value = {
             "ignorar": False,
             "nome": "TRF1",
-            "status": "mesmo status",
-            "link": "https://example.com",
+            "status": "texto completamente diferente",
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": None,
         }
-        mock_deps["db"].buscar_status_antigo.return_value = "mesmo status"
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 5, "area": "TI", "nome": "TRF1", "status": "outro texto",
+            "status_hash": "old", "estado_usuario": "ativo",
+            "data_fim_inscricao": None, "link": "https://example.com/trf1",
+        }
+        mock_deps["ai"].analisar_mudanca.return_value = None  # IGNORE
 
         bot = ConcursoBot(base_config)
         bot.executar()
 
-        mock_deps["db"].atualizar_concurso.assert_not_called()
-        mock_deps["ai"].analisar_mudanca.assert_not_called()
-        # So a mensagem de "varredura concluida"
-        assert mock_deps["notifier"].notificar.call_count == 1
+        # Atualiza DB com hash novo, mas nao notifica.
+        mock_deps["db"].atualizar_concurso.assert_called_once()
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
 
-    def test_relevant_change_triggers_update_notification(
+    def test_mudanca_relevante_notifica_quando_prazo_aberto(
         self, mock_deps, base_config
     ):
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
@@ -135,40 +274,74 @@ class TestExecutarFlow:
             "ignorar": False,
             "nome": "TRF1",
             "status": "banca definida",
-            "link": "https://example.com",
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": _amanha(),
         }
-        mock_deps["db"].buscar_status_antigo.return_value = "edital publicado"
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 5, "area": "TI", "nome": "TRF1", "status": "edital publicado",
+            "status_hash": "old", "estado_usuario": "ativo",
+            "data_fim_inscricao": _amanha(), "link": "https://example.com/trf1",
+        }
         mock_deps["ai"].analisar_mudanca.return_value = "Banca CEBRASPE anunciada."
+        mock_deps["db"].atualizar_concurso.return_value = 5
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_called_once()
+        call = mock_deps["notifier"].notificar_concurso.call_args
+        assert "ATUALIZA" in call.args[1]
+        assert "Banca CEBRASPE anunciada" in call.args[1]
+
+    def test_mudanca_relevante_pos_prazo_ativo_atualiza_silencioso(
+        self, mock_deps, base_config
+    ):
+        """estado 'ativo' + prazo encerrado = atualiza DB mas nao notifica."""
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "TRF1",
+            "status": "resultado publicado",
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": _ontem(),
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 5, "area": "TI", "nome": "TRF1", "status": "antigo",
+            "status_hash": "old", "estado_usuario": "ativo",
+            "data_fim_inscricao": _ontem(), "link": "https://example.com/trf1",
+        }
+        mock_deps["ai"].analisar_mudanca.return_value = "Resultado publicado hoje."
 
         bot = ConcursoBot(base_config)
         bot.executar()
 
         mock_deps["db"].atualizar_concurso.assert_called_once()
-        mock_deps["notifier"].notificar.assert_called_once()
-        msg = mock_deps["notifier"].notificar.call_args.args[0]
-        assert "ATUALIZA" in msg
-        assert "Banca CEBRASPE anunciada" in msg
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
 
-    def test_irrelevant_change_skips_notification_and_db(
+    def test_mudanca_relevante_pos_prazo_seguindo_notifica(
         self, mock_deps, base_config
     ):
+        """estado 'seguindo' ignora o prazo — usuario quer updates sempre."""
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
         mock_deps["ai"].extrair_dados.return_value = {
             "ignorar": False,
             "nome": "TRF1",
-            "status": "texto levemente reescrito",
-            "link": "https://example.com",
+            "status": "resultado publicado",
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": _ontem(),
         }
-        mock_deps["db"].buscar_status_antigo.return_value = "texto original"
-        mock_deps["ai"].analisar_mudanca.return_value = None
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 5, "area": "TI", "nome": "TRF1", "status": "antigo",
+            "status_hash": "old", "estado_usuario": "seguindo",
+            "data_fim_inscricao": _ontem(), "link": "https://example.com/trf1",
+        }
+        mock_deps["ai"].analisar_mudanca.return_value = "Resultado publicado."
+        mock_deps["db"].atualizar_concurso.return_value = 5
 
         bot = ConcursoBot(base_config)
         bot.executar()
 
-        mock_deps["db"].atualizar_concurso.assert_not_called()
-        # Apenas a mensagem final de "varredura concluida"
-        assert mock_deps["notifier"].notificar.call_count == 1
-        assert "Varredura Conclu" in mock_deps["notifier"].notificar.call_args.args[0]
+        mock_deps["notifier"].notificar_concurso.assert_called_once()
 
     def test_keyword_prefilter_blocks_llm_call(self, mock_deps, base_config):
         base_config["keywords_include"] = ["concurso"]
@@ -181,27 +354,28 @@ class TestExecutarFlow:
 
         mock_deps["ai"].extrair_dados.assert_not_called()
 
-    def test_mixed_cycle_novo_plus_unchanged(self, mock_deps, base_config):
-        mock_deps["scraper"].capturar_concursos.return_value = [
-            "<h3>b1</h3>", "<h3>b2</h3>"
-        ]
-        mock_deps["ai"].extrair_dados.side_effect = [
-            {"ignorar": False, "nome": "NOVO", "status": "x", "link": ""},
-            {"ignorar": False, "nome": "ANTIGO", "status": "y", "link": ""},
-        ]
-        mock_deps["db"].buscar_status_antigo.side_effect = [None, "y"]
-
-        bot = ConcursoBot(base_config)
-        bot.executar()
-
-        # 1 notificacao de novo + 0 mensagem de "tudo na mesma" (porque teve novo)
-        assert mock_deps["notifier"].notificar.call_count == 1
-        assert "NOVO CONCURSO" in mock_deps["notifier"].notificar.call_args.args[0]
-        # Apenas NOVO foi salvo
-        mock_deps["db"].atualizar_concurso.assert_called_once()
-
     def test_scraper_exception_is_caught(self, mock_deps, base_config):
         mock_deps["scraper"].capturar_concursos.side_effect = RuntimeError("boom")
 
         bot = ConcursoBot(base_config)
         bot.executar()  # nao deve levantar
+
+    def test_callback_processor_e_invocado_no_inicio(self, mock_deps, base_config):
+        mock_deps["scraper"].capturar_concursos.return_value = []
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["cb_proc"].processar_pendentes.assert_called_once()
+
+    def test_falha_no_callback_processor_nao_trava_varredura(
+        self, mock_deps, base_config
+    ):
+        mock_deps["cb_proc"].processar_pendentes.side_effect = RuntimeError("telegram down")
+        mock_deps["scraper"].capturar_concursos.return_value = []
+
+        bot = ConcursoBot(base_config)
+        bot.executar()  # nao deve levantar
+
+        # Varredura ainda enviou a mensagem de conclusao.
+        assert mock_deps["notifier"].notificar.call_count == 1

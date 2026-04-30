@@ -14,6 +14,10 @@ env/
 # Ignoramos o arquivo .db para que cada instalação tenha o seu próprio histórico
 data/*.db
 
+# --- Estado runtime ---
+# Offset do Telegram getUpdates e qualquer state JSON em data/ e local.
+data/*.json
+
 # --- Logs ---
 # Não queremos subir o histórico de logs para o Git
 logs/
