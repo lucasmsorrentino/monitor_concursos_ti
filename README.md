@@ -42,7 +42,7 @@ Na abordagem tradicional de Web Scraping, o código quebra toda vez que o site m
 | **Scraping Resiliente** | O BeautifulSoup atua apenas como fatiador de HTML, sem depender de seletores CSS específicos. |
 | **Persistência (SQLite)** | Banco de dados local para controle de histórico e prevenção de duplicidade. |
 | **Notificações Telegram** | Alertas formatados em HTML enviados automaticamente para um chat/bot do Telegram. |
-| **Agendamento Automático** | Execução diária programada via `schedule`, com loop infinito em background. |
+| **Agendamento Automático** | Execução diária via Windows Task Scheduler (PowerShell em `scripts/install_schedule.ps1`), com catch-up se o PC estava desligado/dormindo no horário. |
 | **Logging Profissional** | Registros com rotação de arquivos (`RotatingFileHandler`) para monitoramento de saúde do bot. |
 
 ---
@@ -217,7 +217,7 @@ monitor_concursos_ti/
 | `src/intelligence/` | **Cérebro duplo.** Chain de Extração (HTML → JSON) e Chain de Análise (status antigo vs. novo → veredicto de relevância). |
 | `src/database/` | Persistência SQLite. Armazena nome, status, link e timestamp de cada concurso para controle de histórico. |
 | `src/notifiers/` | Integração de saída. Envia mensagens formatadas em HTML para o Telegram via API REST. |
-| `src/scheduler/` | Agendamento com `schedule`. Executa o bot diariamente no horário configurado no `.env`. |
+| `src/scheduler/` | **Legado.** `DailyScheduler` ainda existe mas nao e mais usado por `main.py` — o agendamento agora e externo (Windows Task Scheduler via `scripts/install_schedule.ps1`). |
 | `src/utils/` | Logger com rotação de arquivos (1 MB por arquivo, até 5 backups). |
 | `config/loader.py` | Carrega alvos de `MONITOR_TARGETS_JSON` ou modo legado (`URL_ALVO`). |
 
@@ -314,10 +314,13 @@ A tarefa chama `scripts\run_daily.bat`, que:
 3. Grava stdout/stderr em `logs\run_YYYYMMDD.log` (um arquivo por dia).
 
 Configuracoes relevantes da tarefa:
-- **StartWhenAvailable**: se o PC estava desligado no horario agendado, roda assim que ligar.
-- **MultipleInstances=IgnoreNew**: nao empilha execucoes.
-- **ExecutionTimeLimit=1h**: mata se passar disso.
-- **RunLevel Limited**: roda sem elevacao.
+- **LogonType Interactive**: roda como voce, sem senha — so dispara enquanto voce esta logado (apos reiniciar, basta logar 1x).
+- **StartWhenAvailable**: se o PC estava desligado/dormindo as 03:00, roda assim que voltar a ficar disponivel (catch-up).
+- **MultipleInstances=IgnoreNew**: se o run anterior ainda esta rodando, o novo trigger e ignorado (nao empilha).
+- **ExecutionTimeLimit=1h**: mata o processo se passar de 1h.
+- **DontStopIfGoingOnBatteries / AllowStartIfOnBatteries**: roda em qualquer condicao de energia.
+- **RestartCount=2 / RestartInterval=5min**: se o run falhar, reinicia ate 2x com 5min entre tentativas.
+- **RunLevel Limited**: sem elevacao de admin.
 
 No modo multi-area, cada ciclo executa todos os alvos configurados e aplica deduplicacao por area no banco.
 

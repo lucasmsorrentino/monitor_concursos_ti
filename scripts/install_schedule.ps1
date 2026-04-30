@@ -7,12 +7,13 @@
     Registra uma tarefa que dispara `scripts\run_daily.bat` uma vez por dia
     no horario informado (default: 03:00). A tarefa e configurada para:
 
-    - Rodar mesmo se o usuario nao estiver logado (RunLevel Limited,
-      Principal do usuario atual).
+    - Rodar como o usuario atual com LogonType Interactive (sem senha; so
+      roda quando voce esta logado).
     - Reexecutar logo que o PC acorde/ligue se o horario foi perdido
       (StartWhenAvailable).
     - Nao empilhar execucoes (MultipleInstances = IgnoreNew).
     - Parar se passar de 1h rodando (ExecutionTimeLimit = PT1H).
+    - Reiniciar 2x com 5min de intervalo se falhar.
 
 .PARAMETER Time
     Horario no formato HH:mm (24h). Default: 03:00.
@@ -32,7 +33,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Time = "03:00",
+    [string]$Time     = "03:00",
     [string]$TaskName = "MonitorConcursos"
 )
 
@@ -55,23 +56,25 @@ Write-Host "Registrando tarefa '$TaskName' para rodar diariamente as $Time..."
 Write-Host "Executavel: $RunBat"
 Write-Host "Working dir: $ProjectDir"
 
+$qualifiedUser = "$env:COMPUTERNAME\$env:USERNAME"
+
 $action = New-ScheduledTaskAction `
     -Execute $RunBat `
     -WorkingDirectory $ProjectDir
 
-$trigger = New-ScheduledTaskTrigger `
-    -Daily `
-    -At $Time
+$trigger = New-ScheduledTaskTrigger -Daily -At $Time
 
 $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
+    -DontStopIfGoingOnBatteries `
+    -AllowStartIfOnBatteries `
     -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
     -RestartCount 2 `
     -RestartInterval (New-TimeSpan -Minutes 5)
 
 $principal = New-ScheduledTaskPrincipal `
-    -UserId $env:USERNAME `
+    -UserId $qualifiedUser `
     -LogonType Interactive `
     -RunLevel Limited
 
@@ -80,7 +83,7 @@ $task = New-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Monitor de Concursos - varredura diaria via Gran Cursos Online"
+    -Description "Monitor de Concursos - varredura diaria via Gran Cursos Online (catch-up se perdeu o horario)"
 
 # Register-ScheduledTask substitui se ja existir.
 Register-ScheduledTask `
