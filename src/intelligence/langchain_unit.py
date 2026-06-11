@@ -1,7 +1,7 @@
 """Módulo de inteligência artificial — cérebro duplo do sistema.
 
 Contém a classe :class:`IntelligenceUnit`, que expõe duas chains LangChain
-operando sobre uma LLM local (Ollama):
+operando sobre uma LLM (Ollama local ou API remota via LiteLLM):
 
 1. **Chain de Extração** (HTML → JSON): recebe um bloco de HTML bruto e
    devolve um dicionário estruturado com ``nome``, ``status``, ``link`` e
@@ -12,23 +12,29 @@ operando sobre uma LLM local (Ollama):
 
 import json
 import logging
+import re
 import time
-from langchain_ollama import OllamaLLM
+from datetime import date
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+from src.utils.fases import sanitizar_fase
+
 
 class IntelligenceUnit:
-    """Unidade de inteligência que orquestra extração e análise via LLM local.
+    """Unidade de inteligência que orquestra extração e análise via LLM.
 
-    Utiliza duas instâncias do ``OllamaLLM`` (Llama 3.1 por padrão):
+    Suporta três backends, selecionados pelo formato de ``model_name``:
 
-    - ``llm_json``: configurada com ``format='json'`` para forçar saída JSON
-      estrita na chain de extração.
-    - ``llm_text``: saída em texto livre para a chain de análise de mudanças.
+    - **Ollama** (local): nome simples, ex: ``llama3.1``.
+    - **LiteLLM** (API remota): nome com ``/``, ex: ``minimax/MiniMax-M2``,
+      ``anthropic/claude-haiku-4-5-20251001``. Requer a API key do provider.
+    - **Claude Code CLI** (assinatura local): ``claude-cli`` ou
+      ``claude-cli:<alias>`` (ex: ``claude-cli:haiku``). Usa o binario
+      ``claude`` autenticado na maquina — mais lento, custo marginal zero.
 
     Args:
-        model_name: Nome do modelo Ollama a ser utilizado (default: ``'llama3.1'``).
+        model_name: Nome do modelo (default: ``'llama3.1'``).
     """
 
     def __init__(
@@ -38,11 +44,25 @@ class IntelligenceUnit:
         timeout_s: float = 120.0,
         retries: int = 2,
         retry_delay_s: float = 2.0,
+        area_context: str = "TI",
+        include_keywords: list[str] | None = None,
+        exclude_keywords: list[str] | None = None,
     ):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.timeout_s = timeout_s
         self.retries = max(0, retries)
         self.retry_delay_s = max(0.0, retry_delay_s)
+        self.area_context = area_context
+        self.include_keywords = include_keywords or []
+        self.exclude_keywords = exclude_keywords or []
+        self._backend = self._detect_backend(model_name)
+
+        if self._backend == "claude_cli":
+            self.logger.info(f"Usando Claude Code CLI (modelo: {model_name})")
+        elif self._backend == "litellm":
+            self.logger.info(f"Usando LiteLLM com modelo remoto: {model_name}")
+        else:
+            self.logger.info(f"Usando Ollama local com modelo: {model_name}")
 
         # LLM para Extração de Dados (saída JSON estrita)
         self.llm_json = self._create_llm(
@@ -61,23 +81,62 @@ class IntelligenceUnit:
             temperature=0,
         )
 
-        # --- PROMPT 1: EXTRAÇÃO (HTML -> JSON) ---
-        self.prompt_extracao = ChatPromptTemplate.from_messages([
-            ("system", """
+        include_keywords = ", ".join(self.include_keywords) if self.include_keywords else "nenhuma"
+        exclude_keywords = ", ".join(self.exclude_keywords) if self.exclude_keywords else "nenhuma"
+        extraction_system_prompt = f"""
             Você é um extrator de dados de alta precisão. Analise o bloco de HTML de um blog de concursos.
-            
+
             REGRAS:
-            1. Se o bloco for apenas uma lista genérica (ex: apenas nomes de cidades/cargos sem explicações) ou for "Notícias Recomendadas", responda: {{"ignorar": true}}
+            0. Você está filtrando para a área alvo: {self.area_context}.
+               Palavras obrigatórias (se houver): {include_keywords}.
+               Palavras proibidas (se houver): {exclude_keywords}.
+               Se o bloco não tiver aderência à área alvo, responda {{{{"ignorar": true}}}}.
+            1. Se o bloco for apenas uma lista genérica (ex: apenas nomes de cidades/cargos sem explicações) ou for "Notícias Recomendadas", responda: {{{{"ignorar": true}}}}
             2. Se for uma notícia de concurso real, extraia as informações.
             3. O link deve ser a URL do edital ou da notícia detalhada (procure em tags <a>).
-            4. Responda APENAS com JSON válido:
-            {{
+            4. `data_fim_inscricao` é a ÚLTIMA data possível de inscrição no formato ISO `YYYY-MM-DD`.
+               Procure AGRESSIVAMENTE por marcadores como:
+                 - "inscrições até DD/MM/YYYY"
+                 - "prazo final DD/MM/YYYY"
+                 - "período de inscrição: DD/MM a DD/MM/YYYY" (usa a SEGUNDA data)
+                 - "encerram-se em DD/MM", "encerram dia DD/MM"
+                 - "inscrições de DD/MM a DD/MM" (usa a SEGUNDA data)
+                 - "com inscrições abertas até DD/MM/YYYY"
+               Se o bloco diz "inscrições encerradas", "prazo encerrado", "inscrições finalizadas"
+               e mencionar UMA data passada, use essa data.
+               Se NÃO houver NENHUMA data clara, use `null`. Nunca invente.
+               Converta DD/MM/YYYY para YYYY-MM-DD. Se o ano estiver ausente, assuma o ano corrente.
+            5. `data_referencia` é a data de evento mais relevante do concurso, em ISO `YYYY-MM-DD`.
+               Preferencia: data da prova/aplicacao; senao a data de fim de inscricao; senao
+               qualquer data de evento citada (ex: "provas previstas para maio de 2025",
+               "edital previsto para marco/2026"). Se houver so mes/ano, use o primeiro dia do mes
+               (maio de 2025 -> 2025-05-01). Se NAO houver NENHUMA data, use `null`. Nunca invente.
+               IMPORTANTE: concursos apenas "previstos"/"em estudo" SEM nenhuma data citada devem ter
+               `data_referencia: null` (sao oportunidades futuras validas, nao listagens mortas).
+            6. `fase` classifica o estagio do concurso. Escolha EXATAMENTE UMA destas opcoes
+               (use o valor literal, em minusculas):
+                 - "previsto": autorizado, em estudo, comissao formada; sem banca nem edital.
+                 - "banca_definida": banca/organizadora escolhida, edital ainda NAO publicado.
+                 - "edital_publicado": edital publicado, mas inscricoes ainda nao abriram.
+                 - "inscricoes_abertas": inscricoes abertas neste momento.
+                 - "inscricoes_encerradas": inscricoes ja encerradas (aguardando ou em provas).
+                 - "concluido": concurso finalizado/antigo (provas ja realizadas, homologado).
+               Na duvida entre duas fases adjacentes, escolha a MENOS avancada.
+            7. Responda APENAS com JSON válido:
+            {{{{
                 "ignorar": false,
                 "nome": "Nome do Concurso ou Órgão",
                 "status": "Resumo do status atual em até 2 frases",
-                "link": "https://..."
-            }}
-            """),
+                "link": "https://...",
+                "data_fim_inscricao": "YYYY-MM-DD ou null",
+                "data_referencia": "YYYY-MM-DD ou null",
+                "fase": "uma das 6 opcoes acima"
+            }}}}
+        """
+
+        # --- PROMPT 1: EXTRAÇÃO (HTML -> JSON) ---
+        self.prompt_extracao = ChatPromptTemplate.from_messages([
+            ("system", extraction_system_prompt),
             ("human", "Analise este HTML:\n{bloco}")
         ])
         self.chain_extracao = self.prompt_extracao | self.llm_json | StrOutputParser()
@@ -97,14 +156,46 @@ class IntelligenceUnit:
         self.chain_analise = self.prompt_analise | self.llm_text | StrOutputParser()
 
     @staticmethod
+    def _detect_backend(model_name: str) -> str:
+        """Determina o backend a partir do formato de ``model_name``."""
+        if model_name.startswith("claude-cli"):
+            return "claude_cli"
+        if "/" in model_name:
+            return "litellm"
+        return "ollama"
+
     def _create_llm(
+        self,
         model_name: str,
         base_url: str,
         timeout_s: float,
         temperature: float,
         format: str | None = None,
-    ) -> OllamaLLM:
+    ):
+        """Cria LLM adequada ao backend selecionado."""
+        if self._backend == "claude_cli":
+            return self._create_claude_cli(model_name, timeout_s)
+        if self._backend == "litellm":
+            return self._create_litellm(model_name, timeout_s, temperature, format)
+        return self._create_ollama(model_name, base_url, timeout_s, temperature, format)
+
+    @staticmethod
+    def _create_claude_cli(model_name: str, timeout_s: float):
+        """Cria o wrapper do Claude Code CLI."""
+        from src.intelligence.claude_cli_backend import ClaudeCliLLM, parse_model_spec
+        return ClaudeCliLLM(model=parse_model_spec(model_name), timeout_s=timeout_s)
+
+    @staticmethod
+    def _create_ollama(
+        model_name: str,
+        base_url: str,
+        timeout_s: float,
+        temperature: float,
+        format: str | None = None,
+    ):
         """Cria OllamaLLM com fallback para diferentes versões do wrapper."""
+        from langchain_ollama import OllamaLLM
+
         base_kwargs = {
             "model": model_name,
             "temperature": temperature,
@@ -125,6 +216,45 @@ class IntelligenceUnit:
         except TypeError:
             return OllamaLLM(**base_kwargs)
 
+    @staticmethod
+    def _create_litellm(
+        model_name: str,
+        timeout_s: float,
+        temperature: float,
+        format: str | None = None,
+    ):
+        """Cria ChatLiteLLM para APIs remotas (MiniMax, OpenAI, etc.)."""
+        from langchain_litellm import ChatLiteLLM
+
+        kwargs = {
+            "model": model_name,
+            "temperature": temperature,
+            "timeout": timeout_s,
+        }
+        if format == "json":
+            kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+
+        return ChatLiteLLM(**kwargs)
+
+
+    @staticmethod
+    def _parse_json_response(resposta: str) -> dict:
+        """Extrai JSON da resposta da LLM, mesmo que venha envolto em markdown."""
+        text = resposta.strip()
+        # Tenta parse direto
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+        # Remove code fences (```json ... ``` ou ``` ... ```)
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+        # Encontra o primeiro objeto JSON na resposta
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        raise json.JSONDecodeError("Nenhum JSON encontrado na resposta", text, 0)
 
     def extrair_dados(self, bloco_html: str) -> dict:
         """Envia um bloco de HTML bruto à LLM e obtém dados estruturados em JSON.
@@ -148,7 +278,14 @@ class IntelligenceUnit:
         for tentativa in range(1, total_tentativas + 1):
             try:
                 resposta = self.chain_extracao.invoke({"bloco": bloco_html})
-                dados = json.loads(resposta)
+                dados = self._parse_json_response(resposta)
+                dados["data_fim_inscricao"] = self._sanitizar_data(
+                    dados.get("data_fim_inscricao")
+                )
+                dados["data_referencia"] = self._sanitizar_data(
+                    dados.get("data_referencia")
+                )
+                dados["fase"] = sanitizar_fase(dados.get("fase"))
                 return dados
             except Exception as e:
                 self.logger.warning(
@@ -159,6 +296,25 @@ class IntelligenceUnit:
 
         self.logger.error("❌ Extração falhou após todas as tentativas; bloco será ignorado.")
         return {"ignorar": True}
+
+    def _sanitizar_data(self, valor) -> str | None:
+        """Valida e normaliza a data de fim de inscricao extraida pela LLM.
+
+        Aceita apenas ISO `YYYY-MM-DD`. Valores malformados, vazios,
+        strings `null`/`none` ou tipos nao-string viram `None` (comportamento
+        seguro: sem prazo conhecido = nao bloqueia notificacao).
+        """
+        if not valor or not isinstance(valor, str):
+            return None
+        texto = valor.strip()
+        if texto.lower() in ("null", "none", ""):
+            return None
+        try:
+            date.fromisoformat(texto)
+            return texto
+        except ValueError:
+            self.logger.debug(f"data_fim_inscricao malformada descartada: {valor!r}")
+            return None
 
 
     def analisar_mudanca(self, antigo: str, novo: str) -> str | None:
