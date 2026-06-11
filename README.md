@@ -359,15 +359,20 @@ Configuracoes relevantes da tarefa:
 ### Agendamento diario (Linux, cron)
 
 ```bash
-# Instalar (idempotente; pode rodar de novo apos mover o repo):
+# Instalar as 03:00 (idempotente; pode rodar de novo apos mover o repo):
 ./scripts/install_schedule.sh
+
+# Outro horario:
+./scripts/install_schedule.sh 04:30
 
 # Inspecionar / remover:
 crontab -l
 ./scripts/install_schedule.sh --remove
 ```
 
-O cron chama `scripts/run_daily.sh` de hora em hora entre 08:05 e 22:05. O script garante **uma varredura por dia**: depois do primeiro sucesso, os ticks seguintes saem imediatamente. Se o computador estava desligado no primeiro horario, a proxima hora serve de catch-up (mesmo papel do `StartWhenAvailable` no Windows). Um `flock` impede execucoes simultaneas e a saida vai para `logs/run_YYYYMMDD.log`.
+O cron chama `scripts/run_daily.sh` **uma vez por dia, de madrugada** (03:00 por padrao). Um marker de sucesso diario evita varredura duplicada se voce rodar manualmente no mesmo dia, um `flock` impede execucoes simultaneas e a saida vai para `logs/run_YYYYMMDD.log`.
+
+> Diferente do Task Scheduler no Windows (`StartWhenAvailable`), o cron **nao tem catch-up**: se o computador estiver desligado/suspenso no horario, a varredura daquele dia nao acontece.
 
 No modo multi-area, cada ciclo executa todos os alvos configurados e aplica deduplicacao por area no banco.
 

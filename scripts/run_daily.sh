@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Executa uma varredura diaria do monitor (equivalente Linux do run_daily.bat).
 #
-# Desenhado para ser chamado de hora em hora pelo cron (ver install_schedule.sh):
-# - Se a varredura de HOJE ja foi concluida com sucesso, sai imediatamente.
-#   Isso reproduz o catch-up do Windows Task Scheduler (StartWhenAvailable):
-#   se a maquina estava desligada no primeiro horario, roda na proxima hora.
+# Chamado 1x por dia pelo cron (ver install_schedule.sh):
+# - Marker de sucesso diario: se a varredura de HOJE ja concluiu com sucesso,
+#   sai imediatamente — protege contra rodadas manuais duplicadas no mesmo dia.
 # - flock impede duas varreduras simultaneas (MultipleInstances=IgnoreNew).
 # - stdout/stderr vao para logs/run_YYYYMMDD.log (um arquivo por dia).
 

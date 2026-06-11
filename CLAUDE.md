@@ -21,7 +21,7 @@ python main.py
 `main.py` is **single-run**: one scan across all configured areas, then exit (0 on success, 1 on error). Daily scheduling is done by the OS:
 
 - **Windows**: `scripts/install_schedule.ps1` registers a Task Scheduler task calling `scripts/run_daily.bat`.
-- **Linux**: `scripts/install_schedule.sh` installs a crontab entry calling `scripts/run_daily.sh` hourly 08:05-22:05; the script itself enforces one successful run per day (marker file) with hourly catch-up if the machine was off, plus `flock` against overlap.
+- **Linux**: `scripts/install_schedule.sh [HH:MM]` installs a crontab entry calling `scripts/run_daily.sh` once a day (03:00 default). The script keeps a daily success marker (manual reruns same-day are no-ops) and a `flock` against overlap. No catch-up: machine off at the scheduled time = no scan that day.
 
 Ollama is only required if `LLM_MODEL` is a plain name like `llama3.1`. See "LLM backends" below.
 
