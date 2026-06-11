@@ -152,6 +152,46 @@ class TestExecutarFlow:
         assert mock_deps["notifier"].notificar.call_count == 1
         assert "Varredura Conclu" in mock_deps["notifier"].notificar.call_args.args[0]
 
+    def test_new_listagem_morta_nao_notifica(self, mock_deps, base_config):
+        """Sem inscricao ativa e com evento ja passado (ex: 'provas previstas maio/2025')
+        = listagem morta: salva silencioso, nunca notifica como NOVO."""
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "FUB",
+            "status": "banca definida, provas previstas para maio de 2025",
+            "link": "https://example.com/fub",
+            "data_fim_inscricao": None,
+            "data_referencia": _ontem(),
+        }
+        mock_deps["db"].buscar_registro.return_value = None
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        mock_deps["db"].atualizar_concurso.assert_called_once()
+
+    def test_new_previsto_sem_data_notifica(self, mock_deps, base_config):
+        """Concurso so 'previsto', sem data alguma, e oportunidade futura valida: notifica."""
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "PRODEPA",
+            "status": "comissao formada, edital previsto em breve",
+            "link": "https://example.com/prodepa",
+            "data_fim_inscricao": None,
+            "data_referencia": None,
+        }
+        mock_deps["db"].buscar_registro.return_value = None
+        mock_deps["db"].atualizar_concurso.return_value = 7
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_called_once()
+        assert "NOVO CONCURSO" in mock_deps["notifier"].notificar_concurso.call_args.args[1]
+
     def test_ignorar_block_is_skipped(self, mock_deps, base_config):
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>lixo</h3>"]
         mock_deps["ai"].extrair_dados.return_value = {"ignorar": True}
@@ -161,7 +201,25 @@ class TestExecutarFlow:
 
         mock_deps["db"].atualizar_concurso.assert_not_called()
         mock_deps["notifier"].notificar_concurso.assert_not_called()
+        # Zero concursos validos = varredura cega: alerta, nao heartbeat de sucesso.
         assert mock_deps["notifier"].notificar.call_count == 1
+        msg = mock_deps["notifier"].notificar.call_args.args[0]
+        assert "Atenção" in msg
+        assert "Varredura Conclu" not in msg
+
+    def test_scrape_vazio_envia_alerta_de_cegueira(self, mock_deps, base_config):
+        """Scraper sem blocos (site fora do ar / layout mudou) -> alerta, nunca heartbeat verde."""
+        mock_deps["scraper"].capturar_concursos.return_value = []
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["ai"].extrair_dados.assert_not_called()
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        assert mock_deps["notifier"].notificar.call_count == 1
+        msg = mock_deps["notifier"].notificar.call_args.args[0]
+        assert "Atenção" in msg
+        assert "Varredura Conclu" not in msg
 
     def test_estado_ignorado_pula_completamente(self, mock_deps, base_config):
         """Concurso marcado ❌ pelo usuario nao e notificado nem atualizado."""
@@ -185,8 +243,8 @@ class TestExecutarFlow:
         mock_deps["notifier"].notificar_concurso.assert_not_called()
         mock_deps["db"].atualizar_concurso.assert_not_called()
 
-    def test_legacy_row_sem_hash_backfill_silencioso(self, mock_deps, base_config):
-        """Linhas legadas (status_hash=NULL) sao SEMPRE backfilled sem notificar na 1a varredura."""
+    def test_legacy_row_sem_fase_backfill_silencioso(self, mock_deps, base_config):
+        """Linhas legadas (fase=NULL) sao backfilled sem notificar na 1a varredura."""
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
         mock_deps["ai"].extrair_dados.return_value = {
             "ignorar": False,
@@ -195,11 +253,12 @@ class TestExecutarFlow:
             "status": "reformulacao totalmente nova",
             "link": "https://example.com/trf1",
             "data_fim_inscricao": None,
+            "fase": "edital_publicado",
         }
         mock_deps["db"].buscar_registro.return_value = {
             "id": 5, "area": "TI", "nome": "TRF1",
             "status": "texto armazenado ha 24h",
-            "status_hash": None,  # legado
+            "status_hash": "qualquer", "fase": None,  # legado: sem fase
             "estado_usuario": "ativo", "data_fim_inscricao": None,
             "link": "https://example.com/trf1",
         }
@@ -207,82 +266,78 @@ class TestExecutarFlow:
         bot = ConcursoBot(base_config)
         bot.executar()
 
-        # NAO chama analise (evita falsos positivos pos-migracao).
-        mock_deps["ai"].analisar_mudanca.assert_not_called()
-        # NAO notifica.
         mock_deps["notifier"].notificar_concurso.assert_not_called()
-        # Backfill: faz update (preenche status_hash).
+        # Backfill: faz update (preenche a fase).
         mock_deps["db"].atualizar_concurso.assert_called_once()
 
-    def test_hash_identico_skipa_sem_chamar_analise(self, mock_deps, base_config):
-        """Corrige a repeticao: texto reformulado com mesmo fingerprint nao dispara."""
-        from src.utils.text import status_fingerprint
-        status_antigo = "Edital publicado"
-        # Variacoes triviais: case, whitespace e pontuacao de borda.
-        status_novo = "  EDITAL   publicado.  "
+    def test_reescrita_mesma_fase_nao_notifica(self, mock_deps, base_config):
+        """O bug central: a IA reformula o status (e ate adiciona detalhe), mas a
+        FASE e a mesma -> nada de notificacao. Mata o falso positivo ATI PE/BNDES."""
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
         mock_deps["ai"].extrair_dados.return_value = {
             "ignorar": False,
-            "nome": "TRF1",
-            "status": status_novo,
-            "link": "https://example.com/trf1",
+            "nome": "ATI PE",
+            "status": "Concurso da ATI-PE com 82 vagas. Banca ainda em definicao.",
+            "link": "https://example.com/atipe",
             "data_fim_inscricao": None,
+            "fase": "previsto",
         }
         mock_deps["db"].buscar_registro.return_value = {
-            "id": 5, "area": "TI", "nome": "TRF1", "status": status_antigo,
-            "status_hash": status_fingerprint(status_antigo),
+            "id": 5, "area": "TI", "nome": "ATI PE",
+            "status": "Concurso para Analista em Gestao de TI. Banca em definicao.",
+            "status_hash": "old", "fase": "previsto",
             "estado_usuario": "ativo", "data_fim_inscricao": None,
-            "link": "https://example.com/trf1",
+            "link": "https://example.com/atipe",
         }
 
         bot = ConcursoBot(base_config)
         bot.executar()
 
-        mock_deps["ai"].analisar_mudanca.assert_not_called()
         mock_deps["notifier"].notificar_concurso.assert_not_called()
 
-    def test_hash_diferente_analise_ignore_atualiza_silencioso(
-        self, mock_deps, base_config
-    ):
+    def test_fase_regressao_nao_notifica(self, mock_deps, base_config):
+        """Flapping da LLM: fase classificada como menos avancada que a salva
+        nao notifica (e a fase avancada e preservada)."""
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
         mock_deps["ai"].extrair_dados.return_value = {
             "ignorar": False,
             "nome": "TRF1",
-            "status": "texto completamente diferente",
-            "link": "https://example.com/trf1",
-            "data_fim_inscricao": None,
-        }
-        mock_deps["db"].buscar_registro.return_value = {
-            "id": 5, "area": "TI", "nome": "TRF1", "status": "outro texto",
-            "status_hash": "old", "estado_usuario": "ativo",
-            "data_fim_inscricao": None, "link": "https://example.com/trf1",
-        }
-        mock_deps["ai"].analisar_mudanca.return_value = None  # IGNORE
-
-        bot = ConcursoBot(base_config)
-        bot.executar()
-
-        # Atualiza DB com hash novo, mas nao notifica.
-        mock_deps["db"].atualizar_concurso.assert_called_once()
-        mock_deps["notifier"].notificar_concurso.assert_not_called()
-
-    def test_mudanca_relevante_notifica_quando_prazo_aberto(
-        self, mock_deps, base_config
-    ):
-        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
-        mock_deps["ai"].extrair_dados.return_value = {
-            "ignorar": False,
-            "nome": "TRF1",
-            "status": "banca definida",
+            "status": "texto",
             "link": "https://example.com/trf1",
             "data_fim_inscricao": _amanha(),
+            "fase": "banca_definida",  # regressao vs inscricoes_abertas
         }
         mock_deps["db"].buscar_registro.return_value = {
-            "id": 5, "area": "TI", "nome": "TRF1", "status": "edital publicado",
-            "status_hash": "old", "estado_usuario": "ativo",
-            "data_fim_inscricao": _amanha(), "link": "https://example.com/trf1",
+            "id": 5, "area": "TI", "nome": "TRF1", "status": "antigo",
+            "status_hash": "old", "fase": "inscricoes_abertas",
+            "estado_usuario": "ativo", "data_fim_inscricao": _amanha(),
+            "link": "https://example.com/trf1",
         }
-        mock_deps["ai"].analisar_mudanca.return_value = "Banca CEBRASPE anunciada."
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        # Preserva a fase mais avancada ja vista.
+        assert mock_deps["db"].atualizar_concurso.call_args.kwargs["fase"] == "inscricoes_abertas"
+
+    def test_fase_avancou_prazo_aberto_notifica(self, mock_deps, base_config):
+        """Avanco real de fase com inscricao aberta -> notifica com a transicao."""
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "TRF1",
+            "status": "edital publicado",
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": _amanha(),
+            "fase": "edital_publicado",
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 5, "area": "TI", "nome": "TRF1", "status": "banca definida",
+            "status_hash": "old", "fase": "banca_definida",
+            "estado_usuario": "ativo", "data_fim_inscricao": _amanha(),
+            "link": "https://example.com/trf1",
+        }
         mock_deps["db"].atualizar_concurso.return_value = 5
 
         bot = ConcursoBot(base_config)
@@ -291,12 +346,37 @@ class TestExecutarFlow:
         mock_deps["notifier"].notificar_concurso.assert_called_once()
         call = mock_deps["notifier"].notificar_concurso.call_args
         assert "ATUALIZA" in call.args[1]
-        assert "Banca CEBRASPE anunciada" in call.args[1]
+        assert "Banca definida" in call.args[1] and "Edital publicado" in call.args[1]
 
-    def test_mudanca_relevante_pos_prazo_ativo_atualiza_silencioso(
+    def test_data_fim_muda_mesma_fase_notifica(self, mock_deps, base_config):
+        """Mudanca de data de fim de inscricao (mesma fase) e relevante -> notifica."""
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "TRF1",
+            "status": "inscricoes prorrogadas",
+            "link": "https://example.com/trf1",
+            "data_fim_inscricao": _amanha(),
+            "fase": "inscricoes_abertas",
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 5, "area": "TI", "nome": "TRF1", "status": "inscricoes abertas",
+            "status_hash": "old", "fase": "inscricoes_abertas",
+            "estado_usuario": "ativo", "data_fim_inscricao": _ontem(),
+            "link": "https://example.com/trf1",
+        }
+        mock_deps["db"].atualizar_concurso.return_value = 5
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_called_once()
+        assert "Inscrições até" in mock_deps["notifier"].notificar_concurso.call_args.args[1]
+
+    def test_fase_avancou_pos_prazo_ativo_atualiza_silencioso(
         self, mock_deps, base_config
     ):
-        """estado 'ativo' + prazo encerrado = atualiza DB mas nao notifica."""
+        """estado 'ativo' + avanco de fase mas concurso inativo = atualiza DB sem notificar."""
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
         mock_deps["ai"].extrair_dados.return_value = {
             "ignorar": False,
@@ -304,13 +384,14 @@ class TestExecutarFlow:
             "status": "resultado publicado",
             "link": "https://example.com/trf1",
             "data_fim_inscricao": _ontem(),
+            "fase": "concluido",
         }
         mock_deps["db"].buscar_registro.return_value = {
             "id": 5, "area": "TI", "nome": "TRF1", "status": "antigo",
-            "status_hash": "old", "estado_usuario": "ativo",
-            "data_fim_inscricao": _ontem(), "link": "https://example.com/trf1",
+            "status_hash": "old", "fase": "inscricoes_encerradas",
+            "estado_usuario": "ativo", "data_fim_inscricao": _ontem(),
+            "link": "https://example.com/trf1",
         }
-        mock_deps["ai"].analisar_mudanca.return_value = "Resultado publicado hoje."
 
         bot = ConcursoBot(base_config)
         bot.executar()
@@ -318,7 +399,7 @@ class TestExecutarFlow:
         mock_deps["db"].atualizar_concurso.assert_called_once()
         mock_deps["notifier"].notificar_concurso.assert_not_called()
 
-    def test_mudanca_relevante_pos_prazo_seguindo_notifica(
+    def test_fase_avancou_pos_prazo_seguindo_notifica(
         self, mock_deps, base_config
     ):
         """estado 'seguindo' ignora o prazo — usuario quer updates sempre."""
@@ -329,13 +410,14 @@ class TestExecutarFlow:
             "status": "resultado publicado",
             "link": "https://example.com/trf1",
             "data_fim_inscricao": _ontem(),
+            "fase": "concluido",
         }
         mock_deps["db"].buscar_registro.return_value = {
             "id": 5, "area": "TI", "nome": "TRF1", "status": "antigo",
-            "status_hash": "old", "estado_usuario": "seguindo",
-            "data_fim_inscricao": _ontem(), "link": "https://example.com/trf1",
+            "status_hash": "old", "fase": "inscricoes_encerradas",
+            "estado_usuario": "seguindo", "data_fim_inscricao": _ontem(),
+            "link": "https://example.com/trf1",
         }
-        mock_deps["ai"].analisar_mudanca.return_value = "Resultado publicado."
         mock_deps["db"].atualizar_concurso.return_value = 5
 
         bot = ConcursoBot(base_config)

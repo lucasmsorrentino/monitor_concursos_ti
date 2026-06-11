@@ -1,6 +1,6 @@
 """Persistencia SQLite para o monitor de concursos.
 
-Schema v3 (atual):
+Schema v4 (atual):
     editais(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         area TEXT NOT NULL,
@@ -8,7 +8,8 @@ Schema v3 (atual):
         status TEXT NOT NULL,
         link TEXT,
         data_fim_inscricao TEXT,       -- ISO YYYY-MM-DD ou NULL
-        status_hash TEXT,              -- fingerprint do status para dedup
+        status_hash TEXT,              -- fingerprint do status (legado; ver fase)
+        fase TEXT,                     -- fase do concurso (vocabulario controlado)
         estado_usuario TEXT NOT NULL DEFAULT 'ativo',  -- ativo|ignorado|seguindo
         ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(area, nome)
@@ -20,6 +21,10 @@ Historico de migracoes:
     v3: adiciona `id AUTOINCREMENT` (necessario para callback_data do Telegram),
         `data_fim_inscricao`, `status_hash`, `estado_usuario`.
         `(area, nome)` mantem uniqueness via UNIQUE constraint.
+    v4: adiciona `fase` (vocabulario controlado). A deteccao de mudanca passa a
+        comparar fase + data_fim_inscricao em vez do hash do texto livre, que
+        variava a cada reescrita da LLM e gerava falsos positivos. Linhas
+        legadas (fase NULL) sao backfilled silenciosamente na 1a varredura.
 
 Dedup por link: quando o bloco traz um link especifico (diferente da
 URL-indice do scraper), usamos ele como chave canonica de identidade.
@@ -90,6 +95,8 @@ class DatabaseManager:
                 cursor.execute(
                     "ALTER TABLE editais ADD COLUMN estado_usuario TEXT NOT NULL DEFAULT 'ativo'"
                 )
+            if "fase" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN fase TEXT")
 
             self.conn.commit()
         except sqlite3.Error as e:
@@ -108,6 +115,7 @@ class DatabaseManager:
                 link TEXT,
                 data_fim_inscricao TEXT,
                 status_hash TEXT,
+                fase TEXT,
                 estado_usuario TEXT NOT NULL DEFAULT 'ativo',
                 ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(area, nome)
@@ -128,6 +136,7 @@ class DatabaseManager:
                 link TEXT,
                 data_fim_inscricao TEXT,
                 status_hash TEXT,
+                fase TEXT,
                 estado_usuario TEXT NOT NULL DEFAULT 'ativo',
                 ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(area, nome)
@@ -191,6 +200,7 @@ class DatabaseManager:
         url_indice: str = "",
         status_hash: str | None = None,
         data_fim_inscricao: str | None = None,
+        fase: str | None = None,
     ) -> int:
         """Insere novo concurso ou atualiza existente, preservando `id`.
 
@@ -220,10 +230,11 @@ class DatabaseManager:
                                status = ?,
                                status_hash = COALESCE(?, status_hash),
                                data_fim_inscricao = COALESCE(?, data_fim_inscricao),
+                               fase = COALESCE(?, fase),
                                ultima_atualizacao = CURRENT_TIMESTAMP
                          WHERE id = ?
                         """,
-                        (nome_final, status, status_hash, data_fim_inscricao, row["id"]),
+                        (nome_final, status, status_hash, data_fim_inscricao, fase, row["id"]),
                     )
                     self.conn.commit()
                     return row["id"]
@@ -241,10 +252,11 @@ class DatabaseManager:
                            link = ?,
                            status_hash = COALESCE(?, status_hash),
                            data_fim_inscricao = COALESCE(?, data_fim_inscricao),
+                           fase = COALESCE(?, fase),
                            ultima_atualizacao = CURRENT_TIMESTAMP
                      WHERE id = ?
                     """,
-                    (status, link, status_hash, data_fim_inscricao, row["id"]),
+                    (status, link, status_hash, data_fim_inscricao, fase, row["id"]),
                 )
                 self.conn.commit()
                 return row["id"]
@@ -252,10 +264,10 @@ class DatabaseManager:
             cursor.execute(
                 """
                 INSERT INTO editais
-                    (area, nome, status, link, status_hash, data_fim_inscricao, ultima_atualizacao)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    (area, nome, status, link, status_hash, data_fim_inscricao, fase, ultima_atualizacao)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
-                (self.area, nome, status, link, status_hash, data_fim_inscricao),
+                (self.area, nome, status, link, status_hash, data_fim_inscricao, fase),
             )
             self.conn.commit()
             return cursor.lastrowid

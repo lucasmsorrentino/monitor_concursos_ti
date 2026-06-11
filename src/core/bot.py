@@ -15,6 +15,12 @@ from src.intelligence.langchain_unit import IntelligenceUnit
 from src.notifiers.telegram import TelegramNotifier
 from src.notifiers.telegram_callbacks import TelegramCallbackProcessor
 from src.utils.text import status_fingerprint
+from src.utils.fases import (
+    sanitizar_fase,
+    fase_avancou,
+    fase_mais_avancada,
+    label as fase_label,
+)
 
 
 class ConcursoBot:
@@ -106,7 +112,24 @@ class ConcursoBot:
                 elif resultado == "atualizado":
                     atualizados_cont += 1
 
-            if novos_cont == 0 and atualizados_cont == 0:
+            if total_concursos_validos == 0:
+                # A pagina do Gran sempre lista dezenas de concursos. Zero validos
+                # significa varredura cega: site fora do ar, bloqueio, ou mudanca
+                # de layout que quebrou o fatiamento. Nunca mascarar isso como sucesso.
+                self.logger.warning(
+                    f"🚫 Nenhum concurso valido extraido para [{self.area_name}] "
+                    f"({total_blocos} bloco(s) brutos). Possivel falha de rede ou mudanca no site; "
+                    "enviando alerta em vez do heartbeat de sucesso."
+                )
+                aviso_msg = (
+                    f"⚠️ <b>Atenção - {self.area_name}</b>\n\n"
+                    f"Não consegui extrair nenhum concurso da página nesta varredura.\n"
+                    f"Costuma ser instabilidade do site (tente mais tarde) ou mudança no layout "
+                    f"(o monitor pode precisar de ajuste).\n\n"
+                    f"🔗 <a href='{self.scraper.url}'>Abrir a página manualmente</a>"
+                )
+                self.notifier.notificar(aviso_msg)
+            elif novos_cont == 0 and atualizados_cont == 0:
                 self.logger.info("📭 Nenhuma novidade relevante encontrada. Enviando status para o Telegram...")
                 status_msg = (
                     f"✅ <b>Varredura Concluída</b>\n\n"
@@ -127,15 +150,26 @@ class ConcursoBot:
     def _decidir_e_notificar(self, dados: dict) -> str:
         """Aplica a matriz de decisao para um concurso ja extraido.
 
+        Um concurso e considerado `inativo` quando a inscricao ja encerrou
+        (`data_fim_inscricao` passada) OU quando e uma listagem morta — sem
+        janela de inscricao conhecida e com o ultimo evento citado no passado
+        (ex: "provas previstas para maio de 2025"). Concursos so "previstos",
+        sem data alguma, NAO sao inativos.
+
+        A deteccao de mudanca compara a `fase` (vocabulario controlado) e a
+        `data_fim_inscricao` — NAO o texto livre do status, que a LLM reformula
+        a cada extracao (fonte dos antigos falsos positivos). So avanco de fase
+        ou mudanca de data geram notificacao; reescrita e regressao de fase nao.
+
         Matriz:
             - estado 'ignorado' → skip total (nem atualiza DB)
-            - registro None + prazo passou → salva silencioso
-            - registro None + prazo aberto/ausente → notifica NOVO + salva
-            - hash identico → skip (corrige repeticao)
-            - hash diferente + analise IGNORE → atualiza silencioso
-            - mudanca relevante:
+            - registro None + inativo → salva silencioso
+            - registro None + ativo → notifica NOVO + salva
+            - registro legado (fase NULL) → backfill silencioso da fase
+            - sem avanco de fase e sem mudanca de data → refresh silencioso
+            - transicao real (fase avancou e/ou data mudou):
                 - estado 'seguindo' → notifica sempre
-                - 'ativo' + prazo passou → atualiza silencioso
+                - inativo (e nao 'seguindo') → atualiza silencioso
                 - caso contrario → notifica ATUALIZACAO
 
         Returns:
@@ -145,6 +179,7 @@ class ConcursoBot:
         status_raw = dados.get('status', 'Status não detalhado')
         link = dados.get('link', self.scraper.url)
         data_fim = dados.get('data_fim_inscricao')
+        fase_nova = sanitizar_fase(dados.get('fase'))
 
         nome_esc = html.escape(nome_raw)
         status_esc = html.escape(status_raw)
@@ -159,18 +194,27 @@ class ConcursoBot:
             return "skip"
 
         prazo_encerrado = self._prazo_encerrado(data_fim)
+        # Listagem morta: sem janela de inscricao conhecida E o ultimo evento citado
+        # ja passou (ex: "provas previstas para maio de 2025"). Distinto de um
+        # "previsto" legitimo, que nao traz data alguma (data_referencia = None).
+        listagem_morta = data_fim is None and self._prazo_encerrado(
+            dados.get('data_referencia')
+        )
+        inativo = prazo_encerrado or listagem_morta
 
         # --- Caso A: inedito ---
         if registro is None:
-            if prazo_encerrado:
+            if inativo:
+                motivo = "inscricao encerrada" if prazo_encerrado else "evento ja passou (listagem antiga)"
                 self.logger.info(
-                    f"🔕 [NOVO+FECHADO] {nome_raw}: inscricao encerrou em {data_fim}; salvando silencioso."
+                    f"🔕 [NOVO+INATIVO] {nome_raw}: {motivo}; salvando silencioso."
                 )
                 self.db.atualizar_concurso(
                     nome_raw, status_raw, link,
                     url_indice=self.scraper.url,
                     status_hash=hash_novo,
                     data_fim_inscricao=data_fim,
+                    fase=fase_nova,
                 )
                 return "skip"
 
@@ -180,11 +224,13 @@ class ConcursoBot:
                 url_indice=self.scraper.url,
                 status_hash=hash_novo,
                 data_fim_inscricao=data_fim,
+                fase=fase_nova,
             )
             msg = (
                 f"<b>🆕 NOVO CONCURSO - {self.area_name}</b>\n\n"
                 f"🏛 <b>Instituição:</b> {nome_esc}\n"
                 f"📝 <b>Status:</b> {status_esc}\n"
+                + (f"📊 <b>Fase:</b> {fase_label(fase_nova)}\n" if fase_nova else "")
                 + (f"📅 <b>Inscrições até:</b> {html.escape(data_fim)}\n" if data_fim else "")
                 + f"\n🔗 <a href='{link}'>Clique aqui para ver os detalhes</a>"
             )
@@ -192,76 +238,80 @@ class ConcursoBot:
             self.logger.info(f"✅ {nome_raw} salvo no banco de dados (id={id_interno}).")
             return "novo"
 
-        # --- Caso B.1: linha legada sem status_hash → backfill silencioso ---
-        # No primeiro ciclo pos-migracao, o texto em `status` foi armazenado
-        # 24h atras e a LLM frequentemente reformula. Sem hash confiavel, a
-        # analise da chain pode dar falsos positivos. Estrategia: silenciar
-        # a primeira varredura para essas linhas — apenas popula o hash e
-        # atualiza o status. A partir do proximo ciclo, a comparacao por
-        # hash funciona normalmente.
-        if not registro.get('status_hash'):
-            self.logger.info(f"🧮 [BACKFILL] {nome_raw}: populando status_hash (legado); sem notificacao.")
+        # --- Caso B.1: linha legada sem fase → backfill silencioso ---
+        # Linhas anteriores ao schema v4 nao tem `fase`. Como a LLM reformula o
+        # status, comparar texto daria falso positivo. Estrategia: na 1a varredura
+        # apenas popula a fase, sem notificar. A partir do proximo ciclo a
+        # comparacao por fase funciona normalmente.
+        fase_antiga = registro.get('fase')
+        if fase_antiga is None:
+            self.logger.info(f"🧮 [BACKFILL] {nome_raw}: populando fase (legado); sem notificacao.")
             self.db.atualizar_concurso(
                 nome_raw, status_raw, link,
                 url_indice=self.scraper.url,
                 status_hash=hash_novo,
                 data_fim_inscricao=data_fim,
+                fase=fase_nova,
             )
             return "skip"
 
-        # --- Caso B.2: hash identico (corrige o bug da repeticao) ---
-        if registro['status_hash'] == hash_novo:
-            self.logger.debug(f"😴 {nome_raw}: fingerprint identico; sem mudanca real.")
-            # Atualiza apenas data_fim caso a LLM tenha extraido uma data nova.
-            if data_fim and registro.get('data_fim_inscricao') != data_fim:
-                self.db.atualizar_concurso(
-                    nome_raw, status_raw, link,
-                    url_indice=self.scraper.url,
-                    status_hash=hash_novo,
-                    data_fim_inscricao=data_fim,
-                )
-            return "skip"
+        data_antiga = registro.get('data_fim_inscricao')
+        avancou = fase_avancou(fase_antiga, fase_nova)
+        # Data so conta como mudanca quando uma data NOVA aparece e difere da antiga.
+        # Data sumindo (nova None) e quase sempre falha de extracao, nao mudanca real.
+        data_mudou = data_fim is not None and data_fim != data_antiga
 
-        # --- Caso C: existente, texto diferente — avaliar relevancia ---
-        status_antigo = registro['status']
-        self.logger.info(f"🔄 [MUDANÇA BRUTA] Detectada alteração de texto em: {nome_raw}")
-        self.logger.info(f"🧠 Consultando IA para analisar relevância em {nome_raw}...")
-        analise = self.ai.analisar_mudanca(status_antigo, status_raw)
-
-        if not analise:
-            self.logger.info(f"😴 [IRRELEVANTE] IA decidiu ignorar a mudança em {nome_raw}.")
+        # --- Caso B.2: sem transicao real → refresh silencioso ---
+        # Reescrita do status ou regressao de fase (flapping da LLM) nao notificam.
+        # Preserva a fase mais avancada ja vista para nao oscilar.
+        if not avancou and not data_mudou:
+            self.logger.debug(f"😴 {nome_raw}: sem avanco de fase nem mudanca de data; sem notificacao.")
             self.db.atualizar_concurso(
                 nome_raw, status_raw, link,
                 url_indice=self.scraper.url,
                 status_hash=hash_novo,
                 data_fim_inscricao=data_fim,
+                fase=fase_mais_avancada(fase_antiga, fase_nova),
             )
             return "skip"
 
+        # --- Caso C: transicao real (fase avancou e/ou data mudou) ---
+        fase_final = fase_mais_avancada(fase_antiga, fase_nova)
         estado = registro.get('estado_usuario', 'ativo')
-        if estado != 'seguindo' and prazo_encerrado:
+        if estado != 'seguindo' and inativo:
             self.logger.info(
-                f"🔕 [POS-PRAZO+ATIVO] {nome_raw}: mudanca relevante mas inscricao encerrou; atualiza silencioso."
+                f"🔕 [TRANSICAO+INATIVO] {nome_raw}: avanco real mas concurso inativo; atualiza silencioso."
             )
             self.db.atualizar_concurso(
                 nome_raw, status_raw, link,
                 url_indice=self.scraper.url,
                 status_hash=hash_novo,
                 data_fim_inscricao=data_fim,
+                fase=fase_final,
             )
             return "skip"
 
-        self.logger.info(f"🔔 [RELEVANTE] IA confirmou mudança importante para {nome_raw}.")
-        analise_esc = html.escape(analise)
+        self.logger.info(
+            f"🔔 [TRANSICAO] {nome_raw}: {fase_label(fase_antiga)} → {fase_label(fase_nova)} "
+            f"(data_mudou={data_mudou})."
+        )
         id_interno = self.db.atualizar_concurso(
             nome_raw, status_raw, link,
             url_indice=self.scraper.url,
             status_hash=hash_novo,
             data_fim_inscricao=data_fim,
+            fase=fase_final,
         )
+        linhas_transicao = []
+        if avancou:
+            linhas_transicao.append(f"📈 <b>{fase_label(fase_antiga)} → {fase_label(fase_nova)}</b>")
+        if data_mudou:
+            linhas_transicao.append(f"📅 <b>Inscrições até:</b> {html.escape(data_fim)}")
+        bloco_transicao = ("\n".join(linhas_transicao) + "\n\n") if linhas_transicao else ""
         msg = (
-            f"<b>🔔 ATUALIZAÇÃO IMPORTANTE - {self.area_name}: {nome_esc}</b>\n\n"
-            f"💡 <b>O que mudou:</b> {analise_esc}\n\n"
+            f"<b>🔔 ATUALIZAÇÃO - {self.area_name}: {nome_esc}</b>\n\n"
+            f"{bloco_transicao}"
+            f"📝 <b>Status:</b> {status_esc}\n\n"
             f"🔗 <a href='{link}'>Clique aqui para ver os detalhes</a>"
         )
         self.notifier.notificar_concurso(id_interno, msg)

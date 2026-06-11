@@ -18,6 +18,8 @@ from datetime import date
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+from src.utils.fases import sanitizar_fase
+
 
 class IntelligenceUnit:
     """Unidade de inteligência que orquestra extração e análise via LLM.
@@ -104,13 +106,31 @@ class IntelligenceUnit:
                e mencionar UMA data passada, use essa data.
                Se NÃO houver NENHUMA data clara, use `null`. Nunca invente.
                Converta DD/MM/YYYY para YYYY-MM-DD. Se o ano estiver ausente, assuma o ano corrente.
-            5. Responda APENAS com JSON válido:
+            5. `data_referencia` é a data de evento mais relevante do concurso, em ISO `YYYY-MM-DD`.
+               Preferencia: data da prova/aplicacao; senao a data de fim de inscricao; senao
+               qualquer data de evento citada (ex: "provas previstas para maio de 2025",
+               "edital previsto para marco/2026"). Se houver so mes/ano, use o primeiro dia do mes
+               (maio de 2025 -> 2025-05-01). Se NAO houver NENHUMA data, use `null`. Nunca invente.
+               IMPORTANTE: concursos apenas "previstos"/"em estudo" SEM nenhuma data citada devem ter
+               `data_referencia: null` (sao oportunidades futuras validas, nao listagens mortas).
+            6. `fase` classifica o estagio do concurso. Escolha EXATAMENTE UMA destas opcoes
+               (use o valor literal, em minusculas):
+                 - "previsto": autorizado, em estudo, comissao formada; sem banca nem edital.
+                 - "banca_definida": banca/organizadora escolhida, edital ainda NAO publicado.
+                 - "edital_publicado": edital publicado, mas inscricoes ainda nao abriram.
+                 - "inscricoes_abertas": inscricoes abertas neste momento.
+                 - "inscricoes_encerradas": inscricoes ja encerradas (aguardando ou em provas).
+                 - "concluido": concurso finalizado/antigo (provas ja realizadas, homologado).
+               Na duvida entre duas fases adjacentes, escolha a MENOS avancada.
+            7. Responda APENAS com JSON válido:
             {{{{
                 "ignorar": false,
                 "nome": "Nome do Concurso ou Órgão",
                 "status": "Resumo do status atual em até 2 frases",
                 "link": "https://...",
-                "data_fim_inscricao": "YYYY-MM-DD ou null"
+                "data_fim_inscricao": "YYYY-MM-DD ou null",
+                "data_referencia": "YYYY-MM-DD ou null",
+                "fase": "uma das 6 opcoes acima"
             }}}}
         """
 
@@ -262,6 +282,10 @@ class IntelligenceUnit:
                 dados["data_fim_inscricao"] = self._sanitizar_data(
                     dados.get("data_fim_inscricao")
                 )
+                dados["data_referencia"] = self._sanitizar_data(
+                    dados.get("data_referencia")
+                )
+                dados["fase"] = sanitizar_fase(dados.get("fase"))
                 return dados
             except Exception as e:
                 self.logger.warning(

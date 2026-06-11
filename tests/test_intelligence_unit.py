@@ -89,6 +89,7 @@ class TestExtrairDados:
         assert result == {
             "ignorar": False, "nome": "TRF1", "status": "aberto",
             "link": "https://x", "data_fim_inscricao": "2026-12-31",
+            "data_referencia": None, "fase": None,
         }
 
     def test_sanitiza_data_malformada_para_none(self, ollama_unit, mocker):
@@ -127,7 +128,7 @@ class TestExtrairDados:
 
         result = ollama_unit.extrair_dados("<h3>x</h3>")
 
-        assert result == {"ignorar": True, "data_fim_inscricao": None}
+        assert result == {"ignorar": True, "data_fim_inscricao": None, "data_referencia": None, "fase": None}
         assert ollama_unit.chain_extracao.invoke.call_count == 2
 
     def test_returns_ignorar_true_after_all_retries_fail(self, ollama_unit, mocker):

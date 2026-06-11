@@ -31,7 +31,7 @@ class TestSchemaCreation:
         columns = {row[1] for row in cursor.fetchall()}
         assert columns == {
             "id", "area", "nome", "status", "link",
-            "data_fim_inscricao", "status_hash", "estado_usuario",
+            "data_fim_inscricao", "status_hash", "fase", "estado_usuario",
             "ultima_atualizacao",
         }
         conn.close()
