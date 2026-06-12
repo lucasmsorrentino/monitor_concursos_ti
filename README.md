@@ -8,16 +8,16 @@ Utiliza uma arquitetura **AI-First**, onde uma LLM (Ollama local, API remota ou 
 
 - **Detecção de mudança por fase estruturada** (schema v4): a LLM classifica cada concurso num vocabulário fechado (`previsto → banca_definida → edital_publicado → inscricoes_abertas → inscricoes_encerradas → concluido`). Só avanço de fase ou mudança de prazo notifica — reescrita de texto e regressão de fase (flapping da LLM) são silenciosas. Mata os falsos positivos de "ATUALIZAÇÃO IMPORTANTE".
 - **Filtro de listagem morta**: concurso sem inscrição ativa cujo último evento citado já passou (ex.: "provas previstas para maio de 2025") é salvo em silêncio, não notificado como novo. "Previstos" legítimos (sem data alguma) continuam notificando.
-- **Alerta de varredura cega**: scrape que extrai 0 concursos envia ⚠️ (site fora do ar / layout mudou) em vez do falso "nada novo".
+- **Alerta de varredura cega**: pagina sem nenhum bloco (site fora do ar / layout mudou) envia ⚠️ em vez do falso "nada novo". Em alvos **filtrados** por `keywords_include` (ex.: nicho numa pagina generica), "0 concursos da area" e dia quieto normal e vira heartbeat.
 - **Botões interativos no Telegram**: ⭐ Seguir (notifica para sempre) / ❌ Não tenho interesse (silencia o concurso).
 - **Modo single-run**: `main.py` executa uma varredura e encerra. Agendamento diario pelo SO — Windows Task Scheduler (`scripts/install_schedule.ps1`) ou cron no Linux (`scripts/install_schedule.sh`).
 - **Tres backends de LLM** selecionaveis via `LLM_MODEL`: Ollama local, API remota (LiteLLM), ou Claude Code CLI (usa assinatura local, custo zero).
-- **Bateria de testes**: 144 testes unitarios e de integracao com pytest (`pip install -r requirements-dev.txt && pytest`).
+- **Bateria de testes**: 149 testes unitarios e de integracao com pytest (`pip install -r requirements-dev.txt && pytest`).
 - Execucao multi-area no mesmo ciclo via `MONITOR_TARGETS_JSON`.
 - Roteamento de notificacoes para um ou mais `chat_id` por area.
 - Filtragem area-aware com palavras-chave de inclusao/exclusao (pre-filtro textual + reforco no prompt da IA).
-- Suporte a paginas de blog (`concursos-ti/`, `concursos-educacao/`) e paginas de carreira do Gran.
-- Dedup por link canonico + chave composta `(area, nome)` no SQLite.
+- Suporte a paginas de blog do Gran (`concursos-ti/`, `concursos-educacao/`, `concursos-abertos/`). As paginas de carreira (`/cursos/carreira/*`) viraram JS-rendered em jun/2026 e nao sao mais scrapeaveis — para nichos, use alvo filtrado por `keywords_include` na pagina generica `concursos-abertos/`.
+- Dedup por link canonico (prompt forca o link mais curto do blog) + chave composta `(area, nome)` case-insensitive no SQLite.
 
 ---
 
@@ -45,10 +45,10 @@ Na abordagem tradicional de Web Scraping, o código quebra toda vez que o site m
 | **Detecção por fase estruturada** | A mudança é detectada comparando a `fase` (vocabulário fechado de 6 estágios) e o prazo de inscrição — não o texto livre, que a LLM reformula a cada varredura. Só avanço de fase ou mudança de data notifica. |
 | **Filtro de listagem morta** | Concursos antigos que continuam na página (sem inscrição ativa e com último evento no passado) são salvos em silêncio. |
 | **Botões interativos** | Cada notificação traz ⭐ Seguir / ❌ Não tenho interesse; o estado controla as notificações futuras daquele concurso. |
-| **Scraping Resiliente** | O BeautifulSoup atua apenas como fatiador de HTML, sem depender de seletores CSS específicos. Varredura que extrai 0 concursos dispara alerta ⚠️ em vez de falso "nada novo". |
-| **Persistência (SQLite)** | Banco local (schema v4) com dedup por link canônico e migrações automáticas. |
+| **Scraping Resiliente** | O BeautifulSoup atua apenas como fatiador de HTML, sem depender de seletores CSS específicos. Página que não entrega nenhum bloco dispara alerta ⚠️ em vez de falso "nada novo". |
+| **Persistência (SQLite)** | Banco local (schema v4) com dedup por link canônico, fallback por nome case-insensitive e migrações automáticas. |
 | **Notificações Telegram** | Alertas formatados em HTML, roteados por área para um ou mais chats. |
-| **Agendamento Automático** | Execução diária via Windows Task Scheduler (`scripts/install_schedule.ps1`) ou cron no Linux (`scripts/install_schedule.sh`), ambos com catch-up se o PC estava desligado no horário. |
+| **Agendamento Automático** | Execução diária via Windows Task Scheduler (`scripts/install_schedule.ps1`, com catch-up) ou cron no Linux (`scripts/install_schedule.sh`, sem catch-up). |
 | **Logging Profissional** | Registros com rotação de arquivos (`RotatingFileHandler`) para monitoramento de saúde do bot. |
 
 ---
@@ -388,7 +388,8 @@ No modo multi-area, cada ciclo executa todos os alvos configurados e aplica dedu
 | Concurso marcado ⭐ Seguir | Notifica toda transicao real, mesmo apos o prazo |
 | Concurso marcado ❌ Não tenho interesse | Nunca mais notifica (nem atualiza) |
 | Varredura sem nenhuma novidade | ✅ heartbeat "Varredura Concluída" |
-| Varredura que nao extraiu nenhum concurso | ⚠️ alerta de possivel site fora do ar / layout novo |
+| Alvo filtrado (`keywords_include`): nenhum bloco da area hoje | ✅ heartbeat "nenhuma é da sua área hoje" |
+| Pagina sem nenhum bloco, ou 0 validos em alvo SEM filtro | ⚠️ alerta de possivel site fora do ar / layout novo |
 
 ## Migracao de banco
 
@@ -426,7 +427,7 @@ pytest tests/test_concurso_bot.py::TestExecutarFlow::test_new_concurso_triggers_
 pytest --cov=src --cov=config --cov-report=term-missing
 ```
 
-Organizacao dos testes (`tests/`, 144 testes):
+Organizacao dos testes (`tests/`, 149 testes):
 
 | Arquivo | Cobertura |
 | --- | --- |
@@ -454,7 +455,7 @@ Organizacao dos testes (`tests/`, 144 testes):
 | Telegram Bot API | Notificações com botões inline + callbacks |
 | Task Scheduler / cron | Agendamento diário externo (Windows / Linux) |
 | python-dotenv | Carregamento de variáveis de ambiente |
-| pytest + pytest-mock | Suíte de 144 testes sem dependências externas |
+| pytest + pytest-mock | Suíte de 149 testes sem dependências externas |
 
 ---
 

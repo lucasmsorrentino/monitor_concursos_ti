@@ -29,7 +29,7 @@ Ollama is only required if `LLM_MODEL` is a plain name like `llama3.1`. See "LLM
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                                    # full suite (144 tests)
+pytest                                    # full suite (149 tests)
 pytest tests/test_concurso_bot.py -v      # one file
 pytest -k "TestExecutarFlow"              # by name pattern
 pytest --cov=src --cov=config             # with coverage
@@ -42,7 +42,7 @@ All external dependencies are mocked — tests do not require Ollama, an API key
 **Pipeline flow**: `main.py` builds one `ConcursoBot` per target from `config/loader.py` → `MultiAreaRunner` → each `ConcursoBot` → `GranScraper` → `IntelligenceUnit` → `DatabaseManager` → `TelegramNotifier`
 
 1. **GranScraper** (`src/scrapers/gran_scraper.py`) slices page HTML into blocks — does NO data extraction. Default mode slices by `<h3>` tags; URLs containing `/cursos/carreira/` use a separate path that slices by `<h3>`/`<h4>` section headings plus `<li>` items and filters hardcoded section names (see `_CARREIRA_SECOES` / `_RUIDO_MARCADORES`).
-2. **ConcursoBot** (`src/core/bot.py`) orchestrates per-area: pending Telegram callbacks → cheap keyword pre-filter (`_passa_filtro_palavras`) → LLM extraction → DB lookup → **fase-based decision matrix** (`_decidir_e_notificar`, no second LLM call) → notification. End-of-cycle messages: heartbeat "Varredura Concluída" when nothing new, or a ⚠️ blind-scan alert when ZERO valid contests were extracted (site down / layout change) — never a false "nothing new".
+2. **ConcursoBot** (`src/core/bot.py`) orchestrates per-area: pending Telegram callbacks → cheap keyword pre-filter (`_passa_filtro_palavras`) → LLM extraction → DB lookup → **fase-based decision matrix** (`_decidir_e_notificar`, no second LLM call) → notification. End-of-cycle messages: heartbeat "Varredura Concluída" when nothing new, or a ⚠️ blind-scan alert when the scan is truly blind — never a false "nothing new". Blind = zero raw blocks, OR zero valid extractions on a target WITHOUT `keywords_include`. Filtered targets on generic pages (e.g. SOCIOLOGIA_ARTES on `concursos-abertos/`) treat zero valid as a normal quiet day (heartbeat "nenhuma é da sua área hoje").
 3. **IntelligenceUnit** (`src/intelligence/langchain_unit.py`) runs LangChain chains over the backend selected by `_detect_backend(model_name)`:
    - **Extraction chain** (JSON mode): HTML block → `{ignorar, nome, status, link, data_fim_inscricao, data_referencia, fase}`. The system prompt receives `area_context` + include/exclude keywords so the LLM rejects off-area blocks. `fase` is one of 6 literals (see "Fase vocabulary"); `data_referencia` is the most relevant event date (ISO; month/year → first day; null when no date). Both are sanitized post-parse (`sanitizar_fase`, `_sanitizar_data`).
    - **Analysis chain** (text mode, LEGACY): old vs new status → summary or `IGNORE`. Still implemented and tested, but **no longer called by the decision flow** — free-text comparison was the source of false positives.
@@ -144,10 +144,11 @@ The processor is single-run (no daemon) — clicks are applied at the next sched
 - **AI-first extraction**: LLM reads raw HTML semantically, making the system resilient to website layout changes — the scraper intentionally does no field extraction.
 - **Structured fase over free text**: change detection compares a closed, ordered vocabulary extracted at classification time — never the free-text status, which the LLM rewords every scan. Only advances count; regressions are absorbed (`fase_mais_avancada`). This replaced both the hash comparison and the analysis chain as the decision mechanism.
 - **Dead-listing filter**: `data_referencia` distinguishes stale page entries (past event, no inscription window) from genuine upcoming "previsto" contests.
-- **Never mask a blind scan**: zero valid extractions sends a ⚠️ alert, not the success heartbeat.
+- **Never mask a blind scan**: zero raw blocks always alerts ⚠️. Zero valid extractions alerts only on targets without `keywords_include`; on filtered targets in generic pages that is a normal quiet day (heartbeat), because the include filter discarding everything is expected.
 - **Three LLM backends**: Ollama (local, no slash), LiteLLM (API, with slash), Claude Code CLI (prefix `claude-cli`). Selection is purely by `LLM_MODEL` string format — no extra env var needed.
 - **Keyword pre-filtering** happens before LLM calls to save compute — applied at bot level (`_passa_filtro_palavras`) AND reinforced inside the extraction prompt.
 - **All code, logs, prompts, and Telegram messages are in Brazilian Portuguese** — keep this when editing.
 - **BaseScraper** (`src/scrapers/base_scraper.py`) is abstract — extend it for other websites.
 - **Graceful degradation**: missing Telegram config logs a warning and skips notifications; bad HTML blocks return `{"ignorar": True}` rather than raising; Telegram callback failures never block the scrape.
-- **Known dedup gap**: when a block contains both a blog link and a course-page link, the LLM may pick a different one across runs, creating a duplicate row (each link then exists in the DB, so it self-heals — no further duplicate notifications).
+- **Dedup gap (mitigated)**: when a block contains both a blog link and a course-page link, the LLM may pick a different one across runs, creating a duplicate row. Mitigations: extraction prompt rule 3 forces a stable choice (shortest `blog.grancursosonline.com.br` path, never the `www` course page), and the `(area, nome)` DB fallback is `COLLATE NOCASE` (LLM capitalization varies, e.g. "SEDUC AL" vs "Seduc AL"). Residual risk: the LLM invents a substantially different `nome` AND link in the same run.
+- **Dead carreira pages**: `/cursos/carreira/*` pages became JS-rendered in June 2026 (empty HTML to scrapers) — do not use them as targets. Blog listing pages (`concursos-ti/`, `concursos-educacao/`, `concursos-abertos/`) remain static and scrapeable; coverage for filtered niches (Sociologia/Artes/Licenciaturas) comes from a filtered target on `concursos-abertos/`.

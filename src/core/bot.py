@@ -112,10 +112,19 @@ class ConcursoBot:
                 elif resultado == "atualizado":
                     atualizados_cont += 1
 
-            if total_concursos_validos == 0:
-                # A pagina do Gran sempre lista dezenas de concursos. Zero validos
-                # significa varredura cega: site fora do ar, bloqueio, ou mudanca
-                # de layout que quebrou o fatiamento. Nunca mascarar isso como sucesso.
+            # Varredura cega = a pagina nao entregou nada util E nao temos como
+            # explicar isso pela configuracao do alvo:
+            # - 0 blocos brutos: site fora do ar, bloqueio ou layout quebrado. Sempre alerta.
+            # - 0 validos SEM keywords_include: pagina dedicada que sempre lista dezenas
+            #   de concursos; zero validos significa cegueira. Alerta.
+            # - 0 validos COM keywords_include (alvo filtrado em pagina generica, ex:
+            #   SOCIOLOGIA_ARTES em concursos-abertos/): dia quieto e o caso NORMAL —
+            #   filtro descartou tudo ou a IA ignorou os poucos que passaram. Heartbeat.
+            varredura_cega = total_blocos == 0 or (
+                total_concursos_validos == 0 and not self.keywords_include
+            )
+
+            if varredura_cega:
                 self.logger.warning(
                     f"🚫 Nenhum concurso valido extraido para [{self.area_name}] "
                     f"({total_blocos} bloco(s) brutos). Possivel falha de rede ou mudanca no site; "
@@ -129,6 +138,18 @@ class ConcursoBot:
                     f"🔗 <a href='{self.scraper.url}'>Abrir a página manualmente</a>"
                 )
                 self.notifier.notificar(aviso_msg)
+            elif total_concursos_validos == 0:
+                self.logger.info(
+                    f"📭 Nenhum concurso de [{self.area_name}] entre os {total_blocos} blocos "
+                    "da pagina (alvo filtrado, dia quieto). Enviando heartbeat..."
+                )
+                status_msg = (
+                    f"✅ <b>Varredura Concluída</b>\n\n"
+                    f"📚 <b>Área:</b> {self.area_name}\n"
+                    f"🔍 Verifiquei <b>{total_blocos}</b> publicações e nenhuma é da sua área hoje.\n\n"
+                    f"🕒 <i>Próxima verificação agendada.</i>"
+                )
+                self.notifier.notificar(status_msg)
             elif novos_cont == 0 and atualizados_cont == 0:
                 self.logger.info("📭 Nenhuma novidade relevante encontrada. Enviando status para o Telegram...")
                 status_msg = (

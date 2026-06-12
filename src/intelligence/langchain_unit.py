@@ -93,7 +93,14 @@ class IntelligenceUnit:
                Se o bloco não tiver aderência à área alvo, responda {{{{"ignorar": true}}}}.
             1. Se o bloco for apenas uma lista genérica (ex: apenas nomes de cidades/cargos sem explicações) ou for "Notícias Recomendadas", responda: {{{{"ignorar": true}}}}
             2. Se for uma notícia de concurso real, extraia as informações.
-            3. O link deve ser a URL do edital ou da notícia detalhada (procure em tags <a>).
+            3. O link deve ser a URL da notícia detalhada (procure em tags <a>).
+               Se o bloco tiver VÁRIOS links para o mesmo concurso, escolha SEMPRE pela ordem:
+                 a) o link de `blog.grancursosonline.com.br` com o caminho MAIS CURTO
+                    (ex: prefira `/concurso-seduc-al/` a `/concurso-seduc-al-edital-publicado-2026/`);
+                 b) nunca use links de `www.grancursosonline.com.br` (página de venda de curso)
+                    se existir alternativa do blog.
+               Essa escolha precisa ser ESTÁVEL entre execuções: o link identifica o concurso
+               no banco de dados, e variar o link duplica notificações.
             4. `data_fim_inscricao` é a ÚLTIMA data possível de inscrição no formato ISO `YYYY-MM-DD`.
                Procure AGRESSIVAMENTE por marcadores como:
                  - "inscrições até DD/MM/YYYY"

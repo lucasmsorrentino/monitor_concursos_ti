@@ -211,6 +211,20 @@ class TestBuscarRegistroEdataFim:
         id2 = db.atualizar_concurso("TRF1", "v2", "https://x/1")
         assert id1 == id2
 
+    def test_busca_por_nome_ignora_capitalizacao(self, db):
+        """LLM varia capitalizacao entre ciclos ('SEDUC AL' vs 'Seduc AL') —
+        nao pode virar registro novo nem notificacao NOVO duplicada."""
+        db.atualizar_concurso("Concurso SEDUC AL", "v1", "https://x/seduc-al/")
+        reg = db.buscar_registro("Concurso Seduc AL", link="https://x/outro-link/")
+        assert reg is not None
+        assert reg["status"] == "v1"
+
+    def test_upsert_por_nome_ignora_capitalizacao(self, db):
+        """Upsert com nome em capitalizacao diferente atualiza a linha existente."""
+        id1 = db.atualizar_concurso("Concurso SEDUC AL", "v1", "https://x/a/")
+        id2 = db.atualizar_concurso("Concurso Seduc AL", "v2", "https://x/b/")
+        assert id1 == id2
+
 
 class TestLinkCanonicalIdentity:
     """Dedupe por link quando o LLM extrai variacoes do mesmo edital."""

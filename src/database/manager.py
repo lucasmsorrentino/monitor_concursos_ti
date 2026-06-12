@@ -179,8 +179,10 @@ class DatabaseManager:
             ).fetchone()
             if row:
                 return dict(row)
+        # COLLATE NOCASE: o LLM varia capitalizacao entre execucoes
+        # ("SEDUC AL" vs "Seduc AL") — nao pode virar concurso "novo".
         row = cursor.execute(
-            "SELECT * FROM editais WHERE area = ? AND nome = ?",
+            "SELECT * FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE",
             (self.area, nome),
         ).fetchone()
         return dict(row) if row else None
@@ -240,8 +242,9 @@ class DatabaseManager:
                     return row["id"]
 
             # UPSERT por (area, nome) preservando id se ja existir.
+            # NOCASE pelo mesmo motivo do buscar_registro: capitalizacao do LLM varia.
             row = cursor.execute(
-                "SELECT id FROM editais WHERE area = ? AND nome = ?",
+                "SELECT id FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE",
                 (self.area, nome),
             ).fetchone()
             if row:

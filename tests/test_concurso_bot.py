@@ -221,6 +221,53 @@ class TestExecutarFlow:
         assert "Atenção" in msg
         assert "Varredura Conclu" not in msg
 
+    def test_alvo_filtrado_tudo_descartado_envia_heartbeat(self, mock_deps, base_config):
+        """Alvo COM keywords_include em pagina generica: filtro descartar tudo e dia
+        quieto normal -> heartbeat, nunca alerta de cegueira."""
+        base_config["keywords_include"] = ["sociologia"]
+        mock_deps["scraper"].capturar_concursos.return_value = [
+            "<h3>Concurso PM SP</h3>", "<h3>Concurso Bombeiros MG</h3>",
+        ]
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["ai"].extrair_dados.assert_not_called()
+        assert mock_deps["notifier"].notificar.call_count == 1
+        msg = mock_deps["notifier"].notificar.call_args.args[0]
+        assert "Varredura Concluída" in msg
+        assert "Atenção" not in msg
+
+    def test_alvo_filtrado_ia_ignora_envia_heartbeat(self, mock_deps, base_config):
+        """Alvo COM keywords_include: bloco passa no filtro mas a IA ignora
+        (ex: 'artes marciais') -> ainda e dia quieto, heartbeat."""
+        base_config["keywords_include"] = ["artes"]
+        mock_deps["scraper"].capturar_concursos.return_value = [
+            "<h3>Curso de artes marciais</h3>",
+        ]
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True}
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert mock_deps["notifier"].notificar.call_count == 1
+        msg = mock_deps["notifier"].notificar.call_args.args[0]
+        assert "Varredura Concluída" in msg
+        assert "Atenção" not in msg
+
+    def test_alvo_filtrado_scrape_vazio_ainda_alerta(self, mock_deps, base_config):
+        """Mesmo com keywords_include, zero blocos brutos = pagina quebrada -> alerta."""
+        base_config["keywords_include"] = ["sociologia"]
+        mock_deps["scraper"].capturar_concursos.return_value = []
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert mock_deps["notifier"].notificar.call_count == 1
+        msg = mock_deps["notifier"].notificar.call_args.args[0]
+        assert "Atenção" in msg
+        assert "Varredura Conclu" not in msg
+
     def test_estado_ignorado_pula_completamente(self, mock_deps, base_config):
         """Concurso marcado ❌ pelo usuario nao e notificado nem atualizado."""
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]

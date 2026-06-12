@@ -9,10 +9,12 @@ env/
 
 # --- Configurações Sensíveis (CRÍTICO) ---
 .env
+.env.bak*
 
 # --- Banco de Dados Local ---
 # Ignoramos o arquivo .db para que cada instalação tenha o seu próprio histórico
 data/*.db
+data/*.db.bak*
 
 # --- Estado runtime ---
 # Offset do Telegram getUpdates e qualquer state JSON em data/ e local.
