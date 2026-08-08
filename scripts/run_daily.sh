@@ -19,6 +19,10 @@ LOCK="$LOG_DIR/.run_daily.lock"
 # Cron tem PATH minimo; o backend claude-cli precisa do `claude` em ~/.local/bin.
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
+# Segredos ficam FORA do repo: a pasta esta montada rw no container do Hermes, que
+# e alcancavel por Telegram. Ver references/hermes-charter.md no vault.
+export MONITOR_ENV_FILE="${MONITOR_ENV_FILE:-$HOME/concursos-secrets/monitor.env}"
+
 mkdir -p "$LOG_DIR"
 
 # Ja rodou com sucesso hoje? Entao este tick do cron e so catch-up — sai quieto.
@@ -38,6 +42,10 @@ fi
     "$REPO_DIR/.venv/bin/python" main.py
     EXIT=$?
     echo "===== exit=$EXIT $(date '+%Y-%m-%d %H:%M:%S') ====="
+    # Ponte pro Hermes: exporta o que o bot conhece pra ~/.hermes (a skill
+    # concursos-ti-brasil le isso e so reporta o que esta FORA do bot).
+    # `|| true` garante que isso nunca derrube o run do bot.
+    "$REPO_DIR/.venv/bin/python" "$REPO_DIR/scripts/export_known.py" || true
     if [[ $EXIT -eq 0 ]]; then
         echo "$HOJE" > "$MARKER"
     fi

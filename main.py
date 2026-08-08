@@ -20,7 +20,11 @@ from src.core.bot import ConcursoBot
 from src.core.multi_area_runner import MultiAreaRunner
 from src.utils.logger import setup_logger
 
-load_dotenv()
+# O .env vive FORA do repo (~/concursos-secrets/monitor.env). A pasta do repo fica
+# montada read-write no container do Hermes, que e alcancavel por Telegram; segredo
+# nao mora em pasta que o agente le. Mesmo padrao do AgenteAgenda (~/agenda-secrets).
+# Variaveis ja presentes no ambiente ganham do arquivo (override=False, default).
+load_dotenv(os.getenv("MONITOR_ENV_FILE") or ".env")
 setup_logger()
 logger = logging.getLogger(__name__)
 

@@ -79,7 +79,9 @@ The Claude CLI backend (`ClaudeCliLLM`) wraps `claude -p --model <alias> --outpu
 
 ## Configuration
 
-Config is via `.env`. Two modes:
+Config is via a dotenv file. **It does NOT live in the repo folder** — the repo is mounted read-write into the Hermes agent container, which is reachable over Telegram (prompt-injection surface), so secrets stay outside anything the agent can read. Same pattern as `~/agenda-secrets` for the AgenteAgenda bot.
+
+`main.py` loads `MONITOR_ENV_FILE` if set, falling back to `.env` for local development. `scripts/run_daily.sh` exports `MONITOR_ENV_FILE=$HOME/concursos-secrets/monitor.env`. Two modes:
 
 - **Multi-area** (recommended): `MONITOR_TARGETS_JSON` — JSON array of area configs with `area`, `url`, `chat_ids`, `keywords_include`, `keywords_exclude`. **Must be on a single line** — python-dotenv does not support multiline values, so pretty-printing the JSON will silently break loading and fall through to legacy mode.
 - **Legacy single-area**: `URL_ALVO` + `TELEGRAM_CHAT_ID` + `KEYWORDS_INCLUDE` + `KEYWORDS_EXCLUDE`. Used as fallback when `MONITOR_TARGETS_JSON` is missing or fails to parse.
