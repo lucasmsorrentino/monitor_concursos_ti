@@ -1,26 +1,55 @@
 """Módulo orquestrador do sistema de monitoramento de concursos.
 
 Contém a classe :class:`ConcursoBot`, que coordena o fluxo completo:
-Scraping (HTML) → Extração via IA (JSON) → Banco de Dados → Análise de
-Mudanças via IA → Notificação (Telegram) com botoes de interesse.
+Scraping (HTML) → Extração via IA (JSON) → Banco de Dados → Notificação
+(Telegram) com botoes de interesse.
+
+Fontes (08/2026): cada area pode ler de mais de um lugar. O blog do Gran
+devolve blocos de HTML que precisam da LLM para virar dados; o PCI Concursos
+devolve dados ja estruturados e nao passa pela LLM. O loop trata os dois como
+"candidatos" e so muda o caminho ate obter o dict de dados — dali pra frente
+(matriz de decisao, dedup, botoes) tudo e igual.
 """
 
-import logging
 import html
+import logging
+import os
 from datetime import date
 
-from src.scrapers.gran_scraper import GranScraper
+from bs4 import BeautifulSoup
+
 from src.database.manager import DatabaseManager
 from src.intelligence.langchain_unit import IntelligenceUnit
 from src.notifiers.telegram import TelegramNotifier
 from src.notifiers.telegram_callbacks import TelegramCallbackProcessor
-from src.utils.text import status_fingerprint
+from src.scrapers.gran_scraper import GranScraper
+from src.scrapers.pci_scraper import PciScraper
 from src.utils.fases import (
     sanitizar_fase,
     fase_avancou,
     fase_mais_avancada,
     label as fase_label,
 )
+from src.utils.logger import LOG_DIR
+from src.utils.text import status_fingerprint
+
+# Acima desta fracao de blocos perdidos na extracao, a varredura da area deixa
+# de reportar "concluida" e passa a alertar. Perder 1 bloco em 45 e ruido de
+# rede; perder metade significa que o resultado do dia nao vale nada.
+LIMITE_ERRO_EXTRACAO = 0.20
+
+# Marcadores de classe CSS que indicam conteudo lateral, nao o edital em si.
+# Blocos com essas classes sao descartados antes do filtro de palavras.
+_CLASSES_LATERAIS = (
+    "relacionad", "sidebar", "widget", "menu", "rodape", "footer",
+    "compartilh", "share", "leia-tambem", "leia_tambem", "veja-tambem",
+    "veja_tambem", "recomend", "tags", "breadcrumb", "banner", "publicidade",
+)
+
+# Modos de primeira carga do PCI (config `pci_primeira_carga` por alvo).
+CARGA_INDIVIDUAL = "individual"   # um card por edital, com botoes
+CARGA_RESUMO_UF = "resumo_uf"     # uma mensagem por estado
+CARGA_SILENCIOSA = "silencioso"   # so semeia o banco
 
 
 class ConcursoBot:
@@ -47,8 +76,22 @@ class ConcursoBot:
         self.keywords_include = [k.lower() for k in config.get('keywords_include', [])]
         self.keywords_exclude = [k.lower() for k in config.get('keywords_exclude', [])]
         self.token = config.get('token', '')
+        self.dry_run = bool(config.get('dry_run'))
 
         self.scraper = GranScraper(config['url_alvo'])
+        self.pci_slugs = [s for s in (config.get('pci_slugs') or []) if s]
+        self.pci_scraper = PciScraper(self.pci_slugs) if self.pci_slugs else None
+        self.modo_primeira_carga = config.get('pci_primeira_carga', CARGA_INDIVIDUAL)
+
+        # Setado quando qualquer etapa da varredura falha. O MultiAreaRunner
+        # agrega e o main.py devolve exit != 0, para o run_daily.sh nao gravar o
+        # marker de sucesso e o catch-up horario tentar de novo. Antes disso, um
+        # crash no meio da area virava "varredura concluida" e o dia seguinte
+        # parecia saudavel.
+        self.falhou = False
+        # Quando nao e None, editais novos sao acumulados aqui em vez de
+        # notificados um a um (primeira carga do PCI).
+        self._coletor_carga: list[dict] | None = None
         self.db = DatabaseManager(area=self.area_slug)
         self.ai = IntelligenceUnit(
             model_name=config['ollama_model'],
@@ -71,13 +114,12 @@ class ConcursoBot:
 
         Fluxo:
             1. Processa callbacks pendentes do Telegram (cliques em ⭐/❌).
-            2. ``GranScraper`` fatia a página HTML em blocos ``<h3>``.
-            3. Cada bloco é enviado à chain de extração da ``IntelligenceUnit``,
-               que retorna JSON com ``nome``, ``status``, ``link``, ``ignorar``
-               e ``data_fim_inscricao``.
-            4. Matriz de decisao por concurso aplicada — ver docstring de
-               ``_decidir_e_notificar``.
-            5. Mensagem "Varredura Concluida" ao final se nada foi notificado.
+            2. Cada fonte configurada devolve candidatos. O Gran devolve blocos
+               de HTML, que passam pelo filtro de palavras e pela extracao da
+               ``IntelligenceUnit``; o PCI devolve dados ja estruturados.
+            3. Matriz de decisao por concurso — ver ``_decidir_e_notificar``.
+            4. Mensagem final: alerta se a varredura ficou cega ou se muitos
+               blocos se perderam na extracao; caso contrario heartbeat.
         """
         self.logger.info(f"🔍 Iniciando captura de novos editais para area [{self.area_name}]...")
 
@@ -86,89 +128,272 @@ class ConcursoBot:
 
         novos_cont = 0
         atualizados_cont = 0
+        validos = 0
+        erros_extracao = 0
+        total_blocos_gran = 0
 
         try:
-            blocos_html = self.scraper.capturar_concursos()
-            total_blocos = len(blocos_html)
-            self.logger.info(f"📊 Scraper retornou {total_blocos} blocos HTML para análise da IA.")
+            primeira_carga_pci = self._preparar_primeira_carga()
 
-            total_concursos_validos = 0
+            # --- Fonte 1: blog do Gran (HTML bruto, precisa da LLM) ---
+            blocos_html = self.scraper.capturar_concursos()
+            total_blocos_gran = len(blocos_html)
+            self.logger.info(
+                f"📊 Gran retornou {total_blocos_gran} blocos HTML para análise da IA."
+            )
 
             for indice, bloco in enumerate(blocos_html, start=1):
-                self.logger.info(f"🧩 Processando bloco {indice}/{total_blocos}...")
+                self.logger.info(f"🧩 Processando bloco {indice}/{total_blocos_gran}...")
 
                 if not self._passa_filtro_palavras(bloco):
                     self.logger.debug("🧹 Bloco descartado por filtro rápido de palavras-chave.")
                     continue
 
                 dados = self.ai.extrair_dados(bloco)
+                if dados.get("erro"):
+                    erros_extracao += 1
+                    continue
                 if dados.get("ignorar"):
                     continue
 
-                total_concursos_validos += 1
-                resultado = self._decidir_e_notificar(dados)
-                if resultado == "novo":
-                    novos_cont += 1
-                elif resultado == "atualizado":
-                    atualizados_cont += 1
+                validos += 1
+                dados["fonte"] = "gran"
+                resultado = self._decidir_e_notificar(dados, url_indice=self.scraper.url)
+                novos_cont += resultado == "novo"
+                atualizados_cont += resultado == "atualizado"
 
-            # Varredura cega = a pagina nao entregou nada util E nao temos como
-            # explicar isso pela configuracao do alvo:
-            # - 0 blocos brutos: site fora do ar, bloqueio ou layout quebrado. Sempre alerta.
-            # - 0 validos SEM keywords_include: pagina dedicada que sempre lista dezenas
-            #   de concursos; zero validos significa cegueira. Alerta.
-            # - 0 validos COM keywords_include (alvo filtrado em pagina generica, ex:
-            #   SOCIOLOGIA_ARTES em concursos-abertos/): dia quieto e o caso NORMAL —
-            #   filtro descartou tudo ou a IA ignorou os poucos que passaram. Heartbeat.
-            varredura_cega = total_blocos == 0 or (
-                total_concursos_validos == 0 and not self.keywords_include
+            # --- Fonte 2: PCI Concursos (ja estruturado, sem LLM) ---
+            if self.pci_scraper:
+                for item in self.pci_scraper.capturar_concursos():
+                    # Enriquecer custa uma requisicao na noticia, entao so vale
+                    # pra quem ainda nao esta no banco. A pagina de cargo nunca
+                    # traz o prazo, e o prazo e o que define se o edital esta ativo.
+                    if not self.db.buscar_registro(
+                        item["nome"], link=item["link"], pci_id=item["pci_id"]
+                    ):
+                        self.pci_scraper.enriquecer(item)
+
+                    validos += 1
+                    resultado = self._decidir_e_notificar(item, url_indice=item["link"])
+                    novos_cont += resultado == "novo"
+                    atualizados_cont += resultado == "atualizado"
+
+            if primeira_carga_pci:
+                novos_cont += self._entregar_primeira_carga()
+
+            self._mensagem_final(
+                total_blocos_gran, validos, erros_extracao, novos_cont, atualizados_cont
             )
-
-            if varredura_cega:
-                self.logger.warning(
-                    f"🚫 Nenhum concurso valido extraido para [{self.area_name}] "
-                    f"({total_blocos} bloco(s) brutos). Possivel falha de rede ou mudanca no site; "
-                    "enviando alerta em vez do heartbeat de sucesso."
-                )
-                aviso_msg = (
-                    f"⚠️ <b>Atenção - {self.area_name}</b>\n\n"
-                    f"Não consegui extrair nenhum concurso da página nesta varredura.\n"
-                    f"Costuma ser instabilidade do site (tente mais tarde) ou mudança no layout "
-                    f"(o monitor pode precisar de ajuste).\n\n"
-                    f"🔗 <a href='{self.scraper.url}'>Abrir a página manualmente</a>"
-                )
-                self.notifier.notificar(aviso_msg)
-            elif total_concursos_validos == 0:
-                self.logger.info(
-                    f"📭 Nenhum concurso de [{self.area_name}] entre os {total_blocos} blocos "
-                    "da pagina (alvo filtrado, dia quieto). Enviando heartbeat..."
-                )
-                status_msg = (
-                    f"✅ <b>Varredura Concluída</b>\n\n"
-                    f"📚 <b>Área:</b> {self.area_name}\n"
-                    f"🔍 Verifiquei <b>{total_blocos}</b> publicações e nenhuma é da sua área hoje.\n\n"
-                    f"🕒 <i>Próxima verificação agendada.</i>"
-                )
-                self.notifier.notificar(status_msg)
-            elif novos_cont == 0 and atualizados_cont == 0:
-                self.logger.info("📭 Nenhuma novidade relevante encontrada. Enviando status para o Telegram...")
-                status_msg = (
-                    f"✅ <b>Varredura Concluída</b>\n\n"
-                    f"📚 <b>Área:</b> {self.area_name}\n"
-                    f"🔍 Analisei <b>{total_concursos_validos}</b> concursos validados pela IA e não encontrei nenhuma alteração relevante desde a última consulta.\n\n"
-                    f"🕒 <i>Próxima verificação agendada.</i>"
-                )
-                self.notifier.notificar(status_msg)
-            else:
-                self.logger.info(
-                    f"📊 Ciclo finalizado: {novos_cont} novos e {atualizados_cont} atualizações enviadas."
-                )
             self.logger.info("🏁 Ciclo finalizado.")
 
         except Exception as e:
+            # Marca a falha: sem isso o main.py devolvia 0, o run_daily.sh
+            # gravava o marker e o dia seguinte parecia saudavel.
+            self.falhou = True
             self.logger.error(f"❌ Erro crítico durante o loop de execução: {e}", exc_info=True)
+            self._notificar(
+                f"⚠️ <b>Falha na varredura - {self.area_name}</b>\n\n"
+                f"A varredura foi interrompida por um erro: {html.escape(str(e)[:300])}\n\n"
+                f"<i>O bot vai tentar de novo na próxima hora.</i>"
+            )
 
-    def _decidir_e_notificar(self, dados: dict) -> str:
+    def _preparar_primeira_carga(self) -> bool:
+        """Liga o modo de coleta quando o PCI nunca rodou nesta area.
+
+        Detectado pelo banco (zero linhas com fonte='pci'), sem flag em arquivo.
+        No modo `individual` nao ha coleta: cada edital sai como card normal.
+        """
+        if not self.pci_scraper or self.db.contar_por_fonte("pci") > 0:
+            return False
+
+        if self.modo_primeira_carga == CARGA_INDIVIDUAL:
+            self.logger.info(
+                f"📦 Primeira carga do PCI em [{self.area_name}]: notificando individualmente."
+            )
+            return False
+
+        self.logger.info(
+            f"📦 Primeira carga do PCI em [{self.area_name}]: modo "
+            f"{self.modo_primeira_carga!r}, acumulando em vez de notificar um a um."
+        )
+        self._coletor_carga = []
+        return True
+
+    def _entregar_primeira_carga(self) -> int:
+        """Envia o resultado acumulado da primeira carga. Devolve quantos entraram."""
+        coletados = self._coletor_carga or []
+        self._coletor_carga = None
+        if not coletados:
+            return 0
+
+        if self.modo_primeira_carga == CARGA_SILENCIOSA:
+            self.logger.info(
+                f"🤫 Primeira carga: {len(coletados)} edital(is) semeados sem notificar."
+            )
+            return 0
+
+        por_uf: dict[str, list[dict]] = {}
+        for item in coletados:
+            por_uf.setdefault(item.get("uf") or "Outros", []).append(item)
+
+        self.logger.info(
+            f"📬 Primeira carga: {len(coletados)} edital(is) em {len(por_uf)} grupo(s) de UF."
+        )
+        self._notificar(
+            f"📦 <b>{self.area_name}: acervo inicial</b>\n\n"
+            f"Encontrei <b>{len(coletados)}</b> concursos com inscrição em aberto, "
+            f"em <b>{len(por_uf)}</b> estados. Vou mandar um resumo por estado.\n\n"
+            f"<i>A partir da próxima varredura você recebe um aviso por edital novo.</i>"
+        )
+
+        for uf in sorted(por_uf):
+            itens = sorted(por_uf[uf], key=lambda i: i.get("nome", ""))
+            linhas = []
+            for item in itens:
+                nome = html.escape(item.get("nome", "?"))
+                prazo = item.get("data_fim_inscricao")
+                sufixo = f" — até {html.escape(prazo)}" if prazo else ""
+                linhas.append(f"• <a href='{item.get('link', '')}'>{nome}</a>{sufixo}")
+            self._notificar(
+                f"📍 <b>{uf}</b> — {len(itens)} concurso(s)\n\n" + "\n".join(linhas)
+            )
+
+        return len(coletados)
+
+    def _mensagem_final(
+        self, total_blocos: int, validos: int, erros: int, novos: int, atualizados: int
+    ) -> None:
+        """Decide entre alerta e heartbeat no fim da varredura da area."""
+        # Erro de extracao acima do limite invalida o resultado do dia, mesmo
+        # que alguns editais tenham passado. Antes isso saia como sucesso.
+        base = validos + erros
+        taxa_erro = (erros / base) if base else 0.0
+        extracao_degradada = erros > 0 and taxa_erro >= LIMITE_ERRO_EXTRACAO
+
+        # Degradado e checado ANTES de cegueira: 10 blocos dos quais 5 se
+        # perderam na LLM nao e cegueira, e perda. Sao diagnosticos diferentes
+        # e o alerta precisa dizer qual dos dois foi.
+        if extracao_degradada:
+            self.falhou = True
+            self.logger.error(
+                f"🚨 [{self.area_name}] perdeu {erros}/{base} blocos na extracao "
+                f"({taxa_erro:.0%}); resultado do dia nao e confiavel."
+            )
+            self._notificar(
+                f"🚨 <b>Varredura incompleta - {self.area_name}</b>\n\n"
+                f"Perdi <b>{erros}</b> de <b>{base}</b> publicações na extração "
+                f"({taxa_erro:.0%}). Pode ter escapado edital.\n\n"
+                f"<i>Vou tentar de novo na próxima hora.</i>"
+            )
+            return
+
+        # Varredura cega = nao entregou NADA, nem valido nem perdido, e isso nao
+        # se explica pela configuracao do alvo:
+        # - 0 blocos brutos e nenhuma fonte alternativa: site fora, bloqueio ou layout mudou.
+        # - 0 candidatos SEM keywords_include: pagina dedicada que sempre lista dezenas.
+        # - 0 candidatos COM keywords_include: dia quieto e o caso NORMAL (heartbeat).
+        sem_materia_prima = total_blocos == 0 and not self.pci_scraper
+        varredura_cega = sem_materia_prima or (base == 0 and not self.keywords_include)
+
+        if varredura_cega:
+            self.falhou = True
+            self.logger.warning(
+                f"🚫 Nenhum concurso valido extraido para [{self.area_name}] "
+                f"({total_blocos} bloco(s) brutos). Possivel falha de rede ou mudanca no site."
+            )
+            # Uma vez por dia: a falha marca `falhou`, entao o catch-up horario
+            # roda de novo. Se o site mudou de layout, repetir o mesmo aviso a
+            # cada hora so ensina o Lucas a ignorar alerta do bot.
+            self._alerta_uma_vez_por_dia(
+                "cegueira",
+                f"⚠️ <b>Atenção - {self.area_name}</b>\n\n"
+                f"Não consegui extrair nenhum concurso da página nesta varredura.\n"
+                f"Costuma ser instabilidade do site (tente mais tarde) ou mudança no layout "
+                f"(o monitor pode precisar de ajuste).\n\n"
+                f"🔗 <a href='{self.scraper.url}'>Abrir a página manualmente</a>"
+            )
+            return
+
+        if erros:
+            self.logger.warning(
+                f"⚠️ [{self.area_name}]: {erros} bloco(s) perdidos na extracao "
+                f"({taxa_erro:.0%}), abaixo do limite de alerta."
+            )
+
+        if novos or atualizados:
+            self.logger.info(
+                f"📊 Ciclo finalizado: {novos} novos e {atualizados} atualizações enviadas."
+            )
+            return
+
+        if validos == 0:
+            self.logger.info(
+                f"📭 Nenhum concurso de [{self.area_name}] entre os {total_blocos} blocos "
+                "da pagina (alvo filtrado, dia quieto). Enviando heartbeat..."
+            )
+            self._notificar(
+                f"✅ <b>Varredura Concluída</b>\n\n"
+                f"📚 <b>Área:</b> {self.area_name}\n"
+                f"🔍 Verifiquei <b>{total_blocos}</b> publicações e nenhuma é da sua área hoje.\n\n"
+                f"🕒 <i>Próxima verificação agendada.</i>"
+            )
+            return
+
+        self.logger.info("📭 Nenhuma novidade relevante encontrada. Enviando status para o Telegram...")
+        self._notificar(
+            f"✅ <b>Varredura Concluída</b>\n\n"
+            f"📚 <b>Área:</b> {self.area_name}\n"
+            f"🔍 Analisei <b>{validos}</b> concursos e não encontrei nenhuma alteração "
+            f"relevante desde a última consulta.\n\n"
+            f"🕒 <i>Próxima verificação agendada.</i>"
+        )
+
+    def _alerta_uma_vez_por_dia(self, tipo: str, mensagem: str) -> None:
+        """Envia o alerta no maximo uma vez por dia, por area e por tipo.
+
+        Necessario porque o cron passou a rodar de hora em hora: sem isso, um
+        problema estrutural (site mudou de layout) renderia ate 24 mensagens
+        identicas no mesmo dia.
+        """
+        if self.dry_run:
+            self.logger.info(f"[DRY-RUN] alerta {tipo!r} suprimido.")
+            return
+
+        marcador = os.path.join(LOG_DIR, f".alerta_{self.area_slug}_{tipo}")
+        hoje = date.today().isoformat()
+        try:
+            if os.path.exists(marcador):
+                with open(marcador, encoding="utf-8") as f:
+                    if f.read().strip() == hoje:
+                        self.logger.info(
+                            f"🔁 Alerta {tipo!r} de [{self.area_name}] ja enviado hoje; nao repete."
+                        )
+                        return
+        except OSError:
+            pass  # marcador ilegivel nunca pode impedir o alerta
+
+        self._notificar(mensagem)
+
+        try:
+            os.makedirs(LOG_DIR, exist_ok=True)
+            with open(marcador, "w", encoding="utf-8") as f:
+                f.write(hoje)
+        except OSError as e:
+            self.logger.warning(f"Nao consegui gravar o marcador de alerta {tipo!r}: {e}")
+
+    def _notificar(self, mensagem: str, id_interno: int | None = None) -> None:
+        """Envia (ou apenas registra, em dry-run) uma mensagem no Telegram."""
+        if self.dry_run:
+            self.logger.info(f"[DRY-RUN] mensagem suprimida: {mensagem.splitlines()[0][:90]}")
+            return
+        if id_interno is not None:
+            entregue = self.notifier.notificar_concurso(id_interno, mensagem)
+        else:
+            entregue = self.notifier.notificar(mensagem)
+        if not entregue:
+            self.falhou = True
+
+    def _decidir_e_notificar(self, dados: dict, url_indice: str = "") -> str:
         """Aplica a matriz de decisao para um concurso ja extraido.
 
         Um concurso e considerado `inativo` quando a inscricao ja encerrou
@@ -196,18 +421,39 @@ class ConcursoBot:
         Returns:
             'novo' | 'atualizado' | 'skip' — para contabilidade do ciclo.
         """
+        url_indice = url_indice or self.scraper.url
         nome_raw = dados.get('nome', 'Nome não identificado')
         status_raw = dados.get('status', 'Status não detalhado')
-        link = dados.get('link', self.scraper.url)
+        link = dados.get('link') or url_indice
         data_fim = dados.get('data_fim_inscricao')
         fase_nova = sanitizar_fase(dados.get('fase'))
+        pci_id = dados.get('pci_id') or None
+        fonte = dados.get('fonte') or None
 
         nome_esc = html.escape(nome_raw)
         status_esc = html.escape(status_raw)
         hash_novo = status_fingerprint(status_raw)
 
+        def salvar(fase_para_gravar):
+            """Persiste este edital. Em dry-run nao escreve nada.
+
+            Escrever em dry-run seria pior que inutil: marcaria os editais como
+            ja vistos e a rodada real seguinte nao notificaria nada.
+            """
+            if self.dry_run:
+                return 0
+            return self.db.atualizar_concurso(
+                nome_raw, status_raw, link,
+                url_indice=url_indice,
+                status_hash=hash_novo,
+                data_fim_inscricao=data_fim,
+                fase=fase_para_gravar,
+                fonte=fonte,
+                pci_id=pci_id,
+            )
+
         registro = self.db.buscar_registro(
-            nome_raw, link=link, url_indice=self.scraper.url
+            nome_raw, link=link, url_indice=url_indice, pci_id=pci_id or ""
         )
 
         if registro and registro.get('estado_usuario') == 'ignorado':
@@ -230,23 +476,24 @@ class ConcursoBot:
                 self.logger.info(
                     f"🔕 [NOVO+INATIVO] {nome_raw}: {motivo}; salvando silencioso."
                 )
-                self.db.atualizar_concurso(
-                    nome_raw, status_raw, link,
-                    url_indice=self.scraper.url,
-                    status_hash=hash_novo,
-                    data_fim_inscricao=data_fim,
-                    fase=fase_nova,
-                )
+                salvar(fase_nova)
+                return "skip"
+
+            id_interno = salvar(fase_nova)
+
+            # Primeira carga em modo agrupado: acumula pra sair como resumo por
+            # UF no fim da varredura, em vez de um ping por edital.
+            if self._coletor_carga is not None:
+                self._coletor_carga.append({
+                    "nome": nome_raw,
+                    "link": link,
+                    "uf": dados.get("uf"),
+                    "data_fim_inscricao": data_fim,
+                })
+                self.logger.info(f"📥 [CARGA] {nome_raw} acumulado para o resumo.")
                 return "skip"
 
             self.logger.info(f"✨ [NOVO] {nome_raw} detectado pela primeira vez.")
-            id_interno = self.db.atualizar_concurso(
-                nome_raw, status_raw, link,
-                url_indice=self.scraper.url,
-                status_hash=hash_novo,
-                data_fim_inscricao=data_fim,
-                fase=fase_nova,
-            )
             msg = (
                 f"<b>🆕 NOVO CONCURSO - {self.area_name}</b>\n\n"
                 f"🏛 <b>Instituição:</b> {nome_esc}\n"
@@ -255,7 +502,7 @@ class ConcursoBot:
                 + (f"📅 <b>Inscrições até:</b> {html.escape(data_fim)}\n" if data_fim else "")
                 + f"\n🔗 <a href='{link}'>Clique aqui para ver os detalhes</a>"
             )
-            self.notifier.notificar_concurso(id_interno, msg)
+            self._notificar(msg, id_interno=id_interno)
             self.logger.info(f"✅ {nome_raw} salvo no banco de dados (id={id_interno}).")
             return "novo"
 
@@ -267,13 +514,7 @@ class ConcursoBot:
         fase_antiga = registro.get('fase')
         if fase_antiga is None:
             self.logger.info(f"🧮 [BACKFILL] {nome_raw}: populando fase (legado); sem notificacao.")
-            self.db.atualizar_concurso(
-                nome_raw, status_raw, link,
-                url_indice=self.scraper.url,
-                status_hash=hash_novo,
-                data_fim_inscricao=data_fim,
-                fase=fase_nova,
-            )
+            salvar(fase_nova)
             return "skip"
 
         data_antiga = registro.get('data_fim_inscricao')
@@ -287,13 +528,7 @@ class ConcursoBot:
         # Preserva a fase mais avancada ja vista para nao oscilar.
         if not avancou and not data_mudou:
             self.logger.debug(f"😴 {nome_raw}: sem avanco de fase nem mudanca de data; sem notificacao.")
-            self.db.atualizar_concurso(
-                nome_raw, status_raw, link,
-                url_indice=self.scraper.url,
-                status_hash=hash_novo,
-                data_fim_inscricao=data_fim,
-                fase=fase_mais_avancada(fase_antiga, fase_nova),
-            )
+            salvar(fase_mais_avancada(fase_antiga, fase_nova))
             return "skip"
 
         # --- Caso C: transicao real (fase avancou e/ou data mudou) ---
@@ -303,26 +538,14 @@ class ConcursoBot:
             self.logger.info(
                 f"🔕 [TRANSICAO+INATIVO] {nome_raw}: avanco real mas concurso inativo; atualiza silencioso."
             )
-            self.db.atualizar_concurso(
-                nome_raw, status_raw, link,
-                url_indice=self.scraper.url,
-                status_hash=hash_novo,
-                data_fim_inscricao=data_fim,
-                fase=fase_final,
-            )
+            salvar(fase_final)
             return "skip"
 
         self.logger.info(
             f"🔔 [TRANSICAO] {nome_raw}: {fase_label(fase_antiga)} → {fase_label(fase_nova)} "
             f"(data_mudou={data_mudou})."
         )
-        id_interno = self.db.atualizar_concurso(
-            nome_raw, status_raw, link,
-            url_indice=self.scraper.url,
-            status_hash=hash_novo,
-            data_fim_inscricao=data_fim,
-            fase=fase_final,
-        )
+        id_interno = salvar(fase_final)
         linhas_transicao = []
         if avancou:
             linhas_transicao.append(f"📈 <b>{fase_label(fase_antiga)} → {fase_label(fase_nova)}</b>")
@@ -335,7 +558,7 @@ class ConcursoBot:
             f"📝 <b>Status:</b> {status_esc}\n\n"
             f"🔗 <a href='{link}'>Clique aqui para ver os detalhes</a>"
         )
-        self.notifier.notificar_concurso(id_interno, msg)
+        self._notificar(msg, id_interno=id_interno)
         self.logger.info(f"✅ Banco de dados atualizado para {nome_raw}.")
         return "atualizado"
 
@@ -369,13 +592,27 @@ class ConcursoBot:
 
     def __del__(self):
         """Garante que a conexão com o banco seja fechada ao destruir o objeto."""
+        # Sem log aqui: __del__ roda em ordem nao-deterministica no shutdown do
+        # interpretador, e logar de dentro dele produzia as tres linhas
+        # "🔌 Conexão encerrada" no rodape de todo log, sem informar nada.
         if hasattr(self, 'db'):
             self.db.fechar_conexao()
-            self.logger.info("🔌 Conexão com o banco de dados encerrada.")
 
     def _passa_filtro_palavras(self, bloco_html: str) -> bool:
-        """Aplica um filtro textual barato antes da chamada da IA."""
-        texto = bloco_html.lower()
+        """Filtro textual barato antes da chamada da IA.
+
+        Roda sobre o TEXTO VISIVEL, nao sobre o HTML cru. Casar substring no
+        HTML tinha dois defeitos serios:
+
+        - `keywords_exclude` derrubava edital legitimo por causa de palavra em
+          sidebar, link de "posts relacionados", `alt` de imagem ou nome de
+          classe CSS. Um edital de TI sumia porque a barra lateral citava artes.
+        - `keywords_include=["ti", ...]` era inocuo, porque "ti" casa dentro de
+          "notícia", "gestão", "Justiça" e de meia duzia de atributos HTML.
+
+        Com o texto visivel os dois lados passam a olhar o que o leitor le.
+        """
+        texto = self._texto_visivel(bloco_html).lower()
 
         if self.keywords_include and not any(keyword in texto for keyword in self.keywords_include):
             return False
@@ -384,3 +621,25 @@ class ConcursoBot:
             return False
 
         return True
+
+    @staticmethod
+    def _texto_visivel(bloco_html: str) -> str:
+        """Texto do EDITAL: sem marcacao, sem atributos e sem conteudo lateral.
+
+        Descartar o lateral e o ponto principal. So tirar as tags nao bastava:
+        o texto do link de "posts relacionados" tambem e visivel, e era ele que
+        derrubava um edital de TI por citar artes numa chamada de rodape.
+        """
+        if not bloco_html:
+            return ""
+        try:
+            soup = BeautifulSoup(bloco_html, "html.parser")
+            for tag in soup(["script", "style", "nav", "aside", "footer", "form"]):
+                tag.decompose()
+            for tag in soup.find_all(attrs={"class": True}):
+                classes = " ".join(tag.get("class", [])).lower()
+                if any(m in classes for m in _CLASSES_LATERAIS):
+                    tag.decompose()
+            return soup.get_text(" ", strip=True)
+        except Exception:
+            return bloco_html

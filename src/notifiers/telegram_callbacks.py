@@ -17,7 +17,10 @@ import os
 import requests
 
 
-_OFFSET_PATH_PADRAO = "data/telegram_offset.json"
+# Ancorado na raiz do repo: com caminho relativo, rodar de outra pasta perdia o
+# offset e o bot reprocessava callbacks antigos.
+_REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_OFFSET_PATH_PADRAO = os.path.join(_REPO_DIR, "data", "telegram_offset.json")
 _ESTADOS_VALIDOS = {"seguindo", "ignorado", "ativo"}
 
 

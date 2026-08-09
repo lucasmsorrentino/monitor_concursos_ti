@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
 # Executa uma varredura diaria do monitor (equivalente Linux do run_daily.bat).
 #
-# Chamado 1x por dia pelo cron (ver install_schedule.sh):
+# Chamado DE HORA EM HORA pelo cron, nao mais so as 03h (ver install_schedule.sh):
 # - Marker de sucesso diario: se a varredura de HOJE ja concluiu com sucesso,
-#   sai imediatamente — protege contra rodadas manuais duplicadas no mesmo dia.
+#   sai imediatamente — os ticks restantes do dia sao no-op de 3 linhas.
 # - flock impede duas varreduras simultaneas (MultipleInstances=IgnoreNew).
 # - stdout/stderr vao para logs/run_YYYYMMDD.log (um arquivo por dia).
+#
+# Por que de hora em hora: entre 01/07 e 08/08/2026, NOVE dias nao tiveram
+# varredura nenhuma. Cruzando com `journalctl --list-boots`, a correlacao com o
+# notebook desligado as 03h BRT foi de 100%. Cron nao tem catch-up: horario
+# perdido e dia perdido. Mesmo padrao `--if-needed` do ~/aios-sync/sync.sh,
+# descrito em references/runbook-conserto-sync.md no vault.
+#
+# Dead-man's-switch: se a ultima varredura bem-sucedida for antiga demais, avisa
+# no Telegram ANTES de comecar. O alarme dispara quando a maquina VOLTA, que e a
+# unica hora em que ela pode avisar. Sem isso, o bot ficou morto de 16/07 a
+# 08/08 (venv quebrada, exit=127 todo dia) sem ninguem perceber, porque um dia
+# sem novidade e um dia quebrado produzem o mesmo silencio.
 
 set -u
 
@@ -23,11 +35,45 @@ export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 # e alcancavel por Telegram. Ver references/hermes-charter.md no vault.
 export MONITOR_ENV_FILE="${MONITOR_ENV_FILE:-$HOME/concursos-secrets/monitor.env}"
 
+# Dias tolerados sem varredura antes de alertar. Sobrescrevivel por ambiente.
+: "${MONITOR_MAX_DIAS_SEM_RODAR:=2}"
+
 mkdir -p "$LOG_DIR"
 
 # Ja rodou com sucesso hoje? Entao este tick do cron e so catch-up — sai quieto.
 if [[ -f "$MARKER" && "$(cat "$MARKER")" == "$HOJE" ]]; then
     exit 0
+fi
+
+# --- dead-man's-switch -------------------------------------------------------
+# Le TELEGRAM_TOKEN/chat do arquivo de segredos (fora do repo) so pra alertar.
+alerta_atraso() {
+    local dias="$1"
+    local env_file="$MONITOR_ENV_FILE"
+    [[ -r "$env_file" ]] || return 0
+
+    local token chat
+    token="$(grep -m1 '^TELEGRAM_TOKEN=' "$env_file" | cut -d= -f2- | tr -d '"'"'"' \r')"
+    # Primeiro chat_id que aparecer no JSON de alvos serve: o aviso e operacional.
+    chat="$(grep -m1 -oE '"chat_ids"\s*:\s*\[\s*"[0-9]+"' "$env_file" | grep -oE '[0-9]+$')"
+    [[ -z "$chat" ]] && chat="$(grep -m1 '^TELEGRAM_CHAT_ID=' "$env_file" | cut -d= -f2- | tr -d '"'"'"' \r')"
+    [[ -z "$token" || -z "$chat" ]] && return 0
+
+    curl -s -m 20 -o /dev/null \
+        --data-urlencode "text=⏰ O monitor de concursos ficou ${dias} dia(s) sem rodar (última varredura com sucesso: ${2}). Retomando agora." \
+        -d "chat_id=${chat}" \
+        "https://api.telegram.org/bot${token}/sendMessage" || true
+}
+
+if [[ -f "$MARKER" ]]; then
+    ULTIMO="$(cat "$MARKER")"
+    if [[ "$ULTIMO" =~ ^[0-9]{8}$ ]]; then
+        DIAS=$(( ( $(date +%s) - $(date -d "$ULTIMO" +%s) ) / 86400 ))
+        if (( DIAS > MONITOR_MAX_DIAS_SEM_RODAR )); then
+            echo "[dead-man] ultima varredura ok em $ULTIMO ($DIAS dias atras); alertando." >> "$LOG_FILE"
+            alerta_atraso "$DIAS" "$ULTIMO"
+        fi
+    fi
 fi
 
 # Lock nao-bloqueante: se um run ainda esta em andamento, ignora este tick.

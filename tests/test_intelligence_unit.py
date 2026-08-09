@@ -36,7 +36,7 @@ class TestBackendWiring:
     def test_ollama_backend_calls_create_ollama(self, mocker):
         spy = mocker.patch.object(IntelligenceUnit, "_create_ollama", return_value=mocker.MagicMock())
         IntelligenceUnit(model_name="llama3.1", retries=0, retry_delay_s=0)
-        assert spy.call_count == 2  # llm_json + llm_text
+        assert spy.call_count == 1  # so llm_json (llm_text saiu com a chain de analise)
 
     def test_litellm_backend_calls_create_litellm(self, mocker):
         mocker.patch.object(IntelligenceUnit, "_create_ollama", return_value=mocker.MagicMock())
@@ -44,7 +44,7 @@ class TestBackendWiring:
             IntelligenceUnit, "_create_litellm", return_value=mocker.MagicMock()
         )
         IntelligenceUnit(model_name="anthropic/claude-haiku-4-5", retries=0, retry_delay_s=0)
-        assert spy.call_count == 2
+        assert spy.call_count == 1
 
     def test_claude_cli_backend_calls_create_claude_cli(self, mocker):
         mocker.patch.object(IntelligenceUnit, "_create_ollama", return_value=mocker.MagicMock())
@@ -52,7 +52,7 @@ class TestBackendWiring:
             IntelligenceUnit, "_create_claude_cli", return_value=mocker.MagicMock()
         )
         IntelligenceUnit(model_name="claude-cli:haiku", retries=0, retry_delay_s=0)
-        assert spy.call_count == 2
+        assert spy.call_count == 1
 
 
 class TestParseJsonResponse:
@@ -137,36 +137,6 @@ class TestExtrairDados:
 
         result = ollama_unit.extrair_dados("<h3>x</h3>")
 
-        assert result == {"ignorar": True}
-
-
-class TestAnalisarMudanca:
-    def test_returns_none_for_identical_status(self, ollama_unit):
-        assert ollama_unit.analisar_mudanca("mesmo texto", "mesmo texto") is None
-
-    def test_returns_none_when_llm_returns_ignore(self, ollama_unit, mocker):
-        ollama_unit.chain_analise = mocker.MagicMock()
-        ollama_unit.chain_analise.invoke.return_value = "IGNORE"
-
-        assert ollama_unit.analisar_mudanca("v1", "v2") is None
-
-    def test_returns_none_when_ignore_mixed_case(self, ollama_unit, mocker):
-        ollama_unit.chain_analise = mocker.MagicMock()
-        ollama_unit.chain_analise.invoke.return_value = "  ignore  "
-
-        assert ollama_unit.analisar_mudanca("v1", "v2") is None
-
-    def test_returns_summary_for_relevant_change(self, ollama_unit, mocker):
-        ollama_unit.chain_analise = mocker.MagicMock()
-        ollama_unit.chain_analise.invoke.return_value = "Edital publicado hoje."
-
-        assert ollama_unit.analisar_mudanca("v1", "v2") == "Edital publicado hoje."
-
-    def test_retries_on_exception_then_returns_none(self, ollama_unit, mocker):
-        ollama_unit.chain_analise = mocker.MagicMock()
-        ollama_unit.chain_analise.invoke.side_effect = RuntimeError("timeout")
-
-        assert ollama_unit.analisar_mudanca("v1", "v2") is None
-
-    def test_whitespace_only_difference_is_treated_as_identical(self, ollama_unit):
-        assert ollama_unit.analisar_mudanca("  texto  ", "texto") is None
+        # `erro` separa edital PERDIDO de bloco irrelevante; o bot conta os dois
+        # e alerta quando a taxa de perda passa de LIMITE_ERRO_EXTRACAO.
+        assert result == {"ignorar": True, "erro": True}

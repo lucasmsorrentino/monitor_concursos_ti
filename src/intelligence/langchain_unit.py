@@ -73,14 +73,6 @@ class IntelligenceUnit:
             format="json",
         )
 
-        # LLM para Análise de Mudanças (saída em texto normal)
-        self.llm_text = self._create_llm(
-            model_name=model_name,
-            base_url=base_url,
-            timeout_s=timeout_s,
-            temperature=0,
-        )
-
         include_keywords = ", ".join(self.include_keywords) if self.include_keywords else "nenhuma"
         exclude_keywords = ", ".join(self.exclude_keywords) if self.exclude_keywords else "nenhuma"
         extraction_system_prompt = f"""
@@ -148,19 +140,11 @@ class IntelligenceUnit:
         ])
         self.chain_extracao = self.prompt_extracao | self.llm_json | StrOutputParser()
 
-        # --- PROMPT 2: ANÁLISE DE MUDANÇA (Texto -> Texto) ---
-        self.prompt_analise = ChatPromptTemplate.from_messages([
-            ("system", """
-            Você é um assistente especialista em concursos públicos.
-            Compare o STATUS ANTERIOR com o STATUS ATUAL para ver se houve avanço real.
-
-            Regras:
-            - Se a mudança for relevante (ex: edital publicado, banca escolhida, inscrições abertas), faça um resumo de NO MÁXIMO 15 palavras.
-            - Se for irrelevante (ex: apenas reescrita, mesma informação, erro de digitação corrigido), responda APENAS a palavra: IGNORE
-            """),
-            ("human", "STATUS ANTERIOR: {antigo}\nSTATUS ATUAL: {novo}")
-        ])
-        self.chain_analise = self.prompt_analise | self.llm_text | StrOutputParser()
+        # Havia aqui um segundo prompt ("analise de mudanca") com seu proprio LLM
+        # em texto livre. Foi removido em 08/2026: a deteccao de mudanca passou a
+        # comparar `fase` + `data_fim_inscricao` (ver src/utils/fases.py) e essa
+        # chain nao era mais chamada por ninguem fora dos testes. Ela custava a
+        # construcao de um segundo cliente LLM em toda varredura, a troco de nada.
 
     @staticmethod
     def _detect_backend(model_name: str) -> str:
@@ -279,7 +263,13 @@ class IntelligenceUnit:
         Returns:
             dict: Dicionário com as chaves ``ignorar``, ``nome``, ``status`` e
                   ``link``. Em caso de falha na LLM ou JSON malformado, retorna
-                  ``{"ignorar": True}`` por segurança.
+                  ``{"ignorar": True, "erro": True}``.
+
+        Nota sobre ``erro``: antes a falha devolvia so ``{"ignorar": True}``, o
+        que tornava um edital PERDIDO indistinguivel de um bloco irrelevante.
+        Nos logs historicos ha 12 desistencias e 3 timeouts do `claude -p` que
+        passaram batido assim. Agora quem chama consegue contar as duas coisas
+        separadamente e alertar quando a taxa de erro sobe.
         """
         total_tentativas = self.retries + 1
         for tentativa in range(1, total_tentativas + 1):
@@ -301,8 +291,10 @@ class IntelligenceUnit:
                 if tentativa < total_tentativas:
                     time.sleep(self.retry_delay_s)
 
-        self.logger.error("❌ Extração falhou após todas as tentativas; bloco será ignorado.")
-        return {"ignorar": True}
+        self.logger.error(
+            "❌ Extração falhou após todas as tentativas; bloco perdido (contabilizado como erro)."
+        )
+        return {"ignorar": True, "erro": True}
 
     def _sanitizar_data(self, valor) -> str | None:
         """Valida e normaliza a data de fim de inscricao extraida pela LLM.
@@ -322,43 +314,3 @@ class IntelligenceUnit:
         except ValueError:
             self.logger.debug(f"data_fim_inscricao malformada descartada: {valor!r}")
             return None
-
-
-    def analisar_mudanca(self, antigo: str, novo: str) -> str | None:
-        """Compara dois textos de status e decide se a mudança é relevante.
-
-        Utiliza a chain de análise para pedir à LLM que avalie se houve
-        avanço real no concurso (ex.: edital publicado, banca escolhida)
-        ou apenas uma reformulação textual sem valor informativo.
-
-        Args:
-            antigo: Texto do status salvo anteriormente no banco.
-            novo: Texto do status recém-extraído pela chain de extração.
-
-        Returns:
-            str | None: Resumo de até 15 palavras descrevendo a mudança,
-                        ou ``None`` se os textos forem idênticos, a mudança
-                        for irrelevante (IA retorna IGNORE) ou ocorrer erro.
-        """
-        if antigo.strip() == novo.strip():
-            return None
-
-        total_tentativas = self.retries + 1
-        for tentativa in range(1, total_tentativas + 1):
-            try:
-                resultado = self.chain_analise.invoke({"antigo": antigo, "novo": novo})
-                resposta = resultado.strip()
-
-                if "IGNORE" in resposta.upper():
-                    return None
-
-                return resposta
-            except Exception as e:
-                self.logger.warning(
-                    f"⚠️ Falha na análise de mudança via IA (tentativa {tentativa}/{total_tentativas}): {e}"
-                )
-                if tentativa < total_tentativas:
-                    time.sleep(self.retry_delay_s)
-
-        self.logger.error("❌ Análise de mudança falhou após todas as tentativas; atualização será ignorada.")
-        return None

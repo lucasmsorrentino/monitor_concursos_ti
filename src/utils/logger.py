@@ -2,10 +2,15 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
+# Ancorado na raiz do repo, nao no diretorio de trabalho: rodar o main.py de
+# outra pasta antes espalhava um logs/ novo onde quer que o processo estivesse.
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+LOG_DIR = os.path.join(REPO_DIR, "logs")
+
+
 def setup_logger():
     # Cria a pasta de logs se não existir
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
+    os.makedirs(LOG_DIR, exist_ok=True)
 
     # Configuração do formato: [Data/Hora] [Nível] [Módulo] Mensagem
     log_format = logging.Formatter(
@@ -15,7 +20,7 @@ def setup_logger():
 
     # Handler para o arquivo (com rotação para o arquivo não ficar infinito)
     file_handler = RotatingFileHandler(
-        'logs/bot_concursos.log', 
+        os.path.join(LOG_DIR, 'bot_concursos.log'),
         maxBytes=1024 * 1024, # 1MB por arquivo
         backupCount=5,        # Mantém até 5 arquivos antigos
         encoding='utf-8'

@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="pt-br" itemscope itemtype="https://schema.org/WebPage">
+<head>
+    <meta charset="utf-8">
+    <title>PCI Concursos - Pesquisa por Cargos</title>
+            <meta name="description" content="Concursos Públicos com inscrições abertas e previstas, empregos, estágios, provas, simulados, apostilas preparatórias e videoaulas.">
+                    <meta name="keywords" content="concursos, concurso, concursos publicos, empregos, estagios, curriculo, apostila">
+                        <meta name="robots" content="index,follow,noarchive">
+                <meta name="viewport" content="width=device-width">
+                <meta name="theme-color" content="#205c98">
+        <meta name="msapplication-TileColor" content="#205c98">
+        <meta name="msapplication-TileImage" content="https://www.pciconcursos.com.br/logo.png">
+                <meta itemprop="name" content="PCI Concursos - Pesquisa por Cargos<">
+        <meta itemprop="description" content="Concursos Públicos com inscrições abertas e previstas, empregos, estágios, provas, simulados, apostilas preparatórias e videoaulas.">
+        <meta itemprop="image" content="https://www.pciconcursos.com.br/logo.png">
+                <meta property="og:type" content="webpage">
+        <meta property="og:title" content="PCI Concursos - Pesquisa por Cargos">
+        <meta property="og:site_name" content="PCI Concursos">
+                <meta property="og:description" content="Concursos Públicos com inscrições abertas e previstas, empregos, estágios, provas, simulados, apostilas preparatórias e videoaulas.">
+                    <meta property="fb:app_id" content="211905988988008">
+                <meta property="fb:pages" content="115036158551264">
+        <meta property="og:locale" content="pt_BR">
+        <meta property="og:image" content="https://www.pciconcursos.com.br/logo.png">
+                    <meta property="article:publisher" content="https://www.facebook.com/pciconcursos">
+                <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="#205c98">
+    <meta name="apple-mobile-web-app-title" content="PCI Concursos">
+            <link rel="apple-touch-icon" href="https://www.pciconcursos.com.br/logo.png">
+                <link rel="search" type="application/opensearchdescription+xml" title="PCI Concursos"
+              href="https://www.pciconcursos.com.br/pesquisa.xml">
+                <link rel="manifest" href="https://www.pciconcursos.com.br/manifest.json">
+                <link rel="shortcut icon" href="https://www.pciconcursos.com.br/favicon.ico">
+            <base target="_top">
+<link rel="dns-prefetch" href="https://cdn.pci.app.br">
+<link rel="preconnect" href="https://cdn.pci.app.br">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/bootstrap.css?31984711">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/custom.css?31984711?31984711">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/all.min.css?31984711">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/slicknav.min.css?31984711">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/site.css?31984711?31984711">
+<script src="https://www.pciconcursos.com.br/js/jquery.js"></script>
+</head>
+<body>
+<div id="menu_nav"></div>
+
+<div id="center">
+    <div id="g-login">
+    <div class="header-bar">
+                    <i class="fab fa-google google-icon"></i>
+            <span id="btn-login" class="login-btn">Entrar com Google</span>
+            </div>
+</div>
+<script>
+    // Aguarda DOM carregar
+    document.addEventListener('DOMContentLoaded', function () {
+        // Botão de login
+        const btnLogin = document.getElementById('btn-login');
+        if (btnLogin) {
+            btnLogin.addEventListener('click', function () {
+                fazerLogin();
+            });
+        }
+        // Botão de logout
+        const btnLogout = document.getElementById('btn-logout');
+        if (btnLogout) {
+            btnLogout.addEventListener('click', function () {
+                fazerLogout();
+            });
+        }
+    });
+
+    // Função de login
+    function fazerLogin() {
+        fetch('/google-auth-api?action=getAuthUrl')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Abre popup
+                    window.open(data.authUrl, 'googleLogin', 'width=500,height=600');
+                    // Verifica login a cada 3 segundos
+                    const verificar = setInterval(() => {
+                        fetch('/google-auth-api?action=checkLogin')
+                            .then(r => r.json())
+                            .then(resultado => {
+                                if (resultado.success && resultado.logged_in) {
+                                    clearInterval(verificar);
+                                    window.location.reload();
+                                }
+                            });
+                    }, 3000);
+                    // Para verificação após 5 minutos
+                    setTimeout(() => clearInterval(verificar), 300000);
+                }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+            });
+    }
+
+    // Função de logout
+    function fazerLogout() {
+        fetch('/google-auth-api?action=logout')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+            });
+    }
+</script>    <div id="header">
+        <h1 id="logo"><a href="https://www.pciconcursos.com.br/"><img src="https://cdn.pci.app.br/img/p/pci_logo.png" alt="PCI Concursos"
+                                                       title="PCI Concursos"></a></h1>
+        <nav id="menu-topo">
+            <ul>
+                <li><a href="https://www.pciconcursos.com.br/concursos/">26.833 vagas em concursos</a></li>
+                <li><a href="https://www.pciconcursos.com.br/apostilas/">apostilas</a></li>
+                <li><a href="https://www.pciconcursos.com.br/noticias/">notícias</a></li>
+                <li><a href="https://www.pciconcursos.com.br/provas/">266.941 provas</a></li>
+                <li><a href="https://www.pciconcursos.com.br/contato/">contato</a></li>
+            </ul>
+        </nav>
+    </div>
+
+
+    <nav id="menu">
+        <ul id="menu_lateral">
+            <li class="pginicial"><a href="https://www.pciconcursos.com.br/" class="m_paginainicial"><i class="menu-i fas fa-home"></i>Página Inicial</a></li>
+            <li><a href="https://www.pciconcursos.com.br/apostilas/" class="m_apostilas"><i class="menu-i fas fa-book"></i>Apostilas</a></li>
+            <li><a href="https://www.pciconcursos.com.br/noticias/" class="m_noticias"><i class="menu-i fas fa-newspaper"></i>Notícias</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/" class="m_concursos"><i class="menu-i fa-kit fa-i-br"></i>Concursos</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/nacional/" class="m_nacional"><i class="menu-i fas fa-flag"></i>Nacional</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/sudeste/" class="m_sudeste"><i class="menu-i fa-kit fa-i-sudeste"></i>Sudeste</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/sul/" class="m_sul"><i class="menu-i fa-kit fa-i-sul"></i>Sul</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/norte/" class="m_norte"><i class="menu-i fa-kit fa-i-norte"></i>Norte</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/nordeste/" class="m_nordeste"><i class="menu-i fa-kit fa-i-nordeste"></i>Nordeste</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/centrooeste/" class="m_centrooeste"><i class="menu-i fa-kit fa-i-centrooeste"></i>Centro-Oeste</a></li>
+            <li><a href="https://www.pciconcursos.com.br/ultimas/" class="m_ultimas"><i class="menu-i fas fa-clock"></i>Últimas</a></li>
+            <li><a href="https://www.pciconcursos.com.br/mcp-e-gpt" class="m_mcp"><i class="menu-i fas fa-robot"></i>MCP e GPT</a></li>
+            <li><a href="https://www.pciconcursos.com.br/professores/" class="m_professores"><i class="menu-i fas fa-chalkboard-teacher"></i>Professores</a></li>
+            <!-- <li><a href="https://www.pciconcursos.com.br/previstos/" class="m_previstos"><i class="menu-i fas fa-eye"></i>Previstos</a></li> -->
+            <li><a href="https://www.pciconcursos.com.br/cargos/" class="m_cargos"><i class="menu-i fas fa-briefcase"></i>Cargos</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/cidades/" class="m_cidades"><i class="menu-i fas fa-city"></i>Cidades</a></li>
+            <li><a href="https://www.pciconcursos.com.br/vagas/" class="m_vagas"><i class="menu-i fas fa-user-friends"></i>Vagas</a></li>
+            <li><a href="https://www.pciconcursos.com.br/simulados/" class="m_simulados"><i class="menu-i fas fa-tasks"></i>Simulados</a></li>
+            <li><a href="https://www.pciconcursos.com.br/provas/" class="m_provas"><i class="menu-i fas fa-file-alt"></i>Provas</a></li>
+            <li class="l_aulas"><a href="https://www.pciconcursos.com.br/aulas/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas</a>
+                <!-- <ul>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/lingua-portuguesa" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas Português</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/matematica/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas Matemática</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/raciocinio-logico/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas Rac. Lógico</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/informatica/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas Informática</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-constitucional/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Constitucional</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-administrativo/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Administrativo</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-empresarial/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Empresarial</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-eleitoral/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Eleitoral</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-tributario/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Tributário</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-do-trabalho/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Trabalho</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-civil/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Civil</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-penal/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Penal</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-processual-civil/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Proc. Civil</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-processual-penal/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Proc. Penal</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-processual-do-trabalho/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Proc. Trabalho</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direitos-humanos/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Humanos</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/questoes-comentadas/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Q. Comentadas</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>+ Várias Aulas</a></li>
+                </ul>
+            -->
+            </li>
+            <li><a href="https://www.pciconcursos.com.br/organizadoras/" class="m_organizadoras"><i class="menu-i fas fa-building"></i>Organizadoras</a></li>
+            <li><a href="https://www.pciconcursos.com.br/colaborar/" class="m_colaborar"><i class="menu-i fas fa-handshake"></i>Colaborar</a></li>
+            <li><a href="https://www.pciconcursos.com.br/contato/" class="m_contato"><i class="menu-i fas fa-envelope"></i>Contato</a></li>
+        </ul>
+    </nav>
+    <div id="conteudo">
+        <style>
+#pagina ul li.noticia_desc a { font-weight:bold; color:#205c98; }
+#pagina ul li.noticia_desc a:hover { text-decoration:underline; }
+.ads20 { margin-top:50px; }
+@media screen and (max-width:768px) {
+    #site, #conteudo { width:100%; }
+}       
+</style>
+<div id="pagina">
+    <div class="ads_mobi"><div style="width:320px; height:100px; margin:20px auto 0 auto;"><ins class="adsbygoogle" style="display:inline-block;width:320px;height:100px" data-ad-client="ca-pub-2622407619291980" data-ad-slot="1797634041"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script></div></div>
+<div class="ads10"><div class="ads11"><ins class="adsbygoogle" style="display:inline-block;width:300px;height:250px" data-ad-client="ca-pub-2622407619291980" data-ad-slot="9825760010"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script></div><div class="ads12"><ins class="adsbygoogle" style="display:inline-block;width:300px;height:250px" data-ad-client="ca-pub-2622407619291980" data-ad-slot="9825760010"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script></div></div>
+
+    <h1>Pesquisa por Cargos</h1>
+    <div style="position: relative;">
+        <div style="position: absolute; right:0; top:-45px;"><div class="sharelink"><a href="#" onclick="shareLink('PCI Concursos - Pesquisa por Cargos', '', 'https://www.pciconcursos.com.br/cargos/analista-de-sistemas'); return false;" rel="nofollow"><i class="fa-light fa-share-nodes"></i> </a></div></div>
+    </div>
+    <div class="card border mb-4">
+        <div class="card-body shadow-sm p-4" style="background-color:#f7f8fa;">
+            <h5 class="card-title text-center font-weight-bold mb-3 text-pci" style="font-size: 1.1rem;">
+                Pesquise por cargos <small class="d-block text-muted font-weight-normal mt-1" style="font-size: 0.85rem;">
+                    (ex: dentista, psicólogo, médico entre outros)
+                </small>
+            </h5>
+            <form method="post" action="https://www.pciconcursos.com.br/cargos/">
+                <div class="input-group mb-3 mx-auto" style="max-width: 500px;">
+                    <input type="text" name="cargo" class="form-control border-pci" value="analista de sistemas" placeholder="Digite o cargo desejado">
+                    <div class="input-group-append">
+                        <button type="submit" name="botao" class="btn btn-pci" style="font-size: 1rem;">
+                            <i class="fas fa-search"></i> Pesquisar
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    <ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/prefeitura-de-limeira-sp-publica-editais-de-concursos-com-vagas-em-diversas-areas" 
+                    title="Prefeitura de Limeira - SP publica editais de concursos com vagas em diversas áreas" 
+                    class="noticia_desc n294108">Prefeitura de Limeira - SP <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/analista-de-sistemas" title="Concursos para ANALISTA DE SISTEMAS"><i class="fas fa-code"></i>ANALISTA DE SISTEMAS</a></li>
+</ul>
+<ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/emater-mg-anuncia-concurso-publico-com-salarios-de-ate-7321" 
+                    title="EMATER - MG anuncia concurso público com salários de até R$ 7.321,75" 
+                    class="noticia_desc n294082">EMATER - Empresa de Assistência Técnica e Extensão Rural do Estado de Minas Gerais - MG <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/analista-de-sistemas" title="Concursos para ANALISTA DE SISTEMAS"><i class="fas fa-code"></i>ANALISTA DE SISTEMAS</a></li>
+</ul>
+<ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/prefeitura-de-lagoa-da-prata-mg-retifica-concurso-publico-com-salarios-de-ate-21-mil" 
+                    title="Prefeitura de Lagoa da Prata - MG retifica concurso público com salários de até R$ 21 mil" 
+                    class="noticia_desc n288428">Prefeitura de Lagoa da Prata - MG <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/analista-de-sistemas" title="Concursos para ANALISTA DE SISTEMAS"><i class="fas fa-code"></i>ANALISTA DE SISTEMAS</a></li>
+</ul>
+<ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/prefeitura-e-camara-de-tombos-mg-abrem-concurso-publico-com-diversas-vagas-e-cadastro-de-reserva" 
+                    title="Prefeitura e Câmara de Tombos - MG abrem concurso público com diversas vagas e cadastro de reserva" 
+                    class="noticia_desc n292292">Município e Câmara de Tombos - MG <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/analista-de-sistemas" title="Concursos para ANALISTA DE SISTEMAS"><i class="fas fa-code"></i>ANALISTA DE SISTEMAS</a></li>
+</ul>
+<ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/uenp-pr-retifica-concursos-com-vagas-para-agentes-universitarios-de-execucao-e-profissionais" 
+                    title="UENP - PR retifica concursos com vagas para agentes universitários de execução e profissionais" 
+                    class="noticia_desc n292870">UENP - Universidade Estadual do Norte do Paraná - PR <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/analista-de-informatica-desenvolvimento-de-sistemas" title="Concursos para ANALISTA DE INFORMÁTICA - DESENVOLVIMENTO DE SISTEMAS"><i class="fas fa-laptop-code"></i>ANALISTA DE INFORMÁTICA - DESENVOLVIMENTO DE SISTEMAS</a></li>
+</ul>
+<ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/prefeitura-de-abaetetuba-pa-abre-concurso-com-vagas-em-diversas-areas" 
+                    title="Prefeitura de Abaetetuba - PA abre concurso com vagas em diversas áreas" 
+                    class="noticia_desc n294062">PMA - Prefeitura de Abaetetuba - PA <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/analista-de-sistemas" title="Concursos para ANALISTA DE SISTEMAS"><i class="fas fa-code"></i>ANALISTA DE SISTEMAS</a></li>
+</ul>
+<ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/companhia-docas-do-para-divulga-retificacoes-de-concursos-publicos" 
+                    title="Companhia Docas do Pará divulga retificações de concursos públicos" 
+                    class="noticia_desc n293402">CDP - Companhia Docas do Pará - PA <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/analista-portuario-desenvolvimento-de-sistemas" title="Concursos para ANALISTA PORTUÁRIO - DESENVOLVIMENTO DE SISTEMAS"><i class="fas fa-code"></i>ANALISTA PORTUÁRIO - DESENVOLVIMENTO DE SISTEMAS</a></li>
+</ul>
+<ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/caer-rr-abre-concurso-publico-com-salarios-ate-4554" 
+                    title="CAER - RR abre concurso público com salários até R$ 4.554,00" 
+                    class="noticia_desc n293698">CAER - Companhia de Águas e Esgotos de Roraima - RR <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/analista-de-sistemas" title="Concursos para ANALISTA DE SISTEMAS"><i class="fas fa-code"></i>ANALISTA DE SISTEMAS</a></li>
+</ul>
+<ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/sead-e-ssp-ma-divulgam-retificacao-de-concurso-para-pericia-oficial" 
+                    title="SEAD e SSP - MA divulgam retificação de concurso para perícia oficial" 
+                    class="noticia_desc n293799">SEAD/MA - Secretaria de Estado da Administração e Secretaria de Segurança Pública - MA <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/perito-criminal-analista-de-sistemas" title="Concursos para PERITO CRIMINAL - ANALISTA DE SISTEMAS"><i class="fas fa-laptop-code"></i>PERITO CRIMINAL - ANALISTA DE SISTEMAS</a></li>
+</ul>
+<ul class="link-d"><li style="margin-left:10px; margin-top: 20px;"><a 
+                    href="https://www.pciconcursos.com.br/noticias/ufpe-publica-edital-de-concurso-para-cargos-tecnico-administrativos" 
+                    title="UFPE publica edital de concurso para cargos técnico-administrativos" 
+                    class="noticia_desc n294146">UFPE - Universidade Federal de Pernambuco - PE <small><i class="fa-solid fa-external-link-square" style="margin-left:4px;"></i></small></a></li></ul><ul class="link-i"><li style="margin-left:42px;"><a href="https://www.pciconcursos.com.br/concursos/vagas/analista-de-tecnologia-da-informacao-desenvolvimento-de-sistemas" title="Concursos para ANALISTA DE TECNOLOGIA DA INFORMAÇÃO - DESENVOLVIMENTO DE SISTEMAS"><i class="fas fa-code"></i>ANALISTA DE TECNOLOGIA DA INFORMAÇÃO - DESENVOLVIMENTO DE SISTEMAS</a></li>
+</ul>
+
+    
+    <div style="padding:10px; margin:0 auto;"><ins class="adsbygoogle" style="display:block" data-ad-client="ca-pub-2622407619291980" data-ad-slot="4406933812" data-ad-format="auto" data-full-width-responsive="true"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script></div>
+
+</div>    </div>
+    <div id="lateral">
+        <div id="lateralnoticias">
+            <ul id="lista_lateral_noticias" class="lateral_social">
+                <li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-santos-sp-divulga-retificacoes-de-concursos-publicos"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/bd153fb2dd097f8eca343d41fe01d255.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Santos - SP divulga retificações de concursos públicos</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-taubate-sp-retifica-concursos-publicos-com-vagas-para-diversas-areas"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/c9c8c597059d549eed49a553dd4a7b87.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Taubaté - SP retifica concursos públicos com vagas para diversas áreas</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/tce-sp-prorroga-inscricoes-do-concurso-publico-para-auditor-de-controle-externo"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/7ea13a66a110a4658d8761ecab89a915.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>TCE-SP prorroga inscrições do concurso público para Auditor de Controle Externo</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/pm-sp-abre-concurso-com-2000-vagas-para-aluno-soldado"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/6a2e53de62a64be38dba49d6b7bddcbc.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>PM - SP abre concurso com 2.000 vagas para Aluno-Soldado</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/crea-mg-concurso-publico-oferece-vagas-com-salarios-iniciais-de-ate-13609"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/fe74c0c33c773861bd82f68dcaf6cca8.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>CREA-MG: Concurso público oferece vagas com salários iniciais de até R$ 13.609,13</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/itabiraprev-mg-abre-concurso-publico-com-salarios-de-ate-6280"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/8e3ffaecb3529d9e088ecb195a777c57.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>ITABIRAPREV - MG abre concurso público com salários de até R$ 6.280,77</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/dmae-de-uberlandia-mg-abre-concurso-publico-com-vagas-para-diversos-niveis-de-escolaridade"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/eed57af4c8ee7b02770437af8c9a81aa.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>DMAE de Uberlândia - MG abre concurso público com vagas para diversos níveis de escolaridade</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/cidasg-mg-atualiza-edital-de-concurso-publico-para-cargos-de-nivel-medio-e-superior"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/c253eeca34e4e887c53d33582233ec16.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>CIDASG - MG atualiza edital de concurso público para cargos de nível médio e superior</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-paracatu-mg-publica-edital-retificado-de-concurso-publico-para-guarda-civil-municipal"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/1a01383a1c4b883e2ced032e05bafc10.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Paracatu - MG publica edital retificado de concurso público para Guarda Civil Municipal</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-paracatu-mg-publica-edital-retificado-de-concurso-publico"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/1a01383a1c4b883e2ced032e05bafc10.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Paracatu - MG publica edital retificado de concurso público</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/policia-civil-pr-abre-concurso-publico-com-remuneracoes-ate-26876"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/a6f9b1296bed317a3e4436b247933029.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Polícia Civil - PR abre concurso público com remunerações até R$ 26.876,48</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-ponta-grossa-pr-divulga-retificacao-do-concurso-publico"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/49667591bee74c17a18fca5a24607958.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Ponta Grossa - PR divulga retificação do concurso público</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/uenp-pr-retifica-concursos-com-vagas-para-agentes-universitarios-de-execucao-e-profissionais"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/73c4c5005120e61070cc90a9c2aab278.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>UENP - PR retifica concursos com vagas para agentes universitários de execução e profissionais</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/sape-sc-retifica-edital-do-concurso-publico-para-analista-tecnico-administrativo-ii"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/bf56624401433deefeba225fe6a5a0af.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>SAPE - SC retifica edital do concurso público para Analista Técnico Administrativo II</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/abgf-prorroga-inscricoes-do-concurso-publico-com-vagas-para-cargos-de-nivel-superior"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/1395f9f0c2ee8b7dcf4707c216d91630.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>ABGF prorroga inscrições do concurso público com vagas para cargos de nível superior</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-cristalina-go-retifica-edital-de-concurso-publico-para-a-secretaria-de-educacao"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/5e4a78018311b115573271dae3808917.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Cristalina - GO retifica edital de concurso público para a Secretaria de Educação</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-primavera-do-leste-mt-retifica-edital-de-concurso-publico"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/54786411b49b0fe4a7a654539a465431.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Primavera do Leste - MT retifica edital de concurso público</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/companhia-docas-do-para-divulga-retificacoes-de-concursos-publicos"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/b822b4b9ad0cfd540daf6b700d47f3b7.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Companhia Docas do Pará divulga retificações de concursos públicos</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/cbmrr-rr-abre-concurso-publico-com-vagas-para-soldados-e-oficiais"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/d4ce9fc49830922c3d3026d745707014.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>CBMRR - RR abre concurso público com vagas para soldados e oficiais</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/sesau-al-retifica-concurso-para-especialistas-e-assistentes-em-saude"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/344894b4edaeef3987cf7e165abd9e7a.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>SESAU - AL retifica concurso para especialistas e assistentes em saúde</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/seap-ma-abre-concurso-publico-com-vagas-imediatas-e-cadastro-de-reserva"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/db5cb9d2f69fbdfab82391b60c986cea.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>SEAP - MA abre concurso público com vagas imediatas e cadastro de reserva</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/tce-ma-publica-edital-de-concurso-publico-com-salarios-de-ate-20112"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/71cecae0969f4887e5c9e30a88dc96f5.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>TCE - MA publica edital de concurso público com salários de até R$ 20.112,20</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/sead-e-pm-pi-retificam-concurso-publico-para-soldado-e-oficial-capelao"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/4cdf88d31e37d9a578a9d87ddc84af22.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>SEAD e PM - PI retificam concurso público para Soldado e Oficial Capelão</a></li>
+            </ul>
+        </div>
+    </div>
+    <div id="footer">
+        <div>
+            <div class="footer-politica-de-privacidade"><a href="https://www.pciconcursos.com.br/politica-de-privacidade/">Política de
+                    Privacidade e Cancelamento</a></div>
+            <div class="footer-copyright">2000-2026 PCI Concursos ®</div>
+            <div class="footer-redes-sociais">
+                <a target="_blank" href="https://whatsapp.com/channel/0029VaHULn4BFLgS0MkR0M0d"
+                   style="background-color:#25D366;" title="Canal no WhatsApp"><i class="fab fa-whatsapp"
+                                                                                  style="font-size:16px;"></i></a>
+                <a target="_blank" href="https://t.me/pciconcursos" style="background-color:#0088cc;"
+                   title="Telegram"><i class="fas fa-paper-plane" style="font-size:12px;"></i></a>
+                <a target="_blank" href="https://www.linkedin.com/company/pciconcursos/posts/"
+                   style="background-color:#0077B5;" title="Linkedin"><i class="fab fa-linkedin-in"
+                                                                         style="font-size:18px;"></i></a>
+                <a target="_blank" href="https://www.facebook.com/pciconcursos" style="background-color:#3b5998;"
+                   title="Facebook"><i class="fab fa-facebook-f" style="font-size:18px;"></i></a>
+                <a target="_blank" href="https://x.com/pciconcursos" style="background-color:#000000;" title="X"><i
+                            class="fab fa-x-twitter" style="font-size:16px;"></i></a>
+                <a target="_blank" href="https://www.instagram.com/pciconcursos_oficial"
+                   style="background-color:#C13584;" title="Instagram"><i class="fab fa-instagram"
+                                                                          style="font-size:18px; margin-top:1px;"></i></a>
+            </div>
+            <!-- <div class="footer-tel"><a href="https://www.pciconcursos.com.br/contato/">Atendimento /contato</a></div> -->
+            <div id="lgpd" style="display:none;"></div>
+        </div>
+    </div>
+</div>
+<script src="https://www.pciconcursos.com.br/js/jquery.slicknav.min.js"></script>
+<script src="https://www.pciconcursos.com.br/js/js.cookie.min.js"></script>
+<script src="https://www.pciconcursos.com.br/js/site.js?31984711"></script>
+<script src="https://www.pciconcursos.com.br/js/popper.min.js"></script>
+<script src="https://www.pciconcursos.com.br/js/bootstrap.js"></script>
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/icons?s=noticias&h=aafdf193fe85259038fef48785b26537&n=294108:294082:288428:292292:292870:294062:293402:293698:293799:294146">
+
+<script>if ('serviceWorker' in navigator && location.hostname === 'www.pciconcursos.com.br') { navigator.serviceWorker.register('/sw.js').catch(() => {}); }</script>
+<script src="https://www.pciconcursos.com.br/js/lazy.js" defer></script>
+<script src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2622407619291980" crossorigin="anonymous" defer></script>
+<script src="https://www.googletagmanager.com/gtag/js?id=G-ELMBY7KMP0" defer></script>
+<script>window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-ELMBY7KMP0');
+</script></body>
+</html>

@@ -32,6 +32,33 @@ def _normalize_keywords(value: list[str] | str | None) -> list[str]:
     return [item.strip().lower() for item in items if str(item).strip()]
 
 
+def _normalize_slugs(value: list[str] | str | None) -> list[str]:
+    """Normaliza `pci_slugs` em lista de slugs limpos, aceitando CSV."""
+    if value is None:
+        return []
+    items = value.split(",") if isinstance(value, str) else value
+    return [str(item).strip().strip("/").lower() for item in items if str(item).strip()]
+
+
+def _normalize_modo_carga(value, area: str, logger: logging.Logger) -> str:
+    """Valida `pci_primeira_carga`; cai no padrao seguro se vier bobagem.
+
+    O padrao e `individual`, que preserva o comportamento historico de um card
+    por edital. Modo invalido nao pode virar silencio acidental.
+    """
+    modos = {"individual", "resumo_uf", "silencioso"}
+    if value is None:
+        return "individual"
+    modo = str(value).strip().lower()
+    if modo in modos:
+        return modo
+    logger.warning(
+        f"pci_primeira_carga invalido para {area}: {value!r} "
+        f"(validos: {sorted(modos)}). Usando 'individual'."
+    )
+    return "individual"
+
+
 def load_monitor_targets(logger: logging.Logger) -> list[dict]:
     """Carrega alvos de monitoramento com fallback seguro para modo legado."""
     token = os.getenv("TELEGRAM_TOKEN")
@@ -70,6 +97,10 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
                     "chat_ids": chat_ids,
                     "keywords_include": _normalize_keywords(item.get("keywords_include")),
                     "keywords_exclude": _normalize_keywords(item.get("keywords_exclude")),
+                    "pci_slugs": _normalize_slugs(item.get("pci_slugs")),
+                    "pci_primeira_carga": _normalize_modo_carga(
+                        item.get("pci_primeira_carga"), area, logger
+                    ),
                 }
                 targets.append(target)
 
@@ -88,4 +119,8 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
         "chat_ids": [legacy_chat] if legacy_chat else [],
         "keywords_include": _normalize_keywords(os.getenv("KEYWORDS_INCLUDE")),
         "keywords_exclude": _normalize_keywords(os.getenv("KEYWORDS_EXCLUDE")),
+        "pci_slugs": _normalize_slugs(os.getenv("PCI_SLUGS")),
+        "pci_primeira_carga": _normalize_modo_carga(
+            os.getenv("PCI_PRIMEIRA_CARGA"), "TI", logger
+        ),
     }]

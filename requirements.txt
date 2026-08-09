@@ -11,5 +11,5 @@ litellm>=1.30.0
 # --- Utilitários e Configuração ---
 python-dotenv>=1.0.0
 
-# --- Agendamento e Automação ---
-schedule>=1.2.0
+# Agendamento e feito pelo cron do sistema (scripts/run_daily.sh), nao por lib.
+# A dependencia `schedule` saiu em 08/2026 junto com o DailyScheduler morto.

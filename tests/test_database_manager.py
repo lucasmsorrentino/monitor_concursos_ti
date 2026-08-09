@@ -32,6 +32,7 @@ class TestSchemaCreation:
         assert columns == {
             "id", "area", "nome", "status", "link",
             "data_fim_inscricao", "status_hash", "fase", "estado_usuario",
+            "fonte", "pci_id",          # v5: PCI Concursos como segunda fonte
             "ultima_atualizacao",
         }
         conn.close()
@@ -264,16 +265,29 @@ class TestLinkCanonicalIdentity:
         assert len(rows) == 1
         assert rows[0] == ("Concurso CRM ES - variacao longa", "v2")
 
-    def test_link_igual_ao_indice_cai_no_fallback_de_nome(self, db):
+    def test_link_igual_ao_indice_casa_o_mesmo_orgao_por_entidade(self, db):
+        """Sem link especifico, "Concurso CRM ES" e "CRM ES" sao o MESMO orgao.
+
+        Ate 08/2026 isso virava uma linha nova, e o banco acumulava duplicatas
+        do mesmo orgao com metade da historia em cada uma. A varredura de 08/08
+        logou quatro casos reais (SEFIN RO, Seduc AL, IFFar, UEAP). O casamento
+        por entidade em `buscar_registro` fecha esse buraco.
+        """
         db.atualizar_concurso("CRM ES", "v1", self.URL_INDICE, url_indice=self.URL_INDICE)
 
-        # Sem link especifico, nome diferente = registro novo.
         assert (
             db.buscar_status_antigo(
                 "Concurso CRM ES", link=self.URL_INDICE, url_indice=self.URL_INDICE
             )
-            is None
+            == "v1"
         )
+
+    def test_orgaos_parecidos_mas_distintos_nao_se_fundem(self, db):
+        """Guarda-corpo do casamento por entidade: cidade diferente = orgao diferente."""
+        db.atualizar_concurso("Prefeitura de Ponta Grossa - PR", "v1", "")
+
+        assert db.buscar_status_antigo("Prefeitura de Ponta Porã - MS") is None
+        assert db.buscar_status_antigo("Prefeitura de Ponta Grossa") == "v1"
 
     def test_sem_link_mantem_comportamento_legado(self, db):
         db.atualizar_concurso("TRF1", "v1", "")

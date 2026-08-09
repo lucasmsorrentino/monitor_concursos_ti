@@ -1,7 +1,14 @@
 """Testes para src/notifiers/telegram.py."""
+import pytest
 import requests
 
 from src.notifiers.telegram import TelegramNotifier
+
+
+@pytest.fixture(autouse=True)
+def sem_espera(mocker):
+    """Neutraliza throttle e backoff: sem isso a suite gastaria minutos dormindo."""
+    return mocker.patch("src.notifiers.telegram.time.sleep")
 
 
 class TestInit:
@@ -73,16 +80,68 @@ class TestNotificar:
 
     def test_error_in_one_chat_does_not_block_next(self, mocker):
         post = mocker.patch("src.notifiers.telegram.requests.post")
-        call_side_effects = [
+        ok = mocker.MagicMock(status_code=200, raise_for_status=mocker.MagicMock())
+        # Chat 111 falha nas 3 tentativas; chat 222 passa de primeira.
+        post.side_effect = [
             requests.ConnectionError("first fails"),
-            mocker.MagicMock(raise_for_status=mocker.MagicMock()),
+            requests.ConnectionError("first fails"),
+            requests.ConnectionError("first fails"),
+            ok,
         ]
-        post.side_effect = call_side_effects
         n = TelegramNotifier("TOKEN", chat_ids=["111", "222"])
 
-        n.notificar("ola")
+        assert n.notificar("ola") is False   # nem todos receberam
+        assert post.call_count == 4
 
+
+class TestRetryE429:
+    def test_reenvia_quando_telegram_devolve_429(self, mocker, sem_espera):
+        post = mocker.patch("src.notifiers.telegram.requests.post")
+        limitado = mocker.MagicMock(status_code=429)
+        limitado.json.return_value = {"parameters": {"retry_after": 7}}
+        ok = mocker.MagicMock(status_code=200, raise_for_status=mocker.MagicMock())
+        post.side_effect = [limitado, ok]
+
+        n = TelegramNotifier("TOKEN", chat_ids=["111"])
+
+        assert n.notificar("ola") is True
         assert post.call_count == 2
+        # Respeitou o retry_after do proprio Telegram, nao o backoff generico.
+        assert any(c.args and c.args[0] == pytest.approx(7.5) for c in sem_espera.call_args_list)
+
+    def test_429_sem_retry_after_cai_no_backoff(self, mocker, sem_espera):
+        post = mocker.patch("src.notifiers.telegram.requests.post")
+        limitado = mocker.MagicMock(status_code=429)
+        limitado.json.side_effect = ValueError("corpo nao e json")
+        ok = mocker.MagicMock(status_code=200, raise_for_status=mocker.MagicMock())
+        post.side_effect = [limitado, ok]
+
+        n = TelegramNotifier("TOKEN", chat_ids=["111"])
+
+        assert n.notificar("ola") is True
+        assert post.call_count == 2
+
+    def test_desiste_e_reporta_falha_apos_tres_tentativas(self, mocker, caplog):
+        post = mocker.patch("src.notifiers.telegram.requests.post")
+        post.side_effect = requests.ConnectionError("rede fora")
+
+        n = TelegramNotifier("TOKEN", chat_ids=["111"])
+
+        assert n.notificar("ola") is False
+        assert post.call_count == 3
+        # Nivel error, nao debug: mensagem perdida tem que aparecer no log.
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+
+    def test_espaca_envios_para_o_mesmo_chat(self, mocker, sem_espera):
+        post = mocker.patch("src.notifiers.telegram.requests.post")
+        post.return_value = mocker.MagicMock(status_code=200, raise_for_status=mocker.MagicMock())
+        n = TelegramNotifier("TOKEN", chat_ids=["111"])
+
+        n.notificar("primeira")
+        n.notificar("segunda")
+
+        # A segunda mensagem espera o intervalo minimo; a primeira nao espera nada.
+        assert sem_espera.call_count >= 1
 
 
 class TestNotificarConcurso:

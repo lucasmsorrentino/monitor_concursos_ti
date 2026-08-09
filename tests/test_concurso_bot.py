@@ -12,8 +12,11 @@ from src.core.bot import ConcursoBot
 
 
 @pytest.fixture
-def mock_deps(mocker):
+def mock_deps(mocker, tmp_path):
     """Substitui as dependencias do ConcursoBot antes da instanciacao."""
+    # Marcadores de "alerta ja enviado hoje" vao pra um tmp por teste; no LOG_DIR
+    # real eles persistiriam e o segundo teste do dia nao veria alerta nenhum.
+    mocker.patch("src.core.bot.LOG_DIR", str(tmp_path))
     scraper_cls = mocker.patch("src.core.bot.GranScraper")
     db_cls = mocker.patch("src.core.bot.DatabaseManager")
     ai_cls = mocker.patch("src.core.bot.IntelligenceUnit")
@@ -80,6 +83,47 @@ class TestKeywordPreFilter:
     def test_empty_filters_accept_everything(self, base_config):
         bot = ConcursoBot(base_config)
         assert bot._passa_filtro_palavras("<p>qualquer coisa</p>") is True
+
+
+class TestFiltroSobreTextoVisivel:
+    """O filtro le o texto que o humano ve, nao o HTML cru.
+
+    Casar substring no HTML tinha dois defeitos que este bloco trava.
+    """
+
+    BLOCO_TI_COM_SIDEBAR = """
+        <h3>Concurso do TRE-PR: vagas para Analista de Sistemas</h3>
+        <p>Edital publicado com vagas de tecnologia da informacao.</p>
+        <aside class="relacionados">
+          <a href="/concursos-artes/">Concursos de artes e sociologia</a>
+        </aside>
+    """
+
+    def test_exclude_nao_derruba_edital_por_palavra_na_sidebar(self, base_config):
+        """Regressao: edital de TI sumia porque a barra lateral citava artes."""
+        base_config["keywords_exclude"] = ["artes", "sociologia"]
+        bot = ConcursoBot(base_config)
+
+        assert bot._passa_filtro_palavras(self.BLOCO_TI_COM_SIDEBAR) is True
+
+    def test_exclude_ainda_derruba_quando_a_palavra_esta_no_corpo(self, base_config):
+        base_config["keywords_exclude"] = ["artes"]
+        bot = ConcursoBot(base_config)
+
+        bloco = "<h3>Concurso para professor de artes</h3><p>Edital publicado.</p>"
+        assert bot._passa_filtro_palavras(bloco) is False
+
+    def test_include_nao_casa_dentro_de_atributo_html(self, base_config):
+        """`ti` casava em class/href/alt e tornava o include inocuo."""
+        base_config["keywords_include"] = ["ti"]
+        bot = ConcursoBot(base_config)
+
+        bloco = '<div class="noticia"><a href="/gestao/">Concurso para pedagogo</a></div>'
+        assert bot._passa_filtro_palavras(bloco) is False
+
+    def test_html_malformado_nao_explode(self, base_config):
+        bot = ConcursoBot(base_config)
+        assert bot._passa_filtro_palavras("<h3>sem fechar") is True
 
 
 class TestPrazoEncerrado:
@@ -508,3 +552,222 @@ class TestExecutarFlow:
 
         # Varredura ainda enviou a mensagem de conclusao.
         assert mock_deps["notifier"].notificar.call_count == 1
+
+
+class TestFalhaPropaga:
+    """Uma varredura quebrada nao pode se passar por varredura limpa.
+
+    Ate 08/2026 o `except` do loop logava e seguia, o main.py devolvia 0, o
+    run_daily.sh gravava o marker de sucesso e o dia seguinte parecia saudavel.
+    O bot ficou morto 23 dias assim.
+    """
+
+    def test_excecao_no_scraper_marca_falha(self, mock_deps, base_config):
+        mock_deps["scraper"].capturar_concursos.side_effect = RuntimeError("site fora")
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.falhou is True
+
+    def test_varredura_limpa_nao_marca_falha(self, mock_deps, base_config):
+        """Concurso extraido e sem novidade: dia quieto de verdade, nao falha."""
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "TRF1", "status": "edital publicado",
+            "link": "https://example.com/trf1", "data_fim_inscricao": _amanha(),
+            "data_referencia": None, "fase": "edital_publicado",
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 1, "fase": "edital_publicado", "estado_usuario": "ativo",
+            "data_fim_inscricao": _amanha(), "nome": "TRF1",
+        }
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.falhou is False
+
+    def test_varredura_cega_marca_falha(self, mock_deps, base_config):
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.falhou is True
+
+    def test_telegram_nao_entregue_marca_falha(self, mock_deps, base_config):
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True}
+        mock_deps["notifier"].notificar.return_value = False  # nao entregou
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.falhou is True
+
+
+class TestErroDeExtracao:
+    """Bloco perdido pela LLM e contado, nao confundido com bloco irrelevante."""
+
+    def _blocos(self, n):
+        return [f"<h3>bloco {i}</h3>" for i in range(n)]
+
+    def test_muitos_erros_alertam_em_vez_de_reportar_sucesso(self, mock_deps, base_config):
+        mock_deps["scraper"].capturar_concursos.return_value = self._blocos(10)
+        # 5 perdidos, 5 irrelevantes: metade da pagina se perdeu.
+        mock_deps["ai"].extrair_dados.side_effect = (
+            [{"ignorar": True, "erro": True}] * 5 + [{"ignorar": True}] * 5
+        )
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.falhou is True
+        texto = mock_deps["notifier"].notificar.call_args.args[0]
+        assert "incompleta" in texto.lower()
+
+    def test_poucos_erros_nao_disparam_alerta(self, mock_deps, base_config):
+        mock_deps["scraper"].capturar_concursos.return_value = self._blocos(20)
+        # 1 perdido em 20 validos = 5%, abaixo do limite de 20%.
+        mock_deps["ai"].extrair_dados.side_effect = (
+            [{"ignorar": True, "erro": True}]
+            + [{"ignorar": False, "nome": f"Orgao {i}", "status": "s",
+                "link": "https://example.com/x", "data_fim_inscricao": None,
+                "data_referencia": None} for i in range(19)]
+        )
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 1, "fase": "edital_publicado", "estado_usuario": "ativo",
+            "data_fim_inscricao": None, "nome": "Orgao",
+        }
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.falhou is False
+
+
+class TestPrimeiraCargaPci:
+    def _config_pci(self, base_config, modo):
+        base_config["pci_slugs"] = ["analista-de-sistemas"]
+        base_config["pci_primeira_carga"] = modo
+        return base_config
+
+    def _itens(self, n):
+        return [{
+            "ignorar": False, "nome": f"Prefeitura {i} - MG", "status": "abre concurso",
+            "link": f"https://pci/{i}", "fase": "edital_publicado",
+            "data_fim_inscricao": "2099-01-01", "data_referencia": None,
+            "pci_id": str(i), "uf": "MG" if i % 2 else "SP", "cargos": [],
+            "fonte": "pci",
+        } for i in range(n)]
+
+    def test_resumo_uf_agrupa_em_vez_de_um_ping_por_edital(
+        self, mock_deps, base_config, mocker
+    ):
+        pci_cls = mocker.patch("src.core.bot.PciScraper")
+        pci = pci_cls.return_value
+        pci.capturar_concursos.return_value = self._itens(6)
+        pci.enriquecer.side_effect = lambda i: i
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["db"].contar_por_fonte.return_value = 0   # PCI nunca rodou
+        mock_deps["db"].buscar_registro.return_value = None
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(self._config_pci(base_config, "resumo_uf"))
+        bot.executar()
+
+        # Nenhum card individual; so o aviso de abertura + 1 mensagem por UF.
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        assert mock_deps["notifier"].notificar.call_count == 3   # intro + MG + SP
+
+    def test_silencioso_nao_manda_nada(self, mock_deps, base_config, mocker):
+        pci_cls = mocker.patch("src.core.bot.PciScraper")
+        pci = pci_cls.return_value
+        pci.capturar_concursos.return_value = self._itens(4)
+        pci.enriquecer.side_effect = lambda i: i
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["db"].contar_por_fonte.return_value = 0
+        mock_deps["db"].buscar_registro.return_value = None
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(self._config_pci(base_config, "silencioso"))
+        bot.executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        # Semeou os 4 no banco mesmo sem notificar.
+        assert mock_deps["db"].atualizar_concurso.call_count == 4
+
+    def test_individual_manda_um_card_por_edital(self, mock_deps, base_config, mocker):
+        pci_cls = mocker.patch("src.core.bot.PciScraper")
+        pci = pci_cls.return_value
+        pci.capturar_concursos.return_value = self._itens(4)
+        pci.enriquecer.side_effect = lambda i: i
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["db"].contar_por_fonte.return_value = 0
+        mock_deps["db"].buscar_registro.return_value = None
+        mock_deps["notifier"].notificar_concurso.return_value = True
+
+        bot = ConcursoBot(self._config_pci(base_config, "individual"))
+        bot.executar()
+
+        assert mock_deps["notifier"].notificar_concurso.call_count == 4
+
+    def test_segunda_rodada_nao_e_primeira_carga(self, mock_deps, base_config, mocker):
+        pci_cls = mocker.patch("src.core.bot.PciScraper")
+        pci = pci_cls.return_value
+        pci.capturar_concursos.return_value = self._itens(3)
+        pci.enriquecer.side_effect = lambda i: i
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["db"].contar_por_fonte.return_value = 50   # PCI ja rodou
+        mock_deps["db"].buscar_registro.return_value = None
+        mock_deps["notifier"].notificar_concurso.return_value = True
+
+        bot = ConcursoBot(self._config_pci(base_config, "resumo_uf"))
+        bot.executar()
+
+        # Fora da primeira carga, edital novo sai como card, mesmo em resumo_uf.
+        assert mock_deps["notifier"].notificar_concurso.call_count == 3
+
+    def test_pci_nao_enriquece_o_que_ja_esta_no_banco(self, mock_deps, base_config, mocker):
+        pci_cls = mocker.patch("src.core.bot.PciScraper")
+        pci = pci_cls.return_value
+        pci.capturar_concursos.return_value = self._itens(3)
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["db"].contar_por_fonte.return_value = 10
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 1, "fase": "edital_publicado", "estado_usuario": "ativo",
+            "data_fim_inscricao": "2099-01-01", "nome": "Prefeitura 0 - MG",
+        }
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(self._config_pci(base_config, "individual"))
+        bot.executar()
+
+        # Ja conhecido = nao gasta uma requisicao na noticia.
+        pci.enriquecer.assert_not_called()
+
+
+class TestDryRun:
+    def test_dry_run_nao_escreve_nem_notifica(self, mock_deps, base_config):
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "TRF1", "status": "edital publicado",
+            "link": "https://example.com/trf1", "data_fim_inscricao": _amanha(),
+            "data_referencia": None,
+        }
+        mock_deps["db"].buscar_registro.return_value = None
+        base_config["dry_run"] = True
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        # Escrever em dry-run marcaria os editais como vistos e a rodada real
+        # seguinte nao notificaria nada.
+        mock_deps["db"].atualizar_concurso.assert_not_called()
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        mock_deps["notifier"].notificar.assert_not_called()

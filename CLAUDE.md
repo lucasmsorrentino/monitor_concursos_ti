@@ -39,16 +39,27 @@ All external dependencies are mocked — tests do not require Ollama, an API key
 
 ## Architecture
 
-**Pipeline flow**: `main.py` builds one `ConcursoBot` per target from `config/loader.py` → `MultiAreaRunner` → each `ConcursoBot` → `GranScraper` → `IntelligenceUnit` → `DatabaseManager` → `TelegramNotifier`
+**Pipeline flow**: `main.py` builds one `ConcursoBot` per target from `config/loader.py` → `MultiAreaRunner` → each `ConcursoBot` → **sources** (`GranScraper`, `PciScraper`) → `IntelligenceUnit` (Gran only) → `DatabaseManager` → `TelegramNotifier`
+
+**Two sources, one decision path.** Each area can read from the Gran blog and from PCI Concursos. They differ only in how a candidate becomes a data dict:
+
+| | Gran | PCI |
+| --- | --- | --- |
+| Page shape | prose in HTML | structured list |
+| Needs the LLM? | **yes**, one call per block | **no**, deterministic parse |
+| Cost | ~15s per block | milliseconds |
+
+That asymmetry is why PCI does not go through the LLM: the `professor` slug alone lists 1000+ concursos, which would take hours at CLI latency. Everything downstream of the data dict — decision matrix, dedup, buttons — is shared.
 
 1. **GranScraper** (`src/scrapers/gran_scraper.py`) slices page HTML into blocks — does NO data extraction. Default mode slices by `<h3>` tags; URLs containing `/cursos/carreira/` use a separate path that slices by `<h3>`/`<h4>` section headings plus `<li>` items and filters hardcoded section names (see `_CARREIRA_SECOES` / `_RUIDO_MARCADORES`).
-2. **ConcursoBot** (`src/core/bot.py`) orchestrates per-area: pending Telegram callbacks → cheap keyword pre-filter (`_passa_filtro_palavras`) → LLM extraction → DB lookup → **fase-based decision matrix** (`_decidir_e_notificar`, no second LLM call) → notification. End-of-cycle messages: heartbeat "Varredura Concluída" when nothing new, or a ⚠️ blind-scan alert when the scan is truly blind — never a false "nothing new". Blind = zero raw blocks, OR zero valid extractions on a target WITHOUT `keywords_include`. Filtered targets on generic pages (e.g. SOCIOLOGIA_ARTES on `concursos-abertos/`) treat zero valid as a normal quiet day (heartbeat "nenhuma é da sua área hoje").
-3. **IntelligenceUnit** (`src/intelligence/langchain_unit.py`) runs LangChain chains over the backend selected by `_detect_backend(model_name)`:
-   - **Extraction chain** (JSON mode): HTML block → `{ignorar, nome, status, link, data_fim_inscricao, data_referencia, fase}`. The system prompt receives `area_context` + include/exclude keywords so the LLM rejects off-area blocks. `fase` is one of 6 literals (see "Fase vocabulary"); `data_referencia` is the most relevant event date (ISO; month/year → first day; null when no date). Both are sanitized post-parse (`sanitizar_fase`, `_sanitizar_data`).
-   - **Analysis chain** (text mode, LEGACY): old vs new status → summary or `IGNORE`. Still implemented and tested, but **no longer called by the decision flow** — free-text comparison was the source of false positives.
-   - Chains retry on failure (`OLLAMA_RETRIES`, `OLLAMA_RETRY_DELAY_S`) and surface JSON wrapped in markdown fences via `_parse_json_response`.
-4. **MultiAreaRunner** (`src/core/multi_area_runner.py`) runs the bots sequentially each cycle.
-5. **Scheduling is external.** `main.py` does NOT have an internal loop. `src/scheduler/runner.py` (`DailyScheduler`) is a legacy helper not wired into `main.py` — use Task Scheduler (Windows) or cron via `scripts/install_schedule.sh` (Linux).
+2. **PciScraper** (`src/scrapers/pci_scraper.py`) reads `https://www.pciconcursos.com.br/cargos/<slug>` for each slug in `pci_slugs`, parsing the `ul.link-d` + `ul.link-i` pairs into finished data dicts. The `nXXXXXX` in the anchor's CSS class is the PCI news id — stable across runs, stored as `pci_id`, and the strongest dedup key available. The cargo page never carries the registration deadline, so `enriquecer()` fetches the news page once **per new item only** and extracts the deadline by regex, scoped to the sentence mentioning "inscrições" (a news page also mentions isenção and prova dates; taking the max over the whole text would return the exam date).
+3. **ConcursoBot** (`src/core/bot.py`) orchestrates per-area: pending Telegram callbacks → per source, candidate → data dict → DB lookup → **fase-based decision matrix** (`_decidir_e_notificar`, no second LLM call) → notification. The keyword pre-filter (`_passa_filtro_palavras`) applies to Gran blocks and runs on **visible text**, not raw HTML — see "Key Design Decisions".
+   - End-of-cycle: a 🚨 *degraded* alert when ≥20% of blocks were lost in extraction (`LIMITE_ERRO_EXTRACAO`), else a ⚠️ blind-scan alert when the scan produced no candidates at all, else heartbeat. Degraded is checked first: 10 blocks with 5 lost is loss, not blindness. Blind = zero raw blocks with no alternate source, OR zero candidates on a target WITHOUT `keywords_include`. Filtered targets on generic pages treat zero valid as a normal quiet day.
+   - Blind-scan alerts are rate-limited to **one per area per day** (`_alerta_uma_vez_por_dia`, marker in `logs/.alerta_<area>_<tipo>`), because the cron now runs hourly and a layout change would otherwise send 24 identical messages.
+   - `bot.falhou` is set by any failure. `MultiAreaRunner.executar()` returns False if any area failed, `main.py` exits 1, and `run_daily.sh` then does NOT write the success marker — so the next hourly tick retries.
+4. **IntelligenceUnit** (`src/intelligence/langchain_unit.py`) runs the extraction chain over the backend selected by `_detect_backend(model_name)`: HTML block → `{ignorar, nome, status, link, data_fim_inscricao, data_referencia, fase}`. The system prompt receives `area_context` + include/exclude keywords so the LLM rejects off-area blocks. `fase` is one of 6 literals (see "Fase vocabulary"); `data_referencia` is the most relevant event date (ISO; month/year → first day; null when no date). Both are sanitized post-parse (`sanitizar_fase`, `_sanitizar_data`). Retries on failure (`LLM_RETRIES`, `LLM_RETRY_DELAY_S`), and surfaces JSON wrapped in markdown fences via `_parse_json_response`. On final failure it returns `{"ignorar": True, "erro": True}` — the `erro` flag is what lets the bot tell a *lost* edital from an irrelevant block.
+5. **MultiAreaRunner** (`src/core/multi_area_runner.py`) runs the bots sequentially each cycle and aggregates failure.
+6. **Scheduling is external.** `main.py` does NOT have an internal loop. On Linux, cron runs `scripts/run_daily.sh` **hourly**; the daily marker + `flock` make every tick after the first success a no-op. Hourly is deliberate — see "Key Design Decisions".
 
 ## Fase vocabulary (`src/utils/fases.py`)
 
@@ -83,16 +94,21 @@ Config is via a dotenv file. **It does NOT live in the repo folder** — the rep
 
 `main.py` loads `MONITOR_ENV_FILE` if set, falling back to `.env` for local development. `scripts/run_daily.sh` exports `MONITOR_ENV_FILE=$HOME/concursos-secrets/monitor.env`. Two modes:
 
-- **Multi-area** (recommended): `MONITOR_TARGETS_JSON` — JSON array of area configs with `area`, `url`, `chat_ids`, `keywords_include`, `keywords_exclude`. **Must be on a single line** — python-dotenv does not support multiline values, so pretty-printing the JSON will silently break loading and fall through to legacy mode.
-- **Legacy single-area**: `URL_ALVO` + `TELEGRAM_CHAT_ID` + `KEYWORDS_INCLUDE` + `KEYWORDS_EXCLUDE`. Used as fallback when `MONITOR_TARGETS_JSON` is missing or fails to parse.
+- **Multi-area** (recommended): `MONITOR_TARGETS_JSON` — JSON array of area configs with `area`, `url`, `chat_ids`, `keywords_include`, `keywords_exclude`, `pci_slugs`, `pci_primeira_carga`. **Must be on a single line** — python-dotenv does not support multiline values, so pretty-printing the JSON will silently break loading and fall through to legacy mode.
+- **Legacy single-area**: `URL_ALVO` + `TELEGRAM_CHAT_ID` + `KEYWORDS_INCLUDE` + `KEYWORDS_EXCLUDE` (+ `PCI_SLUGS`, `PCI_PRIMEIRA_CARGA`). Used as fallback when `MONITOR_TARGETS_JSON` is missing or fails to parse.
 
-Model selection: `LLM_MODEL` takes precedence over `OLLAMA_MODEL` (main.py uses `os.getenv("LLM_MODEL") or os.getenv("OLLAMA_MODEL", "llama3.1")`). Routing rules in the "LLM backends" section above.
+**PCI fields** (per target):
+
+- `pci_slugs` — cargo slugs to fetch. Empty/absent disables PCI for that area. Live values as of 2026-08-08: TI 8 slugs (60 órgãos), EDUCACAO 5 (220), SOCIOLOGIA_ARTES 4 (56).
+- `pci_primeira_carga` — what to do the FIRST time PCI runs in an area, when dozens or hundreds of editais arrive at once. `individual` (default, one card each), `resumo_uf` (one message per state), `silencioso` (seed the DB only). Detected from the DB (`contar_por_fonte('pci') == 0`), not from a flag file. From the second run on, always the normal one-card-per-novelty flow. Invalid values fall back to `individual` with a warning — a typo must never turn into silence.
+
+Model selection: `LLM_MODEL` takes precedence over `OLLAMA_MODEL` (main.py uses `os.getenv("LLM_MODEL") or os.getenv("OLLAMA_MODEL", "llama3.1")`). Routing rules in the "LLM backends" section above. Timeout/retry vars are `LLM_TIMEOUT_S` / `LLM_RETRIES` / `LLM_RETRY_DELAY_S`; the old `OLLAMA_*` names still work as aliases (the backend in production is `claude -p`, so the Ollama naming was misleading).
 
 Config loading logic is in `config/loader.py`.
 
 ## Database
 
-SQLite at `data/concursos.db`. Table `editais` (schema v4):
+SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, not relative to cwd). Table `editais` (schema v5):
 
 | Column | Type | Notes |
 | --- | --- | --- |
@@ -105,7 +121,18 @@ SQLite at `data/concursos.db`. Table `editais` (schema v4):
 | `status_hash` | TEXT NULL | sha1[:16] of `status_fingerprint(status)` — legacy dedup, superseded by `fase` |
 | `fase` | TEXT NULL | Controlled vocabulary (see "Fase vocabulary") — the change-detection key. NULL = pre-v4 row awaiting silent backfill |
 | `estado_usuario` | TEXT DEFAULT `'ativo'` | `ativo` \| `ignorado` \| `seguindo` — controlled by Telegram inline buttons |
+| `fonte` | TEXT NULL | v5. `gran` \| `pci`. Pre-v5 rows backfilled to `gran` (the only source that existed). Also drives first-load detection |
+| `pci_id` | TEXT NULL | v5. PCI news id, the strongest dedup key. Indexed on `(area, pci_id)` |
 | `ultima_atualizacao` | TIMESTAMP | Auto-updated on every upsert |
+
+**Identity resolution** (`buscar_registro`, strongest first) — one order shared by lookup and upsert:
+
+1. `pci_id` — stable across runs.
+2. Specific `link` (different from the scraper's index URL).
+3. `(area, nome)` COLLATE NOCASE — the LLM varies capitalization.
+4. `mesma_entidade(nome_a, nome_b)` (`src/utils/text.py`) — the only step that crosses sources, since Gran and PCI spell the same órgão differently ("Prefeitura de Ponta Grossa - PR" vs "Concurso Prefeitura Ponta Grossa"). It compares only **discriminating** tokens, subtracting generic org types (`TIPOS_ORGAO`), and refuses a match when both names carry a UF and the UFs differ. Without that, "Prefeitura de Ponta Grossa" and "Prefeitura de Ponta Porã" would share `{prefeitura, ponta}` and merge.
+
+When a name collision turns out to be the same órgão, `_fundir` merges the rows instead of leaving both. The user's `estado_usuario` wins by priority (`seguindo` > `ignorado` > `ativo`) from either row — an automatic merge must never discard a manual ⭐.
 
 Auto-migrates v1 (PK `nome`) → v2 (PK `(area, nome)`) → v3 (`id` autoincrement) → v4 (adds `fase`, additive `ALTER TABLE`) on startup; legacy v1 rows are tagged with area `TI`. `atualizar_concurso` uses `COALESCE(?, fase)` so updates without a fase never erase a stored one. Connection opened with `check_same_thread=False`. Manager in `src/database/manager.py`.
 
