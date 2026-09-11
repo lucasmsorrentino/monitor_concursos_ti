@@ -40,6 +40,15 @@ def _normalize_slugs(value: list[str] | str | None) -> list[str]:
     return [str(item).strip().strip("/").lower() for item in items if str(item).strip()]
 
 
+def _normalize_bool(value, padrao: bool = False) -> bool:
+    """Le booleano vindo de JSON (true) ou de .env legado ("1", "sim", "true")."""
+    if value is None:
+        return padrao
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "sim", "yes", "on"}
+
+
 def _normalize_modo_carga(value, area: str, logger: logging.Logger) -> str:
     """Valida `pci_primeira_carga`; cai no padrao seguro se vier bobagem.
 
@@ -98,6 +107,11 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
                     "keywords_include": _normalize_keywords(item.get("keywords_include")),
                     "keywords_exclude": _normalize_keywords(item.get("keywords_exclude")),
                     "pci_slugs": _normalize_slugs(item.get("pci_slugs")),
+                    # Lista de concursos NACIONAIS do PCI: a unica fonte que
+                    # cobre estatal federal (Dataprev, Transpetro, Correios).
+                    # Padrao desligado — ligar custa uma chamada de LLM por
+                    # item novo, entao e escolha por area.
+                    "pci_nacional": _normalize_bool(item.get("pci_nacional")),
                     "pci_primeira_carga": _normalize_modo_carga(
                         item.get("pci_primeira_carga"), area, logger
                     ),
@@ -120,6 +134,7 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
         "keywords_include": _normalize_keywords(os.getenv("KEYWORDS_INCLUDE")),
         "keywords_exclude": _normalize_keywords(os.getenv("KEYWORDS_EXCLUDE")),
         "pci_slugs": _normalize_slugs(os.getenv("PCI_SLUGS")),
+        "pci_nacional": _normalize_bool(os.getenv("PCI_NACIONAL")),
         "pci_primeira_carga": _normalize_modo_carga(
             os.getenv("PCI_PRIMEIRA_CARGA"), "TI", logger
         ),

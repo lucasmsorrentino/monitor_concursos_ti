@@ -14,7 +14,8 @@ devolve dados ja estruturados e nao passa pela LLM. O loop trata os dois como
 import html
 import logging
 import os
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, timedelta
 
 from bs4 import BeautifulSoup
 
@@ -23,7 +24,9 @@ from src.intelligence.langchain_unit import IntelligenceUnit
 from src.notifiers.telegram import TelegramNotifier
 from src.notifiers.telegram_callbacks import TelegramCallbackProcessor
 from src.scrapers.gran_scraper import GranScraper
+from src.scrapers.pci_nacional_scraper import PciNacionalScraper
 from src.scrapers.pci_scraper import PciScraper
+from src.utils import memoria_json, saude_fontes
 from src.utils.fases import (
     sanitizar_fase,
     fase_avancou,
@@ -46,10 +49,27 @@ _CLASSES_LATERAIS = (
     "veja_tambem", "recomend", "tags", "breadcrumb", "banner", "publicidade",
 )
 
+# Estado dos itens da pagina nacional ja julgados fora da area pela LLM, para
+# nao pagar uma chamada por dia pelo mesmo "nao e TI". Ver `_nacional_ja_descartado`.
+ARQUIVO_DESCARTES = "pci_nacional_descartados"
+DIAS_REJULGAR_DESCARTE = 30
+DIAS_MANTER_DESCARTE = 120
+
 # Modos de primeira carga do PCI (config `pci_primeira_carga` por alvo).
 CARGA_INDIVIDUAL = "individual"   # um card por edital, com botoes
 CARGA_RESUMO_UF = "resumo_uf"     # uma mensagem por estado
 CARGA_SILENCIOSA = "silencioso"   # so semeia o banco
+
+
+@dataclass(frozen=True)
+class ResultadoFonte:
+    """O que uma fonte contribuiu para os contadores da rodada."""
+
+    validos: int
+    erros: int
+    novos: int
+    atualizados: int
+    diagnostico: saude_fontes.Diagnostico
 
 
 class ConcursoBot:
@@ -81,6 +101,16 @@ class ConcursoBot:
         self.scraper = GranScraper(config['url_alvo'])
         self.pci_slugs = [s for s in (config.get('pci_slugs') or []) if s]
         self.pci_scraper = PciScraper(self.pci_slugs) if self.pci_slugs else None
+        # Terceira fonte: a lista de concursos NACIONAIS do PCI. E o unico lugar
+        # onde estatal federal aparece — nem o artigo do Gran nem os slugs de
+        # cargo listaram a Dataprev com as inscricoes abertas (ver o docstring
+        # do PciNacionalScraper).
+        self.nacional_scraper = (
+            PciNacionalScraper() if config.get('pci_nacional') else None
+        )
+        self.dias_fonte_parada = int(
+            config.get('dias_fonte_parada') or saude_fontes.DIAS_PARADA_PADRAO
+        )
         self.modo_primeira_carga = config.get('pci_primeira_carga', CARGA_INDIVIDUAL)
 
         # Setado quando qualquer etapa da varredura falha. O MultiAreaRunner
@@ -131,6 +161,8 @@ class ConcursoBot:
         validos = 0
         erros_extracao = 0
         total_blocos_gran = 0
+        diagnosticos: list[saude_fontes.Diagnostico] = []
+        links_pci_vistos: set[str] = set()
 
         try:
             primeira_carga_pci = self._preparar_primeira_carga()
@@ -140,6 +172,12 @@ class ConcursoBot:
             total_blocos_gran = len(blocos_html)
             self.logger.info(
                 f"📊 Gran retornou {total_blocos_gran} blocos HTML para análise da IA."
+            )
+            # Assinatura pelo TEXTO VISIVEL, nao pelo HTML: id de anuncio e
+            # token de sessao mudam a cada request e fariam uma pagina
+            # congelada parecer viva para sempre.
+            diagnosticos.append(
+                self._avaliar_fonte("gran", (self._texto_visivel(b) for b in blocos_html))
             )
 
             for indice, bloco in enumerate(blocos_html, start=1):
@@ -162,9 +200,14 @@ class ConcursoBot:
                 novos_cont += resultado == "novo"
                 atualizados_cont += resultado == "atualizado"
 
-            # --- Fonte 2: PCI Concursos (ja estruturado, sem LLM) ---
+            # --- Fonte 2: PCI Concursos por slug de cargo (ja estruturado, sem LLM) ---
             if self.pci_scraper:
-                for item in self.pci_scraper.capturar_concursos():
+                itens_pci = self.pci_scraper.capturar_concursos()
+                diagnosticos.append(self._avaliar_fonte(
+                    "pci", (f"{i['pci_id']}|{i['status']}" for i in itens_pci)
+                ))
+
+                for item in itens_pci:
                     # Enriquecer custa uma requisicao na noticia, entao so vale
                     # pra quem ainda nao esta no banco. A pagina de cargo nunca
                     # traz o prazo, e o prazo e o que define se o edital esta ativo.
@@ -174,16 +217,31 @@ class ConcursoBot:
                         self.pci_scraper.enriquecer(item)
 
                     validos += 1
+                    links_pci_vistos.add(item["link"])
                     resultado = self._decidir_e_notificar(item, url_indice=item["link"])
                     novos_cont += resultado == "novo"
                     atualizados_cont += resultado == "atualizado"
 
+            # --- Fonte 3: PCI Concursos, lista NACIONAL (estatal federal) ---
+            if self.nacional_scraper:
+                parcial = self._varrer_nacional(links_pci_vistos)
+                validos += parcial.validos
+                erros_extracao += parcial.erros
+                novos_cont += parcial.novos
+                atualizados_cont += parcial.atualizados
+                diagnosticos.append(parcial.diagnostico)
+
             if primeira_carga_pci:
                 novos_cont += self._entregar_primeira_carga()
 
-            self._mensagem_final(
+            # O diagnostico agregado tem precedencia: quando ele ja alertou
+            # (varredura degradada ou cega), o aviso por fonte seria uma segunda
+            # mensagem sobre o mesmo problema. O caso que importa e o inverso —
+            # uma fonte morta enquanto o agregado parece um dia normal.
+            alertou_agregado = self._mensagem_final(
                 total_blocos_gran, validos, erros_extracao, novos_cont, atualizados_cont
             )
+            self._alertar_fontes_doentes(diagnosticos, silenciar=alertou_agregado)
             self.logger.info("🏁 Ciclo finalizado.")
 
         except Exception as e:
@@ -260,10 +318,217 @@ class ConcursoBot:
 
         return len(coletados)
 
+    def _varrer_nacional(self, ja_vistos: set[str]) -> ResultadoFonte:
+        """Le a lista de concursos NACIONAIS do PCI e separa o que e da area.
+
+        Esta e a fonte que existe por causa da Dataprev: nem o artigo do Gran
+        nem os slugs de cargo a listaram enquanto as inscricoes estavam
+        abertas. Ver o docstring de :mod:`src.scrapers.pci_nacional_scraper`.
+
+        Custo: a listagem tem uma dezena de itens. So o que ainda NAO esta no
+        banco — e que nao foi julgado fora da area nos ultimos
+        ``DIAS_REJULGAR_DESCARTE`` dias — abre a noticia e gasta uma chamada de
+        LLM. Em regime, isso e zero chamada por dia.
+        """
+        itens = self.nacional_scraper.capturar_concursos()
+        diagnostico = self._avaliar_fonte(
+            "pci_nacional",
+            (f"{i['link']}|{i['status']}|{i['data_fim_inscricao']}" for i in itens),
+        )
+
+        validos = erros = novos = atualizados = 0
+        descartes = memoria_json.carregar(ARQUIVO_DESCARTES)
+        descartes_mudou = False
+        url_indice = self.nacional_scraper.url
+
+        for item in itens:
+            # O mesmo edital pode ter chegado pelo slug de cargo nesta rodada.
+            # Reprocessar so geraria um refresh silencioso a toa.
+            if item["link"] in ja_vistos:
+                continue
+
+            if self.db.buscar_registro(item["nome"], link=item["link"], url_indice=url_indice):
+                # Ja conhecido: prazo e fase vem da propria listagem, sem LLM.
+                validos += 1
+                resultado = self._decidir_e_notificar(item, url_indice=url_indice)
+                novos += resultado == "novo"
+                atualizados += resultado == "atualizado"
+                continue
+
+            if self._nacional_ja_descartado(descartes, item):
+                continue
+
+            self.nacional_scraper.detalhar(item)
+            dados = self.ai.extrair_dados(self.nacional_scraper.bloco_para_ia(item))
+
+            if dados.get("erro"):
+                erros += 1
+                continue
+
+            if dados.get("ignorar"):
+                self._marcar_descarte_nacional(descartes, item)
+                descartes_mudou = True
+                self.logger.info(
+                    f"🧹 [NACIONAL] {item['nome']}: fora de [{self.area_name}]; "
+                    f"nao reavalia por {DIAS_REJULGAR_DESCARTE} dias."
+                )
+                continue
+
+            # A LLM decide UMA coisa: se o concurso e da area. Identidade e
+            # calendario continuam vindo da listagem, que e fato datado e
+            # estavel entre rodadas — deixar a LLM escolher o link e
+            # exatamente o que duplica linha no banco.
+            #
+            # `nome` tambem fica com o da listagem, e nao so por estabilidade:
+            # ele vem no formato "SIGLA - Nome por extenso", o mesmo das
+            # paginas de cargo, que e para o que `mesma_entidade` foi ajustado.
+            # A LLM devolve coisas como "DATAPREV - Concurso 2026", que casa
+            # pior com uma linha vinda do Gran para o mesmo orgao.
+            # So o `status` vem da LLM: e o texto do card no Telegram e nao
+            # participa de identidade nem de deteccao de mudanca.
+            item["status"] = dados.get("status") or item["status"]
+            item["data_fim_inscricao"] = (
+                item["data_fim_inscricao"] or dados.get("data_fim_inscricao")
+            )
+            item["fase"] = item["fase"] or sanitizar_fase(dados.get("fase"))
+            item["data_referencia"] = dados.get("data_referencia")
+
+            validos += 1
+            resultado = self._decidir_e_notificar(item, url_indice=url_indice)
+            novos += resultado == "novo"
+            atualizados += resultado == "atualizado"
+
+        # Em dry-run nao persiste o descarte, pela mesma razao que nao escreve
+        # no banco: marcaria itens como ja julgados e a rodada real seguinte
+        # pularia a avaliacao deles.
+        if descartes_mudou and not self.dry_run:
+            memoria_json.salvar(ARQUIVO_DESCARTES, self._podar_descartes(descartes))
+
+        return ResultadoFonte(validos, erros, novos, atualizados, diagnostico)
+
+    def _chave_descarte(self, item: dict) -> str:
+        """Descarte e por area: o mesmo edital pode servir a TI e nao a Educacao."""
+        return f"{self.area_slug}::{item.get('link', '')}"
+
+    def _nacional_ja_descartado(self, descartes: dict, item: dict) -> bool:
+        """Ja julgado fora da area, e sem nada novo desde entao?"""
+        registro = descartes.get(self._chave_descarte(item))
+        if not registro:
+            return False
+
+        # Prazo diferente pode ser edital novo do mesmo orgao: vale reavaliar.
+        if registro.get("prazo") != item.get("data_fim_inscricao"):
+            return False
+
+        try:
+            dias = (date.today() - date.fromisoformat(registro.get("em", ""))).days
+        except (TypeError, ValueError):
+            return False
+        return 0 <= dias < DIAS_REJULGAR_DESCARTE
+
+    def _marcar_descarte_nacional(self, descartes: dict, item: dict) -> None:
+        descartes[self._chave_descarte(item)] = {
+            "em": date.today().isoformat(),
+            "prazo": item.get("data_fim_inscricao"),
+            "nome": item.get("nome"),
+        }
+
+    @staticmethod
+    def _podar_descartes(descartes: dict) -> dict:
+        """Descarte antigo nao decide mais nada e nao pode crescer sem fim."""
+        limite = date.today() - timedelta(days=DIAS_MANTER_DESCARTE)
+        vivos = {}
+        for chave, registro in descartes.items():
+            try:
+                if date.fromisoformat(registro.get("em", "")) >= limite:
+                    vivos[chave] = registro
+            except (TypeError, ValueError):
+                continue          # registro corrompido morre na poda
+        return vivos
+
+    def _avaliar_fonte(self, fonte: str, assinaturas) -> saude_fontes.Diagnostico:
+        """Registra a materia-prima desta fonte e devolve o diagnostico."""
+        return saude_fontes.avaliar(
+            self.area_slug, fonte, assinaturas, dias_parada=self.dias_fonte_parada
+        )
+
+    def _url_da_fonte(self, fonte: str) -> str:
+        """URL que o alerta oferece pro Lucas abrir e conferir com o olho."""
+        if fonte == "gran":
+            return self.scraper.url
+        if fonte == "pci_nacional" and self.nacional_scraper:
+            return self.nacional_scraper.url
+        return "https://www.pciconcursos.com.br/cargos/"
+
+    def _alertar_fontes_doentes(self, diagnosticos, silenciar: bool = False) -> None:
+        """Avisa quando UMA fonte adoece, mesmo com as outras saudaveis.
+
+        Este e o alerta que faltava. O de cegueira era agregado —
+        ``total_blocos == 0 and not self.pci_scraper`` — entao, depois que o
+        PCI entrou como segunda fonte, o Gran podia devolver zero (ou devolver
+        sempre a mesma coisa) para sempre sem ninguem perceber. Foi o que
+        aconteceu: o alvo de TI esta congelado desde 12/06/2026.
+
+        NAO marca ``self.falhou``, de proposito. Fonte vazia ou parada nao se
+        conserta com retry: repetir de hora em hora so gastaria LLM nas outras
+        fontes e nunca gravaria o marker do dia. O conserto e humano — trocar a
+        URL do alvo — e por isso o alerta sai uma vez por dia, por fonte.
+
+        Args:
+            silenciar: ``True`` quando a mensagem final ja alertou sobre a
+                varredura inteira. A condicao persiste, entao a fonte doente
+                volta a ser cobrada amanha, sem duplicar aviso hoje.
+        """
+        if silenciar:
+            return
+
+        for diagnostico in diagnosticos:
+            if diagnostico.saudavel:
+                continue
+
+            fonte = diagnostico.fonte
+            url = self._url_da_fonte(fonte)
+
+            if diagnostico.vazia:
+                self.logger.warning(
+                    f"🕳️ [{self.area_name}] fonte {fonte!r} nao devolveu nada nesta rodada."
+                )
+                self._alerta_uma_vez_por_dia(
+                    f"fonte_vazia_{fonte}",
+                    f"🕳️ <b>Fonte sem retorno - {self.area_name}</b>\n\n"
+                    f"A fonte <b>{fonte}</b> não devolveu nenhum item nesta varredura. "
+                    f"As outras seguiram normalmente, então a rodada não conta como falha "
+                    f"— mas se repetir, é queda do site ou mudança de layout.\n\n"
+                    f"🔗 <a href='{url}'>Abrir a fonte</a>"
+                )
+                continue
+
+            self.logger.warning(
+                f"🧊 [{self.area_name}] fonte {fonte!r} devolve conteudo identico ha "
+                f"{diagnostico.dias_sem_mudanca} dias ({diagnostico.itens} itens)."
+            )
+            self._alerta_uma_vez_por_dia(
+                f"fonte_parada_{fonte}",
+                f"🧊 <b>Fonte parada - {self.area_name}</b>\n\n"
+                f"A fonte <b>{fonte}</b> devolve exatamente o mesmo conteúdo há "
+                f"<b>{diagnostico.dias_sem_mudanca} dias</b> "
+                f"({diagnostico.itens} itens).\n\n"
+                f"Nenhum concurso publicado nesse período pode chegar por ela. "
+                f"Costuma ser página curada que o site parou de atualizar — o conserto "
+                f"é trocar a URL do alvo, não esperar.\n\n"
+                f"🔗 <a href='{url}'>Abrir a fonte</a>"
+            )
+
     def _mensagem_final(
         self, total_blocos: int, validos: int, erros: int, novos: int, atualizados: int
-    ) -> None:
-        """Decide entre alerta e heartbeat no fim da varredura da area."""
+    ) -> bool:
+        """Decide entre alerta e heartbeat no fim da varredura da area.
+
+        Returns:
+            bool: ``True`` se enviou um alerta sobre a varredura inteira
+            (degradada ou cega). Quem chama usa isso para nao empilhar o aviso
+            por fonte em cima do mesmo problema.
+        """
         # Erro de extracao acima do limite invalida o resultado do dia, mesmo
         # que alguns editais tenham passado. Antes isso saia como sucesso.
         base = validos + erros
@@ -285,7 +550,7 @@ class ConcursoBot:
                 f"({taxa_erro:.0%}). Pode ter escapado edital.\n\n"
                 f"<i>Vou tentar de novo na próxima hora.</i>"
             )
-            return
+            return True
 
         # Varredura cega = nao entregou NADA, nem valido nem perdido, e isso nao
         # se explica pela configuracao do alvo:
@@ -312,7 +577,7 @@ class ConcursoBot:
                 f"(o monitor pode precisar de ajuste).\n\n"
                 f"🔗 <a href='{self.scraper.url}'>Abrir a página manualmente</a>"
             )
-            return
+            return True
 
         if erros:
             self.logger.warning(
@@ -324,7 +589,7 @@ class ConcursoBot:
             self.logger.info(
                 f"📊 Ciclo finalizado: {novos} novos e {atualizados} atualizações enviadas."
             )
-            return
+            return False
 
         if validos == 0:
             self.logger.info(
@@ -337,7 +602,7 @@ class ConcursoBot:
                 f"🔍 Verifiquei <b>{total_blocos}</b> publicações e nenhuma é da sua área hoje.\n\n"
                 f"🕒 <i>Próxima verificação agendada.</i>"
             )
-            return
+            return False
 
         self.logger.info("📭 Nenhuma novidade relevante encontrada. Enviando status para o Telegram...")
         self._notificar(
@@ -347,6 +612,7 @@ class ConcursoBot:
             f"relevante desde a última consulta.\n\n"
             f"🕒 <i>Próxima verificação agendada.</i>"
         )
+        return False
 
     def _alerta_uma_vez_por_dia(self, tipo: str, mensagem: str) -> None:
         """Envia o alerta no maximo uma vez por dia, por area e por tipo.

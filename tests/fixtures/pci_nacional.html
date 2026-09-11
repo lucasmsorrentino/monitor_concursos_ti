@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pt-br" itemscope itemtype="https://schema.org/WebPage">
+<head>
+    <meta charset="utf-8">
+    <title>PCI Concursos</title>
+            <meta name="description" content="Concursos Públicos com inscrições abertas e previstas, empregos, estágios, provas, simulados, apostilas preparatórias e videoaulas.">
+                    <meta name="keywords" content="concursos, concurso, concursos publicos, empregos, estagios, curriculo, apostila">
+                        <meta name="robots" content="index,follow,noarchive">
+                <meta name="viewport" content="width=device-width">
+                <meta name="theme-color" content="#205c98">
+        <meta name="msapplication-TileColor" content="#205c98">
+        <meta name="msapplication-TileImage" content="https://www.pciconcursos.com.br/logo.png">
+                <meta itemprop="name" content="PCI Concursos<">
+        <meta itemprop="description" content="Concursos Públicos com inscrições abertas e previstas, empregos, estágios, provas, simulados, apostilas preparatórias e videoaulas.">
+        <meta itemprop="image" content="https://www.pciconcursos.com.br/logo.png">
+                    <meta itemprop="url" content="https://www.pciconcursos.com.br/concursos/nacional/">
+                <meta property="og:type" content="webpage">
+        <meta property="og:title" content="PCI Concursos">
+        <meta property="og:site_name" content="PCI Concursos">
+                    <meta property="og:url" content="https://www.pciconcursos.com.br/concursos/nacional/">
+                <meta property="og:description" content="Concursos Públicos com inscrições abertas e previstas, empregos, estágios, provas, simulados, apostilas preparatórias e videoaulas.">
+                    <meta property="fb:app_id" content="211905988988008">
+                <meta property="fb:pages" content="115036158551264">
+        <meta property="og:locale" content="pt_BR">
+        <meta property="og:image" content="https://www.pciconcursos.com.br/logo.png">
+                    <meta property="article:publisher" content="https://www.facebook.com/pciconcursos">
+                <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="#205c98">
+    <meta name="apple-mobile-web-app-title" content="PCI Concursos">
+            <link rel="apple-touch-icon" href="https://www.pciconcursos.com.br/logo.png">
+                <link rel="search" type="application/opensearchdescription+xml" title="PCI Concursos"
+              href="https://www.pciconcursos.com.br/pesquisa.xml">
+                <link rel="manifest" href="https://www.pciconcursos.com.br/manifest.json">
+                <link rel="shortcut icon" href="https://www.pciconcursos.com.br/favicon.ico">
+                <link rel="canonical" href="https://www.pciconcursos.com.br/concursos/nacional/">
+        <base target="_top">
+<link rel="dns-prefetch" href="https://cdn.pci.app.br">
+<link rel="preconnect" href="https://cdn.pci.app.br">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/bootstrap.css?31987731">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/custom.css?31987731?31987731">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/all.min.css?31987731">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/slicknav.min.css?31987731">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/site.css?31987731?31987731">
+<link rel="stylesheet" href="https://www.pciconcursos.com.br/css/concursos.css?31987731?31987731">
+<script src="https://www.pciconcursos.com.br/js/jquery.js"></script>
+</head>
+<body>
+<div id="menu_nav"></div>
+
+<div id="center">
+    <div id="g-login">
+    <div class="header-bar">
+                    <i class="fab fa-google google-icon"></i>
+            <span id="btn-login" class="login-btn">Entrar com Google</span>
+            </div>
+</div>
+<script>
+    // Aguarda DOM carregar
+    document.addEventListener('DOMContentLoaded', function () {
+        // Botão de login
+        const btnLogin = document.getElementById('btn-login');
+        if (btnLogin) {
+            btnLogin.addEventListener('click', function () {
+                fazerLogin();
+            });
+        }
+        // Botão de logout
+        const btnLogout = document.getElementById('btn-logout');
+        if (btnLogout) {
+            btnLogout.addEventListener('click', function () {
+                fazerLogout();
+            });
+        }
+    });
+
+    // Função de login
+    function fazerLogin() {
+        fetch('/google-auth-api?action=getAuthUrl')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Abre popup
+                    window.open(data.authUrl, 'googleLogin', 'width=500,height=600');
+                    // Verifica login a cada 3 segundos
+                    const verificar = setInterval(() => {
+                        fetch('/google-auth-api?action=checkLogin')
+                            .then(r => r.json())
+                            .then(resultado => {
+                                if (resultado.success && resultado.logged_in) {
+                                    clearInterval(verificar);
+                                    window.location.reload();
+                                }
+                            });
+                    }, 3000);
+                    // Para verificação após 5 minutos
+                    setTimeout(() => clearInterval(verificar), 300000);
+                }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+            });
+    }
+
+    // Função de logout
+    function fazerLogout() {
+        fetch('/google-auth-api?action=logout')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+            });
+    }
+</script>    <div id="header">
+        <h1 id="logo"><a href="https://www.pciconcursos.com.br/"><img src="https://cdn.pci.app.br/img/p/pci_logo.png" alt="PCI Concursos"
+                                                       title="PCI Concursos"></a></h1>
+        <nav id="menu-topo">
+            <ul>
+                <li><a href="https://www.pciconcursos.com.br/concursos/">21.619 vagas em concursos</a></li>
+                <li><a href="https://www.pciconcursos.com.br/apostilas/">apostilas</a></li>
+                <li><a href="https://www.pciconcursos.com.br/noticias/">notícias</a></li>
+                <li><a href="https://www.pciconcursos.com.br/provas/">268.051 provas</a></li>
+                <li><a href="https://www.pciconcursos.com.br/contato/">contato</a></li>
+            </ul>
+        </nav>
+    </div>
+
+
+    <nav id="menu">
+        <ul id="menu_lateral">
+            <li class="pginicial"><a href="https://www.pciconcursos.com.br/" class="m_paginainicial"><i class="menu-i fas fa-home"></i>Página Inicial</a></li>
+            <li><a href="https://www.pciconcursos.com.br/apostilas/" class="m_apostilas"><i class="menu-i fas fa-book"></i>Apostilas</a></li>
+            <li><a href="https://www.pciconcursos.com.br/noticias/" class="m_noticias"><i class="menu-i fas fa-newspaper"></i>Notícias</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/" class="m_concursos"><i class="menu-i fa-kit fa-i-br"></i>Concursos</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/nacional/" class="m_nacional"><i class="menu-i fas fa-flag"></i>Nacional</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/sudeste/" class="m_sudeste"><i class="menu-i fa-kit fa-i-sudeste"></i>Sudeste</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/sul/" class="m_sul"><i class="menu-i fa-kit fa-i-sul"></i>Sul</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/norte/" class="m_norte"><i class="menu-i fa-kit fa-i-norte"></i>Norte</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/nordeste/" class="m_nordeste"><i class="menu-i fa-kit fa-i-nordeste"></i>Nordeste</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/centrooeste/" class="m_centrooeste"><i class="menu-i fa-kit fa-i-centrooeste"></i>Centro-Oeste</a></li>
+            <li><a href="https://www.pciconcursos.com.br/ultimas/" class="m_ultimas"><i class="menu-i fas fa-clock"></i>Últimas</a></li>
+            <li><a href="https://www.pciconcursos.com.br/mcp-e-gpt" class="m_mcp"><i class="menu-i fas fa-robot"></i>MCP e GPT</a></li>
+            <li><a href="https://www.pciconcursos.com.br/professores/" class="m_professores"><i class="menu-i fas fa-chalkboard-teacher"></i>Professores</a></li>
+            <!-- <li><a href="https://www.pciconcursos.com.br/previstos/" class="m_previstos"><i class="menu-i fas fa-eye"></i>Previstos</a></li> -->
+            <li><a href="https://www.pciconcursos.com.br/cargos/" class="m_cargos"><i class="menu-i fas fa-briefcase"></i>Cargos</a></li>
+            <li><a href="https://www.pciconcursos.com.br/concursos/cidades/" class="m_cidades"><i class="menu-i fas fa-city"></i>Cidades</a></li>
+            <li><a href="https://www.pciconcursos.com.br/vagas/" class="m_vagas"><i class="menu-i fas fa-user-friends"></i>Vagas</a></li>
+            <li><a href="https://www.pciconcursos.com.br/simulados/" class="m_simulados"><i class="menu-i fas fa-tasks"></i>Simulados</a></li>
+            <li><a href="https://www.pciconcursos.com.br/provas/" class="m_provas"><i class="menu-i fas fa-file-alt"></i>Provas</a></li>
+            <li class="l_aulas"><a href="https://www.pciconcursos.com.br/aulas/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas</a>
+                <!-- <ul>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/lingua-portuguesa" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas Português</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/matematica/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas Matemática</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/raciocinio-logico/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas Rac. Lógico</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/informatica/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Aulas Informática</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-constitucional/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Constitucional</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-administrativo/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Administrativo</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-empresarial/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Empresarial</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-eleitoral/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Eleitoral</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-tributario/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Tributário</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-do-trabalho/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Trabalho</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-civil/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Civil</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-penal/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Penal</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-processual-civil/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Proc. Civil</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-processual-penal/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Proc. Penal</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direito-processual-do-trabalho/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Proc. Trabalho</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/direitos-humanos/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>D. Humanos</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/questoes-comentadas/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>Q. Comentadas</a></li>
+                    <li><a href="https://www.pciconcursos.com.br/aulas/" class="m_video"><i class="menu-i fas fa-graduation-cap"></i>+ Várias Aulas</a></li>
+                </ul>
+            -->
+            </li>
+            <li><a href="https://www.pciconcursos.com.br/organizadoras/" class="m_organizadoras"><i class="menu-i fas fa-building"></i>Organizadoras</a></li>
+            <li><a href="https://www.pciconcursos.com.br/colaborar/" class="m_colaborar"><i class="menu-i fas fa-handshake"></i>Colaborar</a></li>
+            <li><a href="https://www.pciconcursos.com.br/contato/" class="m_contato"><i class="menu-i fas fa-envelope"></i>Contato</a></li>
+        </ul>
+    </nav>
+    <div id="conteudo">
+        <h1>Concursos Abertos - Nacional</h1>
+<div style="position: relative;">
+    <div style="position: absolute; right:0; top:-45px;"><div class="sharelink"><a href="#" onclick="shareLink('Concursos Abertos - Nacional', '', 'https://www.pciconcursos.com.br/concursos/nacional'); return false;" rel="nofollow"><i class="fa-light fa-share-nodes"></i> </a></div></div>
+</div>
+<div id="btn-concursos" style="width:600px; margin:0 auto;">
+    <div style="float:left; width:200px; text-align:center; padding-left:20px;">
+        <ul>
+            <li><object id="svg-mapa-objeto" data="https://www.pciconcursos.com.br/img/regioes.svg" type="image/svg+xml" width="90" height="90"></object></li>
+            <li><abbr class="updated">09/09/2026</abbr></li>
+            <li style="padding:4px 0 6px 0;">Atualizado diariamente</li>
+        </ul>
+    </div>
+    <div style="float:left; width:400px;">
+        <div class="container text-center my-3">
+            <ul class="nav justify-content-center flex-wrap">
+                <li class="nav-item mx-1 my-1">
+                    <a class="btn btn-outline-pci btn-sm" style="border-radius:15px;" href="https://www.pciconcursos.com.br/colaborar/">
+                        <i class="far fa-plus-circle"></i> Informar concurso
+                    </a>
+                </li>
+                <li class="nav-item mx-1 my-1">
+                    <a class="btn btn-outline-pci btn-sm" style="border-radius:15px;" href="https://www.pciconcursos.com.br/ultimas/">
+                        <i class="far fa-clock"></i> Últimas atualizações
+                    </a>
+                </li>
+                <li class="nav-item mx-1 my-1">
+                    <a class="btn btn-outline-pci btn-sm" style="border-radius:15px;" href="https://www.pciconcursos.com.br/concursos/cidades">
+                        <i class="far fa-map-marker-alt"></i> Localizar por cidade
+                    </a>
+                </li>
+                <li class="nav-item mx-1 my-1">
+                    <a class="btn btn-outline-pci btn-sm" style="border-radius:15px;" href="https://www.pciconcursos.com.br/cargos/">
+                        <i class="far fa-briefcase"></i> Pesquisar por cargo
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+<div style="clear:both;"></div>
+<div class="container my-0">
+    <form method="get" action="https://www.pciconcursos.com.br/pesquisa/" target="_top">
+        <div class="row justify-content-center">
+            <div class="col-10 col-md-6">
+                <div class="input-group">
+                    <input type="text" name="p" value="" class="form-control border-pci" placeholder="Digite sua pesquisa" maxlength="255">
+                    <div class="input-group-append">
+                        <button type="submit" class="btn btn-outline-pci"> <i class="fas fa-search"></i> Pesquisar </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+<div id="concursos">
+    <div class="ads_mobi"><div style="width:320px; height:100px; margin:20px auto 0 auto;"><ins class="adsbygoogle" style="display:inline-block;width:320px;height:100px" data-ad-client="ca-pub-2622407619291980" data-ad-slot="1797634041"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script></div></div>
+<div class="ads10"><div class="ads11"><ins class="adsbygoogle" style="display:inline-block;width:300px;height:250px" data-ad-client="ca-pub-2622407619291980" data-ad-slot="9825760010"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script></div><div class="ads12"><ins class="adsbygoogle" style="display:inline-block;width:300px;height:250px" data-ad-client="ca-pub-2622407619291980" data-ad-slot="9825760010"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script></div></div>
+
+    <ul class="ul_estados"><li><a href="https://www.pciconcursos.com.br/concursos/norte/#AC">AC</a></li><li><a href="https://www.pciconcursos.com.br/concursos/nordeste/#AL">AL</a></li><li><a href="https://www.pciconcursos.com.br/concursos/norte/#AM">AM</a></li><li><a href="https://www.pciconcursos.com.br/concursos/norte/#AP">AP</a></li><li><a href="https://www.pciconcursos.com.br/concursos/nordeste/#BA">BA</a></li><li><a href="https://www.pciconcursos.com.br/concursos/nordeste/#CE">CE</a></li><li><a href="https://www.pciconcursos.com.br/concursos/centrooeste/#DF">DF</a></li><li><a href="https://www.pciconcursos.com.br/concursos/sudeste/#ES">ES</a></li><li><a href="https://www.pciconcursos.com.br/concursos/centrooeste/#GO">GO</a></li><li><a href="https://www.pciconcursos.com.br/concursos/nordeste/#MA">MA</a></li><li><a href="https://www.pciconcursos.com.br/concursos/sudeste/#MG">MG</a></li><li><a href="https://www.pciconcursos.com.br/concursos/centrooeste/#MS">MS</a></li><li><a href="https://www.pciconcursos.com.br/concursos/centrooeste/#MT">MT</a></li><li><a href="https://www.pciconcursos.com.br/concursos/norte/#PA">PA</a></li><li><a href="https://www.pciconcursos.com.br/concursos/nordeste/#PB">PB</a></li><li><a href="https://www.pciconcursos.com.br/concursos/nordeste/#PE">PE</a></li><li><a href="https://www.pciconcursos.com.br/concursos/nordeste/#PI">PI</a></li><li><a href="https://www.pciconcursos.com.br/concursos/sul/#PR">PR</a></li><li><a href="https://www.pciconcursos.com.br/concursos/sudeste/#RJ">RJ</a></li><li><a href="https://www.pciconcursos.com.br/concursos/nordeste/#RN">RN</a></li><li><a href="https://www.pciconcursos.com.br/concursos/norte/#RO">RO</a></li><li><a href="https://www.pciconcursos.com.br/concursos/norte/#RR">RR</a></li><li><a href="https://www.pciconcursos.com.br/concursos/sul/#RS">RS</a></li><li><a href="https://www.pciconcursos.com.br/concursos/sul/#SC">SC</a></li><li><a href="https://www.pciconcursos.com.br/concursos/nordeste/#SE">SE</a></li><li><a href="https://www.pciconcursos.com.br/concursos/sudeste/#SP">SP</a></li><li><a href="https://www.pciconcursos.com.br/concursos/norte/#TO">TO</a></li></ul>
+    <h2>NACIONAL</h2><div id="NACIONAL" class="ua"><div class="uf">NACIONAL</div><div class="uc">Inscrição até:</div><div class="ud"></div></div>
+<div class="da" onclick="myClick(event)" data-url="https://www.pciconcursos.com.br/noticias/transpetro-publica-editais-retificados-de-processos-seletivos-para-diversos-cargos" style="cursor:pointer;">
+<div class="ca"><a href="https://www.pciconcursos.com.br/noticias/transpetro-publica-editais-retificados-de-processos-seletivos-para-diversos-cargos" title="Transpetro publica editais retificados de processos seletivos para diversos cargos" rel="bookmark" style="display:block;">Transpetro - Petrobras Transporte S.A.</a>
+<div class="cb"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg==" data-src="https://cdn.pci.app.br/img/c/d3c82a6dd9f97957d60cca473ef2dea9.png" class="lazyload" title="Transpetro publica editais retificados de processos seletivos para diversos cargos"></div>
+<div class="cc">&nbsp;</div>
+<div class="cd">Vagas até R$ 15.034,81<br><span>Vários Cargos<br><span>Médio / Técnico / Superior</span></span>
+</div><div class="ce"><span>14/09/2026</span></div>
+<div class="clear"></div>
+</div><span class="l_ap2"><a href="https://www.pciconcursos.com.br/apostilas/transpetro" rel="bookmark"><i class="fa-regular fa-book"></i> apostila específica</a></span></div>
+<div class="na" onclick="myClick(event)" data-url="https://www.pciconcursos.com.br/noticias/agsus-retifica-processo-seletivo-para-formacao-de-cadastro-de-reserva-no-projeto-sesmt" style="cursor:pointer;">
+<div class="ca"><a href="https://www.pciconcursos.com.br/noticias/agsus-retifica-processo-seletivo-para-formacao-de-cadastro-de-reserva-no-projeto-sesmt" title="AgSUS retifica processo seletivo para formação de cadastro de reserva no projeto SESMT" rel="bookmark" style="display:block;">AgSUS - Agência Brasileira de Apoio à Gestão do SUS</a>
+<div class="cb"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg==" data-src="https://cdn.pci.app.br/img/c/c051a93a0432948b93880b872bfefc2b.png" class="lazyload" title="AgSUS retifica processo seletivo para formação de cadastro de reserva no projeto SESMT"></div>
+<div class="cc">&nbsp;</div>
+<div class="cd">Cadastro de reserva até R$ 10.302,00<br><span>Vários Cargos<br><span>Técnico / Superior</span></span>
+</div><div class="ce"><span>22/09/2026</span></div>
+<div class="clear"></div>
+</div>&nbsp;</div>
+<div class="na" onclick="myClick(event)" data-url="https://www.pciconcursos.com.br/noticias/agsus-retifica-processo-seletivo-para-psicologos" style="cursor:pointer;">
+<div class="ca"><a href="https://www.pciconcursos.com.br/noticias/agsus-retifica-processo-seletivo-para-psicologos" title="AgSUS retifica processo seletivo para psicólogos" rel="bookmark" style="display:block;">AgSUS - Agência Brasileira de Apoio à Gestão do SUS</a>
+<div class="cb"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg==" data-src="https://cdn.pci.app.br/img/c/c051a93a0432948b93880b872bfefc2b.png" class="lazyload" title="AgSUS retifica processo seletivo para psicólogos"></div>
+<div class="cc">&nbsp;</div>
+<div class="cd">Cadastro de reserva até R$ 8.800,00<br><span>Psicólogo<br><span>Superior</span></span>
+</div><div class="ce"><span>16/09 a<br>16/10/2026</span></div>
+<div class="clear"></div>
+</div>&nbsp;</div>
+<div class="na" onclick="myClick(event)" data-url="https://www.pciconcursos.com.br/noticias/decex-brasil-divulga-retificacao-de-processo-seletivo-para-colegios-militares" style="cursor:pointer;">
+<div class="ca"><a href="https://www.pciconcursos.com.br/noticias/decex-brasil-divulga-retificacao-de-processo-seletivo-para-colegios-militares" title="DECEx - Brasil divulga retificação de processo seletivo para colégios militares" rel="bookmark" style="display:block;">DEPA - Diretoria de Educação Preparatória e Assistencial (Exército)</a>
+<div class="cb"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg==" data-src="https://cdn.pci.app.br/img/c/23eb4ad049e929c2642290940a16ad5f.png" class="lazyload" title="DECEx - Brasil divulga retificação de processo seletivo para colégios militares"></div>
+<div class="cc">&nbsp;</div>
+<div class="cd">355 vagas<br><span>Aluno do 6º ano do Ensino Fundamental, Aluno do 1º ano do Ensino Médio<br><span>Não informada</span></span>
+</div><div class="ce"><span>17/09/2026</span></div>
+<div class="clear"></div>
+</div>&nbsp;</div>
+
+    <p style="text-align:center; margin:0; padding:20px 0 0 0; font-family:Inter; font-size:14px; font-weight:bold; color:#205c98;">
+        VISITE PERIODICAMENTE -
+        ATUALIZAÇÃO DIÁRIA!!!</p>
+    <p style="text-align:center; margin:0; padding:16px 0 16px 0; font-family:Inter; font-size:12px; font-weight:bold; color:#205c98;">
+        Muito obrigado por
+        visitar nosso site, esperamos que goste do nosso trabalho.<br/>Se você gostou de nossa página tecle Ctrl+D e
+        adicione aos seus favoritos.<br/>Sua visita é muito importante e sempre bem-vinda.</p>
+    <div class="ads30"><div class="ads31"><ins class="adsbygoogle" style="display:inline-block;width:300px;height:250px" data-ad-client="ca-pub-2622407619291980" data-ad-slot="9825760010"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script></div></div>
+
+</div>    </div>
+    <div id="lateral">
+        <div id="lateralnoticias">
+            <ul id="lista_lateral_noticias" class="lateral_social">
+                <li><a href="https://www.pciconcursos.com.br/noticias/transpetro-publica-editais-retificados-de-processos-seletivos-para-diversos-cargos"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/d3c82a6dd9f97957d60cca473ef2dea9.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Transpetro publica editais retificados de processos seletivos para diversos cargos</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-ilhabela-sp-retifica-edital-de-concurso-publico-com-remuneracoes-de-ate-12579"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/f7a23bed067f3bf8bd9970dfad59b5cc.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Ilhabela - SP retifica edital de concurso público com remunerações de até R$ 12.579,96</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/ses-e-iaserj-rj-abrem-concurso-publico-com-vagas-de-nivel-medio-e-superior"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/b4a398a5175d65a5e0712eaad0af145d.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>SES e IASERJ - RJ abrem concurso público com vagas de nível médio e superior</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-guapimirim-rj-abre-concurso-publico-com-vagas-para-professores"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/7331e3ed3a86a954e5eb8e8b44f02405.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Guapimirim - RJ abre concurso público com vagas para professores</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-contagem-mg-abre-concurso-publico-com-salarios-de-ate-13305"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/7de2c0dbeff437f4cd0052b4d16f8acf.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Contagem - MG abre concurso público com salários de até R$ 13.305,57</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/emater-mg-anuncia-concurso-publico-com-salarios-de-ate-7321"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/3530c5a26ef24c02aab4a129801f2852.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>EMATER - MG anuncia concurso público com salários de até R$ 7.321,75</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/itabiraprev-mg-abre-concurso-publico-com-salarios-de-ate-6280"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/8e3ffaecb3529d9e088ecb195a777c57.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>ITABIRAPREV - MG abre concurso público com salários de até R$ 6.280,77</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/dmae-de-uberlandia-mg-abre-concurso-publico-com-vagas-para-diversos-niveis-de-escolaridade"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/eed57af4c8ee7b02770437af8c9a81aa.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>DMAE de Uberlândia - MG abre concurso público com vagas para diversos níveis de escolaridade</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-paracatu-mg-prorroga-inscricoes-do-concurso-publico-com-salarios-de-ate-9600"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/1a01383a1c4b883e2ced032e05bafc10.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Paracatu - MG prorroga inscrições do concurso público com salários de até R$ 9.600,00</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/camara-e-prefeitura-de-trindade-go-divulgam-retificacoes-do-processo-seletivo-e-do-concurso-publico"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/65ebeb4397bb4670c4dff40e3f626f71.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Câmara e Prefeitura de Trindade - GO divulgam retificações do processo seletivo e do concurso público</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-cristalina-go-retifica-edital-de-concurso-publico-para-a-secretaria-de-educacao"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/5e4a78018311b115573271dae3808917.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Cristalina - GO retifica edital de concurso público para a Secretaria de Educação</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/camara-de-ponta-pora-ms-abre-concurso-publico-com-salarios-de-ate-7999"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/7b07707bbfc00efd330774d4eb0fa052.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Câmara de Ponta Porã - MS abre concurso público com salários de até R$ 7.999,59</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-chapada-dos-guimaraes-mt-divulga-retificacao-de-concurso-publico"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/310728ca7bd2835142ae67f7a5e53754.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Chapada dos Guimarães - MT divulga retificação de concurso público</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-abaetetuba-pa-divulga-nova-retificacao-de-concurso-publico"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/5db6bfa25f7a20b8cae061baeeede361.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Abaetetuba - PA divulga nova retificação de concurso público</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/governo-do-tocantins-to-retifica-edital-de-concurso-com-vagas-de-nivel-medio-e-superior"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/c55be454d34ece8304547e17a2bddd4d.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Governo do Tocantins - TO retifica edital de concurso com vagas de nível médio e superior</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/seplag-al-publica-edital-de-concurso-publico-para-agente-e-escrivao-na-policia-civil"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/f681581b2817b353708f0feb1cfc747f.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>SEPLAG - AL publica edital de concurso público para Agente e Escrivão na Polícia Civil</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-conceicao-do-almeida-ba-abre-concurso-publico-com-vagas-para-diversos-cargos"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/96858695a1105b414cd1e47c68af14f2.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Conceição do Almeida - BA abre concurso público com vagas para diversos cargos</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/policia-civil-ba-prorroga-inscricoes-do-concurso-publico-para-delegado-investigador-e-escrivao"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/a3aad046a724ea363a2dcd39ef66581f.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Polícia Civil - BA prorroga inscrições do concurso público para Delegado, Investigador e Escrivão</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/seduc-e-seplag-ce-abrem-concurso-publico-com-vagas-para-professores"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/a68845a2093cef1cfee6774e9169748d.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>SEDUC e SEPLAG - CE abrem concurso público com vagas para professores</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/seap-ma-abre-concurso-publico-com-vagas-imediatas-e-cadastro-de-reserva"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/db5cb9d2f69fbdfab82391b60c986cea.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>SEAP - MA abre concurso público com vagas imediatas e cadastro de reserva</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-cruz-do-espirito-santo-pb-abre-concurso-publico-com-vagas-para-diversas-areas"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/02aa91950f1e442e8122f5532393141c.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Cruz do Espírito Santo - PB abre concurso público com vagas para diversas áreas</a></li>
+<li><a href="https://www.pciconcursos.com.br/noticias/prefeitura-de-caruaru-pe-abre-concurso-publico-para-auditores-e-analistas-fiscais"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAADUlEQVQImWP4//8/AwAI/AL+hc2rNAAAAABJRU5ErkJggg=="  data-src="https://cdn.pci.app.br/img/c/e532acefe81d5739cb8e1b3fdfa621c2.png" style="height:35px; width:auto; max-width:60px;" class="lazyload"><br>Prefeitura de Caruaru - PE abre concurso público para auditores e analistas fiscais</a></li>
+            </ul>
+        </div>
+    </div>
+    <div id="footer">
+        <div>
+            <div class="footer-politica-de-privacidade"><a href="https://www.pciconcursos.com.br/politica-de-privacidade/">Política de
+                    Privacidade e Cancelamento</a></div>
+            <div class="footer-copyright">2000-2026 PCI Concursos ®</div>
+            <div class="footer-redes-sociais">
+                <a target="_blank" href="https://whatsapp.com/channel/0029VaHULn4BFLgS0MkR0M0d"
+                   style="background-color:#25D366;" title="Canal no WhatsApp"><i class="fab fa-whatsapp"
+                                                                                  style="font-size:16px;"></i></a>
+                <a target="_blank" href="https://t.me/pciconcursos" style="background-color:#0088cc;"
+                   title="Telegram"><i class="fas fa-paper-plane" style="font-size:12px;"></i></a>
+                <a target="_blank" href="https://www.linkedin.com/company/pciconcursos/posts/"
+                   style="background-color:#0077B5;" title="Linkedin"><i class="fab fa-linkedin-in"
+                                                                         style="font-size:18px;"></i></a>
+                <a target="_blank" href="https://www.facebook.com/pciconcursos" style="background-color:#3b5998;"
+                   title="Facebook"><i class="fab fa-facebook-f" style="font-size:18px;"></i></a>
+                <a target="_blank" href="https://x.com/pciconcursos" style="background-color:#000000;" title="X"><i
+                            class="fab fa-x-twitter" style="font-size:16px;"></i></a>
+                <a target="_blank" href="https://www.instagram.com/pciconcursos_oficial"
+                   style="background-color:#C13584;" title="Instagram"><i class="fab fa-instagram"
+                                                                          style="font-size:18px; margin-top:1px;"></i></a>
+            </div>
+            <!-- <div class="footer-tel"><a href="https://www.pciconcursos.com.br/contato/">Atendimento /contato</a></div> -->
+            <div id="lgpd" style="display:none;"></div>
+        </div>
+    </div>
+</div>
+<script src="https://www.pciconcursos.com.br/js/jquery.slicknav.min.js"></script>
+<script src="https://www.pciconcursos.com.br/js/js.cookie.min.js"></script>
+<script src="https://www.pciconcursos.com.br/js/site.js?31987731"></script>
+<script src="https://www.pciconcursos.com.br/js/popper.min.js"></script>
+<script src="https://www.pciconcursos.com.br/js/bootstrap.js"></script>
+<script src="https://www.pciconcursos.com.br/js/concursos.js?31987731"></script>
+<script src="https://www.pciconcursos.com.br/js/mapasvg.js?31987731"></script>
+
+<script>if ('serviceWorker' in navigator && location.hostname === 'www.pciconcursos.com.br') { navigator.serviceWorker.register('/sw.js').catch(() => {}); }</script>
+<script src="https://www.pciconcursos.com.br/js/lazy.js" defer></script>
+<script src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2622407619291980" crossorigin="anonymous" defer></script>
+<script src="https://www.googletagmanager.com/gtag/js?id=G-ELMBY7KMP0" defer></script>
+<script>window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-ELMBY7KMP0');
+</script></body>
+</html>

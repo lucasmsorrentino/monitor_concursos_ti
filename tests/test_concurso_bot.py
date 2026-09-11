@@ -9,6 +9,7 @@ from datetime import date, timedelta
 import pytest
 
 from src.core.bot import ConcursoBot
+from src.utils import saude_fontes
 
 
 @pytest.fixture
@@ -682,8 +683,15 @@ class TestPrimeiraCargaPci:
         bot.executar()
 
         # Nenhum card individual; so o aviso de abertura + 1 mensagem por UF.
+        # O teste zera o Gran de proposito pra isolar o PCI, entao o aviso de
+        # "fonte gran sem retorno" tambem sai — e esperado e nao conta aqui.
         mock_deps["notifier"].notificar_concurso.assert_not_called()
-        assert mock_deps["notifier"].notificar.call_count == 3   # intro + MG + SP
+        da_carga = [
+            chamada.args[0]
+            for chamada in mock_deps["notifier"].notificar.call_args_list
+            if "Fonte sem retorno" not in chamada.args[0]
+        ]
+        assert len(da_carga) == 3   # intro + MG + SP
 
     def test_silencioso_nao_manda_nada(self, mock_deps, base_config, mocker):
         pci_cls = mocker.patch("src.core.bot.PciScraper")
@@ -771,3 +779,310 @@ class TestDryRun:
         mock_deps["db"].atualizar_concurso.assert_not_called()
         mock_deps["notifier"].notificar_concurso.assert_not_called()
         mock_deps["notifier"].notificar.assert_not_called()
+
+
+class TestFonteNacional:
+    """Terceira fonte: a lista de concursos NACIONAIS do PCI.
+
+    Existe por causa da Dataprev — 1.823 vagas, 1.793 de TI, inscricoes de
+    06/07 a 06/08/2026 — que nem o artigo do Gran nem os slugs de cargo do PCI
+    listaram enquanto estavam abertas.
+    """
+
+    LINK = "https://www.pciconcursos.com.br/noticias/dataprev-abre-concurso"
+
+    def _item(self, **extra):
+        base = {
+            "ignorar": False,
+            "nome": "DATAPREV - Empresa de Tecnologia e Informações da Previdência",
+            "status": "Dataprev abre concurso público com 1.823 vagas",
+            "link": self.LINK,
+            "fase": "inscricoes_abertas",
+            "data_fim_inscricao": _amanha(),
+            "data_referencia": None,
+            "pci_id": None,
+            "uf": None,
+            "cargos": ["Vários Cargos"],
+            "nivel": "Superior",
+            "vagas": "1823 vagas",
+            "inicio_inscricao": None,
+            "fonte": "pci_nacional",
+        }
+        base.update(extra)
+        return base
+
+    def _montar(self, mock_deps, base_config, mocker, itens):
+        nacional_cls = mocker.patch("src.core.bot.PciNacionalScraper")
+        nacional = nacional_cls.return_value
+        nacional.url = "https://www.pciconcursos.com.br/concursos/nacional/"
+        nacional.capturar_concursos.return_value = itens
+        nacional.detalhar.side_effect = lambda i: i
+        nacional.bloco_para_ia.side_effect = lambda i: f"<h3>{i['nome']}</h3>"
+
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["notifier"].notificar.return_value = True
+        mock_deps["notifier"].notificar_concurso.return_value = True
+
+        base_config["pci_nacional"] = True
+        return nacional
+
+    def test_concurso_da_area_vira_notificacao_de_novo(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [self._item()])
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "Concurso Dataprev", "status": "1823 vagas de TI",
+            "link": self.LINK, "fase": "inscricoes_abertas",
+            "data_fim_inscricao": _amanha(), "data_referencia": None,
+        }
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_called_once()
+        assert "NOVO" in mock_deps["notifier"].notificar_concurso.call_args.args[1]
+
+    def test_o_link_vem_da_listagem_nao_do_que_a_llm_devolveu(
+        self, mock_deps, base_config, mocker
+    ):
+        """A LLM decide UMA coisa: se e da area. Deixar ela escolher o link e
+        exatamente o que duplica linha no banco entre uma rodada e outra."""
+        self._montar(mock_deps, base_config, mocker, [self._item()])
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "Concurso Dataprev", "status": "s",
+            "link": "https://site-inventado-pela-llm.com/x",
+            "fase": "inscricoes_abertas", "data_fim_inscricao": _amanha(),
+            "data_referencia": None,
+        }
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert mock_deps["db"].atualizar_concurso.call_args.args[2] == self.LINK
+
+    def test_o_nome_vem_da_listagem_nao_da_llm(self, mock_deps, base_config, mocker):
+        """"SIGLA - Nome por extenso" e o formato que `mesma_entidade` casa com
+        o que vem do Gran. A LLM devolve "DATAPREV - Concurso 2026"."""
+        item = self._item()
+        self._montar(mock_deps, base_config, mocker, [item])
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "DATAPREV - Concurso 2026", "status": "s",
+            "link": self.LINK, "fase": "inscricoes_abertas",
+            "data_fim_inscricao": _amanha(), "data_referencia": None,
+        }
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert mock_deps["db"].atualizar_concurso.call_args.args[0] == item["nome"]
+
+    def test_prazo_da_listagem_vence_o_da_llm(self, mock_deps, base_config, mocker):
+        prazo_listagem = _amanha()
+        self._montar(
+            mock_deps, base_config, mocker,
+            [self._item(data_fim_inscricao=prazo_listagem)],
+        )
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "X", "status": "s", "link": self.LINK,
+            "fase": "inscricoes_abertas", "data_fim_inscricao": "2099-12-31",
+            "data_referencia": None,
+        }
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        kwargs = mock_deps["db"].atualizar_concurso.call_args.kwargs
+        assert kwargs["data_fim_inscricao"] == prazo_listagem
+
+    def test_fora_da_area_nao_notifica_e_nao_grava(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [self._item()])
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True}
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        mock_deps["db"].atualizar_concurso.assert_not_called()
+
+    def test_descartado_nao_volta_pra_llm_no_dia_seguinte(
+        self, mock_deps, base_config, mocker
+    ):
+        """Sem o memo de descarte, cada item fora da area custaria uma chamada
+        de LLM por dia, para sempre, pra chegar sempre na mesma conclusao."""
+        self._montar(mock_deps, base_config, mocker, [self._item()])
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True}
+
+        ConcursoBot(base_config).executar()
+        assert mock_deps["ai"].extrair_dados.call_count == 1
+
+        ConcursoBot(base_config).executar()          # rodada seguinte
+        assert mock_deps["ai"].extrair_dados.call_count == 1
+
+    def test_prazo_novo_reabre_o_julgamento(self, mock_deps, base_config, mocker):
+        """Prazo diferente pode ser edital novo do mesmo orgao."""
+        nacional = self._montar(mock_deps, base_config, mocker, [self._item()])
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True}
+
+        ConcursoBot(base_config).executar()
+
+        nacional.capturar_concursos.return_value = [
+            self._item(data_fim_inscricao="2099-01-01")
+        ]
+        ConcursoBot(base_config).executar()
+
+        assert mock_deps["ai"].extrair_dados.call_count == 2
+
+    def test_ja_no_banco_nao_abre_a_noticia_nem_chama_a_llm(
+        self, mock_deps, base_config, mocker
+    ):
+        nacional = self._montar(mock_deps, base_config, mocker, [self._item()])
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 7, "fase": "inscricoes_abertas", "estado_usuario": "ativo",
+            "data_fim_inscricao": _amanha(), "nome": "Dataprev",
+        }
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        nacional.detalhar.assert_not_called()
+        mock_deps["ai"].extrair_dados.assert_not_called()
+
+    def test_item_ja_visto_pelo_slug_de_cargo_e_pulado(
+        self, mock_deps, base_config, mocker
+    ):
+        """O mesmo link pode chegar pelas duas portas do PCI na mesma rodada."""
+        nacional = self._montar(mock_deps, base_config, mocker, [self._item()])
+
+        pci_cls = mocker.patch("src.core.bot.PciScraper")
+        pci_cls.return_value.capturar_concursos.return_value = [{
+            "ignorar": False, "nome": "Dataprev", "status": "s", "link": self.LINK,
+            "fase": "inscricoes_abertas", "data_fim_inscricao": _amanha(),
+            "data_referencia": None, "pci_id": "999", "uf": None, "cargos": [],
+            "fonte": "pci",
+        }]
+        pci_cls.return_value.enriquecer.side_effect = lambda i: i
+        base_config["pci_slugs"] = ["tecnologia-da-informacao"]
+        mock_deps["db"].contar_por_fonte.return_value = 5   # nao e primeira carga
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        nacional.detalhar.assert_not_called()
+        mock_deps["ai"].extrair_dados.assert_not_called()
+        assert mock_deps["notifier"].notificar_concurso.call_count == 1
+
+    def test_dry_run_nao_persiste_descarte(self, mock_deps, base_config, mocker):
+        """Persistir em dry-run faria a rodada real seguinte pular o item."""
+        self._montar(mock_deps, base_config, mocker, [self._item()])
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True}
+        base_config["dry_run"] = True
+
+        ConcursoBot(base_config).executar()
+        base_config["dry_run"] = False
+        ConcursoBot(base_config).executar()
+
+        assert mock_deps["ai"].extrair_dados.call_count == 2
+
+    def test_desligado_por_padrao(self, mock_deps, base_config, mocker):
+        nacional_cls = mocker.patch("src.core.bot.PciNacionalScraper")
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>b</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True}
+        mock_deps["notifier"].notificar.return_value = True
+
+        ConcursoBot(base_config).executar()
+
+        nacional_cls.assert_not_called()
+
+
+class TestAlertaPorFonte:
+    """Uma fonte pode estar morta enquanto o agregado parece um dia normal."""
+
+    def test_fonte_parada_alerta_mesmo_com_a_outra_viva(
+        self, mock_deps, base_config, mocker
+    ):
+        """O caso Dataprev: `concursos-ti/` congelado em 12/06/2026 enquanto o
+        PCI trazia novidade todo dia, e o bot reportava sucesso."""
+        mocker.patch(
+            "src.core.bot.saude_fontes.avaliar",
+            side_effect=lambda area, fonte, ass, **kw: saude_fontes.Diagnostico(
+                fonte, 45, 89, False, fonte == "gran"
+            ),
+        )
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>b</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "Orgao", "status": "s",
+            "link": "https://example.com/x", "fase": "previsto",
+            "data_fim_inscricao": None, "data_referencia": None,
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 1, "fase": "previsto", "estado_usuario": "ativo",
+            "data_fim_inscricao": None, "nome": "Orgao",
+        }
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert any("Fonte parada" in m and "89 dias" in m for m in mensagens)
+
+    def test_fonte_parada_nao_marca_falha_da_rodada(
+        self, mock_deps, base_config, mocker
+    ):
+        """Retry nao conserta pagina congelada; marcar falha so faria o
+        catch-up horario queimar LLM nas outras fontes o dia inteiro."""
+        mocker.patch(
+            "src.core.bot.saude_fontes.avaliar",
+            return_value=saude_fontes.Diagnostico("gran", 45, 89, False, True),
+        )
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>b</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "Orgao", "status": "s",
+            "link": "https://example.com/x", "fase": "previsto",
+            "data_fim_inscricao": None, "data_referencia": None,
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 1, "fase": "previsto", "estado_usuario": "ativo",
+            "data_fim_inscricao": None, "nome": "Orgao",
+        }
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.falhou is False
+
+    def test_alerta_agregado_tem_precedencia(self, mock_deps, base_config):
+        """Varredura cega ja explica o problema; nao manda a segunda mensagem."""
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["notifier"].notificar.return_value = True
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert len(mensagens) == 1
+        assert "Atenção" in mensagens[0]
+
+    def test_alerta_de_fonte_sai_uma_vez_por_dia(self, mock_deps, base_config, mocker):
+        mocker.patch(
+            "src.core.bot.saude_fontes.avaliar",
+            return_value=saude_fontes.Diagnostico("gran", 0, 0, True, False),
+        )
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True}
+        mock_deps["notifier"].notificar.return_value = True
+        base_config["keywords_include"] = ["ti"]
+
+        pci_cls = mocker.patch("src.core.bot.PciScraper")
+        pci_cls.return_value.capturar_concursos.return_value = []
+        base_config["pci_slugs"] = ["x"]
+        mock_deps["db"].contar_por_fonte.return_value = 5
+
+        ConcursoBot(base_config).executar()
+        ConcursoBot(base_config).executar()
+
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert sum(1 for m in mensagens if "Fonte sem retorno" in m) == 1
