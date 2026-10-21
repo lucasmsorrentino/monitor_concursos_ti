@@ -1,4 +1,4 @@
-# 🎯 Monitor de Concursos (TI + Multi-Área) — Arquitetura Híbrida AI-First & Determinística
+# 🎯 Public Job Exam Monitor (TI + Multi-Area) — Hybrid Deterministic & LLM Pipeline
 
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![SQLite Schema v5](https://img.shields.io/badge/SQLite-Schema%20v5-003B57?logo=sqlite&logoColor=white)
@@ -6,81 +6,79 @@
 ![Telegram Bot API](https://img.shields.io/badge/Telegram-Interactive%20Bot-26A5E4?logo=telegram&logoColor=white)
 ![Tests](https://img.shields.io/badge/pytest-272%20passed-2EA44F?logo=pytest&logoColor=white)
 
-Sistema automatizado de engenharia de dados e IA para monitorar, classificar e notificar atualizações de concursos públicos em múltiplas áreas (**Tecnologia da Informação**, **Educação**, **Sociologia, Artes e Licenciaturas**), com roteamento independente de mensagens por chat do Telegram.
+Automated data engineering and LLM pipeline that monitors, classifies, and notifies updates on Brazilian public civil service exams (*concursos públicos*) across multiple career areas (**Information Technology**, **Education**, **Sociology, Arts & Teaching Degrees**), routing interactive alerts per area to dedicated Telegram chats.
 
-Combina **extração semântica via LLM (AI-First)** onde o HTML é prosa livre com **parsing determinístico de alta velocidade** onde o volume exige escala (milhares de editais municipais/estaduais), convergindo em uma única **máquina de estados de fases** com deduplicação cruzada entre fontes e autodiagnóstico de saúde operacional.
+Instead of relying solely on brittle CSS selectors or burning LLM tokens on every HTML row, the system uses a **hybrid deterministic + LLM architecture**: deterministic parsing handles high-volume structured listings (1,000+ exams per scan in milliseconds at zero LLM cost), while an LLM (via Ollama, LiteLLM, or Claude Code CLI) is invoked only where unstructured prose requires semantic extraction or area classification. All sources converge into a single **ordered stage state machine** with cross-source entity deduplication and per-source health diagnostics.
 
-> 📌 **Próxima Geração (Em Planejamento):** Veja o documento [PLANO_EVOLUCAO_AGENTICA.md](PLANO_EVOLUCAO_AGENTICA.md) com o projeto da evolução agêntica usando **`browser-use` + `Playwright`** para auto-regeneração de seletores (Self-Healing DOM), inspeção profunda de salários + benefícios por cargo (Superior/Médio) e corte geográfico/salarial por área.
+> 📌 **Next-Generation Roadmap:** See [PLANO_EVOLUCAO_AGENTICA.md](PLANO_EVOLUCAO_AGENTICA.md) for the planned agentic evolution using **`browser-use` + `Playwright`** for self-healing DOM selectors, deep-dive role/salary/benefits inspection, and regional salary cutoffs.
 
 ---
 
-## ✨ Destaques de Engenharia
+## ✨ Engineering Highlights
 
-- **Ingestão Multi-Fonte Complementar (3 Portas de Entrada):**
-  1. **Gran Cursos Blog (`GranScraper`):** Fatiamento em blocos `<h3>` + extração semântica via LLM — cobre grandes concursos estaduais e federais.
-  2. **PCI Concursos por Cargo (`PciScraper`):** Parsing determinístico em `/cargos/<slug>` + enriquecimento sob demanda da data de inscrição na notícia — cobre toda a camada municipal, autarquias e conselhos (processa >1.000 concursos no slug `professor` em milissegundos, a custo zero de LLM).
-  3. **PCI Concursos Nacional (`PciNacionalScraper`):** Monitoramento de `/concursos/nacional/` — captura estatais federais de grande porte (ex.: Dataprev, Transpetro, Correios, BNDES) onde a coluna de cargos traz `"Vários Cargos"`. Usa calendário determinístico da listagem + 1 chamada de LLM apenas para itens inéditos (com cache de descartes por 30 dias em `data/pci_nacional_descartados.json`).
-- **Máquina de Estados por Fase Estruturada (Anti-Flapping):**
-  - Em vez de comparar texto livre (que a LLM reescreve a cada leitura, gerando falsos positivos), cada concurso é classificado num vocabulário fechado e ordenado:
+- **Complementary Multi-Source Ingestion (3 Entry Doors):**
+  1. **Gran Cursos Blog (`GranScraper`):** Slices editorial HTML into `<h3>` blocks + visible-text keyword pre-filter + LLM JSON extraction — covers major state and federal exams.
+  2. **PCI Concursos by Role (`PciScraper`):** 100% deterministic parsing of `/cargos/<slug>` + on-demand news deadline regex enrichment — covers municipal, state, and regional council exams (processes 1,100+ items on the `professor` slug in milliseconds with zero LLM calls).
+  3. **PCI Concursos National (`PciNacionalScraper`):** Monitors `/concursos/nacional/` — captures federal state-owned companies (e.g., Dataprev, Transpetro, Correios, BNDES) where the role column only states *"Vários Cargos"* (*Multiple Roles*). Uses deterministic calendar data from the listing + a single LLM call only for genuinely new items (with a 30-day off-area memoization cache in `data/pci_nacional_descartados.json`).
+- **Deterministic Stage State Machine (Anti-Flapping):**
+  - Free-text status comparison caused false positives whenever the LLM reworded a summary. Instead, each exam is classified into a closed, ordered vocabulary:
     `previsto → banca_definida → edital_publicado → inscricoes_abertas → inscricoes_encerradas → concluido`
-  - Apenas **avanço real de fase** ou **mudança na janela de inscrição** dispara alerta `🔔 ATUALIZAÇÃO`. Regressões acidentais da LLM são absorvidas (`fase_mais_avancada`).
-- **Resolução e Fusão de Entidades entre Fontes (`mesma_entidade`):**
-  - Um mesmo concurso capturado pelo Gran (`"Prefeitura de Ponta Grossa - PR"`) e pelo PCI (`"Concurso Prefeitura Ponta Grossa"`) é reconciliado por tokens discriminantes e validação de UF (impedindo colisões falsas como *"Ponta Grossa"* vs. *"Ponta Porã"*). Duplicatas históricas do mesmo órgão são fundidas no SQLite preservando a preferência do usuário (`⭐ Seguindo` > `❌ Ignorado` > `Ativo`).
-- **Observabilidade e Saúde por Fonte (`saude_fontes`):**
-  - Detecta individualmente quando uma fonte fica **vazia (`🕳️`)** ou **congelada (`🧊`)** devolvendo o mesmo conteúdo visível por mais de `dias_fonte_parada` dias (padrão: 21 dias), mesmo quando as outras fontes continuam trazendo novidades.
-  - Detecta **extração degradada (`🚨`)** quando $\ge 20\%$ dos blocos falham na LLM e inclui um **Dead-Man's-Switch (`⏰`)** no agendador Linux caso o bot fique mais de $N$ dias sem concluir uma varredura.
-- **Interatividade no Telegram:**
-  - Botões inline em cada notificação (`⭐ Seguir` / `❌ Não tenho interesse`) processados em lote via `getUpdates` no início de cada varredura, sem exigir servidor web ou webhook exposto.
-- **Três Backends de LLM Selecionáveis (`LLM_MODEL`):**
-  - **Ollama** (local, custo zero), **LiteLLM** (APIs remotas: Anthropic, OpenAI, MiniMax, etc.) ou **Claude Code CLI** (`claude -p` via assinatura local).
+  - Only a **strict stage advance** or a **registration deadline change** triggers a `🔔 ATUALIZAÇÃO` alert. LLM regressions are absorbed (`fase_mais_avancada`).
+- **Cross-Source Entity Resolution & Auto-Merge (`mesma_entidade`):**
+  - The same agency captured from Gran (`"Prefeitura de Ponta Grossa - PR"`) and PCI (`"Concurso Prefeitura Ponta Grossa"`) is matched by discriminating tokens and state (`UF`) validation (preventing false merges such as *"Ponta Grossa"* vs. *"Ponta Porã"*). Duplicate rows are automatically merged in SQLite while preserving user button priority (`⭐ Following` > `❌ Ignored` > `Active`).
+- **Per-Source Health Diagnostics (`saude_fontes`) & Operational Guardrails:**
+  - Independently flags a source that returns **empty (`🕳️`)** or remains **frozen (`🧊`)** with identical visible content for more than `dias_fonte_parada` days (default: 21), even when other sources keep delivering updates.
+  - Sends a **Degraded Extraction (`🚨`)** alert when $\ge 20\%$ of blocks fail LLM extraction and includes a **Dead-Man's-Switch (`⏰`)** in the Linux cron wrapper if no successful scan has occurred for $N$ days.
+- **Interactive Telegram Controls:**
+  - Inline buttons on every card (`⭐ Follow` / `❌ Not interested`) polled in batch via `getUpdates` at the start of each run — no exposed webhook or daemon required.
 
 ---
 
-## 🏛️ Arquitetura — Três Fontes, Um Único Caminho de Decisão
+## 🏛️ Architecture — Three Sources, One Decision Path
 
-| Característica | 1. Gran Blog (`GranScraper`) | 2. PCI por Cargo (`PciScraper`) | 3. PCI Nacional (`PciNacionalScraper`) |
+| Feature | 1. Gran Blog (`GranScraper`) | 2. PCI by Role (`PciScraper`) | 3. PCI National (`PciNacionalScraper`) |
 |---|---|---|---|
-| **Endpoint** | 1 página de blog por área | `/cargos/<slug>` (N slugs por área) | `/concursos/nacional/` |
-| **Formato da Página** | Prosa livre em HTML | Lista estruturada (`ul.link-d` + `ul.link-i`) | Cards estruturados (`div.ca`) |
-| **Usa LLM?** | **Sim** (1 chamada por bloco pós-filtro) | **Não** (100% determinístico) | **Apenas para item inédito** (julga aderência à área) |
-| **Volume Típico** | ~45 blocos | 50 a 1.100+ itens por área | ~4 a 15 itens |
-| **Cobertura Principal** | Grandes editais estaduais/federais | Prefeituras, câmaras, autarquias, conselhos | **Estatais federais** (Dataprev, Transpetro, Correios) |
-| **Chave Primária de Dedup** | `link` canônico + `(area, nome)` | `pci_id` (`nXXXXXX`) + `link` | `link` da notícia (compartilhado com `PciScraper`) |
+| **Endpoint** | 1 blog page per area | `/cargos/<slug>` (N slugs per area) | `/concursos/nacional/` |
+| **Page Structure** | Free-form HTML prose | Structured list (`ul.link-d` + `ul.link-i`) | Structured cards (`div.ca`) |
+| **Uses LLM?** | **Yes** (1 call per post-filter block) | **No** (100% deterministic) | **Only for NEW items** (judges area fit) |
+| **Typical Volume** | ~45 blocks | 50 to 1,100+ items per area | ~4 to 15 items |
+| **Primary Coverage** | Large state/federal exams | Municipalities, councils, state agencies | **Federal state-owned enterprises** (Dataprev, Transpetro) |
+| **Primary Dedup Key** | Canonical `link` + `(area, nome)` | `pci_id` (`nXXXXXX`) + `link` | News `link` (shared with `PciScraper`) |
 
-### Fluxo de Dados do Pipeline
+### Pipeline Data Flow
 
 ```text
-main.py (--dry-run opcional | carrega MONITOR_ENV_FILE ou .env)
+main.py (optional --dry-run | loads MONITOR_ENV_FILE or .env)
   │
   ▼
-MultiAreaRunner ──▶ executa N ConcursoBots em sequência (TI, EDUCACAO, SOCIOLOGIA_ARTES...)
+MultiAreaRunner ──▶ runs N ConcursoBots sequentially (TI, EDUCACAO, SOCIOLOGIA_ARTES...)
   │
   ▼
-ConcursoBot (Orquestrador por Área)
+ConcursoBot (Per-Area Orchestrator)
   │
   ├──▶ 1. TelegramCallbackProcessor.processar_pendentes()
-  │         Aplica cliques pendentes (⭐ Seguir / ❌ Ignorar) no SQLite antes da varredura
+  │         Applies pending button clicks (⭐ Follow / ❌ Ignore) to SQLite before scanning
   │
-  ├──▶ 2. Coleta Multi-Fonte:
-  │      ├─▶ [Fonte 1: GranScraper] ──▶ Blocos <h3> ──▶ Filtro rápido texto visível ──▶ IntelligenceUnit (LLM JSON)
-  │      ├─▶ [Fonte 2: PciScraper]  ──▶ /cargos/<slug> (Determinístico) ──▶ enriquecer() prazo na notícia (só inéditos)
-  │      └─▶ [Fonte 3: PciNacional] ──▶ /concursos/nacional/ ──▶ Cache descartes (30d) ──▶ detalhar() + LLM (só inéditos)
+  ├──▶ 2. Multi-Source Ingestion:
+  │      ├─▶ [Source 1: GranScraper] ──▶ <h3> blocks ──▶ Visible-text keyword filter ──▶ IntelligenceUnit (LLM JSON)
+  │      ├─▶ [Source 2: PciScraper]  ──▶ /cargos/<slug> (Deterministic) ──▶ enriquecer() deadline on news page (new only)
+  │      └─▶ [Source 3: PciNacional] ──▶ /concursos/nacional/ ──▶ 30d discard cache ──▶ detalhar() + LLM (new only)
   │
   ├──▶ 3. DatabaseManager.buscar_registro(nome, link, url_indice, pci_id)
-  │         Resolução de identidade: pci_id ──▶ link específico ──▶ (area, nome) NOCASE ──▶ mesma_entidade()
+  │         Identity resolution: pci_id ──▶ specific link ──▶ (area, nome) NOCASE ──▶ mesma_entidade()
   │
   ├──▶ 4. ConcursoBot._decidir_e_notificar(dados)
-  │         Matriz determinística por fase (previsto..concluido), prazo de inscrição e filtro de listagem morta
+  │         Deterministic decision matrix by stage (previsto..concluido), deadline, and dead-listing filter
   │
-  ├──▶ 5. TelegramNotifier (Cards individuais com botões ⭐/❌ ou Resumo por UF na 1ª carga do PCI)
+  ├──▶ 5. TelegramNotifier (Individual cards with ⭐/❌ buttons or State/UF summary on PCI first load)
   │
-  └──▶ 6. Diagnóstico Operacional (Agregado + Por Fonte via saude_fontes)
-            Envia Heartbeat ✅, Alerta de Perda 🚨 (>=20% erros), Varredura Cega ⚠️, Fonte Vazia 🕳️ ou Fonte Parada 🧊
+  └──▶ 6. Operational Health Diagnostics (Aggregate + Per-Source via saude_fontes)
+            Sends Heartbeat ✅, Degraded Alert 🚨 (>=20% errors), Blind Scan ⚠️, Empty Source 🕳️, or Frozen Source 🧊
 ```
 
 ---
 
-## 📐 Diagrama de Classes (Mermaid)
+## 📐 Class Diagram (Mermaid)
 
 ```mermaid
 classDiagram
@@ -199,92 +197,156 @@ classDiagram
         +processar_pendentes() int
     }
 
-    main --> MultiAreaRunner : instancia via config/loader
-    MultiAreaRunner --> ConcursoBot : executa N bots em sequencia
-    ConcursoBot --> TelegramCallbackProcessor : aplica cliques pendentes (⭐/❌)
-    ConcursoBot --> GranScraper : Fonte 1 (blocos HTML)
-    ConcursoBot --> PciScraper : Fonte 2 (por slug de cargo)
-    ConcursoBot --> PciNacionalScraper : Fonte 3 (lista nacional)
-    ConcursoBot --> IntelligenceUnit : extrai JSON (Gran + Nacional novo)
-    ConcursoBot --> fases : compara fase antiga vs nova
-    ConcursoBot --> saude_fontes : diagnostica fonte vazia/congelada
-    ConcursoBot --> DatabaseManager : persiste estado (schema v5)
-    ConcursoBot --> TelegramNotifier : envia alertas e cards interativos
-    TelegramCallbackProcessor --> DatabaseManager : grava estado_usuario
-    DatabaseManager --> text : deduplica entre fontes (mesma_entidade)
-    GranScraper --|> BaseScraper : herda
-    PciScraper --|> BaseScraper : herda
-    PciNacionalScraper --|> BaseScraper : herda
-    PciScraper --> pci_comum : usa helpers de data/fase
-    PciNacionalScraper --> pci_comum : usa helpers de data/fase
+    main --> MultiAreaRunner : builds via config/loader
+    MultiAreaRunner --> ConcursoBot : runs N bots sequentially
+    ConcursoBot --> TelegramCallbackProcessor : applies pending clicks (⭐/❌)
+    ConcursoBot --> GranScraper : Source 1 (HTML blocks)
+    ConcursoBot --> PciScraper : Source 2 (by role slug)
+    ConcursoBot --> PciNacionalScraper : Source 3 (national list)
+    ConcursoBot --> IntelligenceUnit : extracts JSON (Gran + new National)
+    ConcursoBot --> fases : compares old vs new stage
+    ConcursoBot --> saude_fontes : diagnoses empty/frozen source
+    ConcursoBot --> DatabaseManager : persists state (schema v5)
+    ConcursoBot --> TelegramNotifier : sends alerts & interactive cards
+    TelegramCallbackProcessor --> DatabaseManager : updates estado_usuario
+    DatabaseManager --> text : cross-source dedup (mesma_entidade)
+    GranScraper --|> BaseScraper : extends
+    PciScraper --|> BaseScraper : extends
+    PciNacionalScraper --|> BaseScraper : extends
+    PciScraper --> pci_comum : date/stage helpers
+    PciNacionalScraper --> pci_comum : date/stage helpers
 ```
 
 ---
 
-## 📂 Estrutura do Projeto
+## 📂 Project Structure
 
 ```text
 monitor_concursos_ti/
-├── main.py                           # Ponto de entrada single-run (suporta --dry-run e MONITOR_ENV_FILE)
-├── requirements.txt                  # Dependências de produção
-├── requirements-dev.txt              # Dependências de teste (pytest, pytest-mock, pytest-cov)
-├── .env.example                      # Template completo de configuração (multi-área, PCI, LLMs)
-├── PLANO_EVOLUCAO_AGENTICA.md        # Roadmap da evolução agêntica (browser-use + Playwright + corte salarial)
-├── CLASS_DIAGRAM.md                  # Diagrama de classes Mermaid isolado
-├── CLAUDE.md                         # Guia técnico profundo da arquitetura e decisões de design
+├── main.py                           # Single-run entry point (supports --dry-run and MONITOR_ENV_FILE)
+├── requirements.txt                  # Production dependencies
+├── requirements-dev.txt              # Test dependencies (pytest, pytest-mock, pytest-cov)
+├── .env.example                      # Complete configuration template (multi-area, PCI, LLMs)
+├── PLANO_EVOLUCAO_AGENTICA.md        # Agentic evolution roadmap (browser-use + Playwright + salary cutoffs)
+├── CLASS_DIAGRAM.md                  # Standalone Mermaid class diagram
+├── CLAUDE.md                         # Deep architectural & operational reference
 ├── config/
-│   └── loader.py                     # Carregador e validador de alvos (MONITOR_TARGETS_JSON e modo legado)
+│   └── loader.py                     # Target loader & validator (MONITOR_TARGETS_JSON + legacy fallback)
 ├── data/
-│   ├── concursos.db                  # Banco SQLite (schema v5, migração automática v1→v5)
-│   ├── saude_fontes.json             # Histórico de hashes/dias sem mudança por fonte
-│   ├── pci_nacional_descartados.json # Memoização de editais nacionais fora da área (TTL 30 dias)
-│   └── telegram_offset.json          # Offset de polling de botões interativos do Telegram
+│   ├── concursos.db                  # SQLite database (schema v5, auto-migrates v1→v5)
+│   ├── saude_fontes.json             # Per-source content digests and days-unchanged counters
+│   ├── pci_nacional_descartados.json # Off-area national exam memoization (30-day TTL)
+│   └── telegram_offset.json          # Telegram callback_query polling offset
 ├── logs/
-│   └── bot_concursos.log             # Logs rotativos + marcadores diários de execução/alerta
+│   └── bot_concursos.log             # Rotating logs + daily execution/alert markers
 ├── scripts/
-│   ├── install_schedule.ps1          # Agendamento no Windows Task Scheduler (com StartWhenAvailable)
-│   ├── run_daily.bat                 # Wrapper de execução diária no Windows
-│   ├── install_schedule.sh           # Agendamento no Linux via cron horário + @reboot
-│   ├── run_daily.sh                  # Wrapper Linux: 1 sucesso/dia + catch-up horário + dead-man's-switch
-│   ├── export_known.py               # Exporta acervo ativo do SQLite em Markdown para auditoria externa
-│   └── dedupe_db.py                  # Utilitário one-off de limpeza de duplicatas históricas
+│   ├── install_schedule.ps1          # Windows Task Scheduler installer (with StartWhenAvailable)
+│   ├── run_daily.bat                 # Windows daily execution wrapper
+│   ├── install_schedule.sh           # Linux hourly cron + @reboot installer
+│   ├── run_daily.sh                  # Linux wrapper: 1 success/day + hourly catch-up + dead-man's-switch
+│   ├── export_known.py               # Exports active SQLite exams to Markdown for external auditing
+│   └── dedupe_db.py                  # One-off utility for historical duplicate cleanup
 ├── src/
 │   ├── core/
-│   │   ├── bot.py                    # ConcursoBot — Orquestrador multi-fonte, matriz de decisão e saúde
-│   │   └── multi_area_runner.py      # MultiAreaRunner — Executa bots em sequência e agrega status de falha
+│   │   ├── bot.py                    # ConcursoBot — Multi-source orchestrator, decision matrix & health
+│   │   └── multi_area_runner.py      # MultiAreaRunner — Runs bots sequentially & aggregates failure state
 │   ├── scrapers/
-│   │   ├── base_scraper.py           # BaseScraper — ABC com retry HTTP, backoff e User-Agent
-│   │   ├── gran_scraper.py           # GranScraper — Slicer de HTML por <h3> para artigos do Gran
-│   │   ├── pci_scraper.py            # PciScraper — Parser determinístico de /cargos/<slug> + enriquecer()
-│   │   ├── pci_nacional_scraper.py   # PciNacionalScraper — Parser de /concursos/nacional/ + bloco_para_ia()
-│   │   └── pci_comum.py              # Inferência determinística de fase e extração de datas em frases de inscrição
+│   │   ├── base_scraper.py           # BaseScraper — ABC with HTTP retry, backoff & User-Agent
+│   │   ├── gran_scraper.py           # GranScraper — HTML <h3> slicer for Gran Cursos articles
+│   │   ├── pci_scraper.py            # PciScraper — Deterministic /cargos/<slug> parser + enriquecer()
+│   │   ├── pci_nacional_scraper.py   # PciNacionalScraper — /concursos/nacional/ parser + bloco_para_ia()
+│   │   └── pci_comum.py              # Shared deterministic stage inference & registration-sentence date parser
 │   ├── intelligence/
-│   │   ├── langchain_unit.py         # IntelligenceUnit — Extração HTML → JSON sobre 3 backends de LLM
-│   │   └── claude_cli_backend.py     # ClaudeCliLLM — Wrapper LangChain para `claude -p` via stdin
+│   │   ├── langchain_unit.py         # IntelligenceUnit — HTML → JSON extraction over 3 LLM backends
+│   │   └── claude_cli_backend.py     # ClaudeCliLLM — LangChain wrapper for `claude -p` via stdin
 │   ├── database/
-│   │   └── manager.py                # DatabaseManager — SQLite schema v5, resolução de identidade e fusão
+│   │   └── manager.py                # DatabaseManager — SQLite schema v5, 4-tier identity resolution & merge
 │   ├── notifiers/
-│   │   ├── telegram.py               # TelegramNotifier — Envio resiliente com botões inline e suporte a dry-run
-│   │   └── telegram_callbacks.py     # TelegramCallbackProcessor — Processa cliques em ⭐ Seguir / ❌ Ignorar
+│   │   ├── telegram.py               # TelegramNotifier — Resilient delivery with inline buttons & dry-run
+│   │   └── telegram_callbacks.py     # TelegramCallbackProcessor — Applies ⭐ Follow / ❌ Ignore clicks
 │   └── utils/
-│       ├── fases.py                  # Vocabulário controlado de 6 fases e comparação anti-regressão
-│       ├── saude_fontes.py           # Diagnóstico de fonte vazia (🕳️) ou congelada (🧊)
-│       ├── memoria_json.py           # Persistência atômica de caches JSON em data/
-│       ├── text.py                   # mesma_entidade(), extrair_uf(), status_fingerprint() e normalização
-│       └── logger.py                 # Configuração de RotatingFileHandler
-└── tests/                            # Suíte automatizada com 272 testes (100% offline/mockada)
+│       ├── fases.py                  # Controlled 6-stage vocabulary & anti-regression comparison
+│       ├── saude_fontes.py           # Empty (🕳️) and frozen (🧊) source diagnostics
+│       ├── memoria_json.py           # Atomic JSON cache persistence in data/
+│       ├── text.py                   # mesma_entidade(), extrair_uf(), status_fingerprint() & normalization
+│       └── logger.py                 # RotatingFileHandler setup
+└── tests/                            # Automated suite with 272 unit & integration tests (100% offline/mocked)
 ```
 
 ---
 
-## 🧠 Decisões de Projeto & Matriz de Notificação
+## 🛠️ Setup, Configuration & Execution
 
-### Vocabulário Controlado de Fases (`src/utils/fases.py`)
-```text
-previsto ──▶ banca_definida ──▶ edital_publicado ──▶ inscricoes_abertas ──▶ inscricoes_encerradas ──▶ concluido
+```bash
+git clone https://github.com/lucasmsorrentino/monitor_concursos_ti.git
+cd monitor_concursos_ti
+
+python -m venv .venv
+source .venv/bin/activate          # Windows: .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+cp .env.example .env
 ```
 
-### Quando o Bot Notifica (`ConcursoBot._decidir_e_notificar`)
+### LLM Backend Selection (`LLM_MODEL`)
+
+| `LLM_MODEL` Format | Backend | Marginal Cost | Latency | Notes |
+|---|---|---|---|---|
+| `llama3.1`, `qwen2.5:7b` (no `/`) | **Ollama Local** | Zero | Low | Requires local Ollama server (`OLLAMA_BASE_URL`) |
+| `anthropic/claude-haiku-4-5-...`, `openai/gpt-4o-mini` | **LiteLLM (API)** | Per token | Very low | Requires provider API key in environment |
+| `claude-cli:haiku` (`sonnet` / `opus`) | **Claude Code CLI** | Zero (subscription) | Medium/High | Uses authenticated `claude` binary on `PATH` |
+
+### Running & Testing
+
+```bash
+# Safe simulation (scans all sources and logs decisions without DB writes or Telegram messages):
+python main.py --dry-run
+
+# Single production scan across all configured areas:
+python main.py
+
+# Run full test suite (272 tests, no network or LLM required):
+pip install -r requirements-dev.txt
+pytest
+```
+
+---
+
+<details>
+<summary><b>Versão em português</b></summary>
+
+<br>
+
+# 🎯 Monitor de Concursos (TI + Multi-Área) — Pipeline Híbrido Determinístico e LLM
+
+Sistema automatizado de engenharia de dados e LLM para monitorar, classificar e notificar atualizações de concursos públicos em múltiplas áreas (**Tecnologia da Informação**, **Educação**, **Sociologia, Artes e Licenciaturas**), com roteamento independente de mensagens por chat do Telegram.
+
+Em vez de depender apenas de seletores CSS frágeis ou gastar chamadas de LLM em cada linha de HTML, o sistema adota uma **arquitetura híbrida determinística + LLM**: o parsing determinístico processa listagens estruturadas de alto volume (mais de 1.000 editais por varredura em milissegundos, a custo zero de LLM), enquanto a LLM (via Ollama, LiteLLM ou Claude Code CLI) entra apenas onde o texto em prosa exige extração semântica ou classificação de área. Todas as fontes convergem para uma única **máquina de estados de fases** com deduplicação cruzada de órgãos e autodiagnóstico de saúde por fonte.
+
+> 📌 **Próxima Geração (Em Planejamento):** Veja o documento [PLANO_EVOLUCAO_AGENTICA.md](PLANO_EVOLUCAO_AGENTICA.md) com o projeto da evolução agêntica usando **`browser-use` + `Playwright`** para auto-regeneração de seletores (Self-Healing DOM), inspeção profunda de salários + benefícios por cargo (Superior/Médio) e corte geográfico/salarial por área.
+
+---
+
+## ✨ Destaques de Engenharia
+
+- **Ingestão Multi-Fonte Complementar (3 Portas de Entrada):**
+  1. **Gran Cursos Blog (`GranScraper`):** Fatiamento em blocos `<h3>` + pré-filtro por texto visível + extração semântica via LLM — cobre grandes concursos estaduais e federais.
+  2. **PCI Concursos por Cargo (`PciScraper`):** Parsing 100% determinístico em `/cargos/<slug>` + enriquecimento sob demanda da data de inscrição na notícia — cobre toda a camada municipal, autarquias e conselhos (processa >1.100 concursos no slug `professor` em milissegundos, sem chamar a LLM).
+  3. **PCI Concursos Nacional (`PciNacionalScraper`):** Monitoramento de `/concursos/nacional/` — captura estatais federais de grande porte (ex.: Dataprev, Transpetro, Correios, BNDES) onde a coluna de cargos traz `"Vários Cargos"`. Usa calendário determinístico da listagem + 1 chamada de LLM apenas para itens inéditos (com cache de descartes por 30 dias em `data/pci_nacional_descartados.json`).
+- **Máquina de Estados por Fase Estruturada (Anti-Flapping):**
+  - Em vez de comparar texto livre (que a LLM reescreve a cada leitura, gerando falsos positivos), cada concurso é classificado num vocabulário fechado e ordenado:
+    `previsto → banca_definida → edital_publicado → inscricoes_abertas → inscricoes_encerradas → concluido`
+  - Apenas **avanço real de fase** ou **mudança na janela de inscrição** dispara alerta `🔔 ATUALIZAÇÃO`. Regressões acidentais da LLM são absorvidas (`fase_mais_avancada`).
+- **Resolução e Fusão de Entidades entre Fontes (`mesma_entidade`):**
+  - Um mesmo concurso capturado pelo Gran (`"Prefeitura de Ponta Grossa - PR"`) e pelo PCI (`"Concurso Prefeitura Ponta Grossa"`) é reconciliado por tokens discriminantes e validação de UF (impedindo colisões falsas como *"Ponta Grossa"* vs. *"Ponta Porã"*). Duplicatas históricas do mesmo órgão são fundidas no SQLite preservando a preferência do usuário (`⭐ Seguindo` > `❌ Ignorado` > `Ativo`).
+- **Observabilidade e Saúde por Fonte (`saude_fontes`):**
+  - Detecta individualmente quando uma fonte fica **vazia (`🕳️`)** ou **congelada (`🧊`)** devolvendo o mesmo conteúdo visível por mais de `dias_fonte_parada` dias (padrão: 21 dias), mesmo quando as outras fontes continuam trazendo novidades.
+  - Detecta **extração degradada (`🚨`)** quando $\ge 20\%$ dos blocos falham na LLM e inclui um **Dead-Man's-Switch (`⏰`)** no agendador Linux caso o bot fique mais de $N$ dias sem concluir uma varredura.
+- **Interatividade no Telegram:**
+  - Botões inline em cada notificação (`⭐ Seguir` / `❌ Não tenho interesse`) processados em lote via `getUpdates` no início de cada varredura, sem exigir servidor web ou webhook exposto.
+
+---
+
+## 🧠 Matriz de Decisão e Notificação (`ConcursoBot._decidir_e_notificar`)
 
 | Situação | Ação do Sistema |
 |---|---|
@@ -303,34 +365,11 @@ previsto ──▶ banca_definida ──▶ edital_publicado ──▶ inscricoe
 
 ---
 
-## 🛠️ Instalação e Configuração
+## 🛠️ Configuração e Agendamento
 
-### 1. Pré-requisitos e Ambiente Virtual
-
-```bash
-git clone https://github.com/lucasmsorrentino/monitor_concursos_ti.git
-cd monitor_concursos_ti
-
-python -m venv .venv
-# Windows (Git Bash / PowerShell):
-source .venv/Scripts/activate   # ou .\.venv\Scripts\Activate.ps1
-# Linux / macOS:
-source .venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-### 2. Configuração (`.env` ou `MONITOR_ENV_FILE`)
-
-Copie `.env.example` para `.env` (em desenvolvimento local) ou aponte a variável de ambiente `MONITOR_ENV_FILE` para um arquivo de segredos externo ao repositório (ex.: `~/concursos-secrets/monitor.env` com `chmod 600` em produção):
-
-```bash
-cp .env.example .env
-```
+Copie `.env.example` para `.env` (em desenvolvimento local) ou aponte `MONITOR_ENV_FILE` para um arquivo de segredos externo ao repositório (ex.: `~/concursos-secrets/monitor.env` com `chmod 600` em produção).
 
 > **Atenção:** `MONITOR_TARGETS_JSON` deve ficar em **uma única linha** no `.env` (limitação do `python-dotenv`).
-
-Exemplo de configuração para múltiplas áreas (`TI`, `EDUCACAO`, `SOCIOLOGIA_ARTES`) combinando Gran Cursos + PCI por Cargo + PCI Nacional:
 
 ```ini
 TELEGRAM_TOKEN=seu_token_telegram
@@ -342,30 +381,6 @@ LLM_RETRY_DELAY_S=2
 MONITOR_TARGETS_JSON=[{"area": "TI", "display_name": "Tecnologia da Informacao", "url": "https://blog.grancursosonline.com.br/concursos-ti/", "chat_ids": ["SEU_CHAT_ID"], "keywords_include": ["ti", "tecnologia", "informacao", "sistemas"], "keywords_exclude": ["sociologia", "artes", "pedagogia"], "pci_slugs": ["analista-de-sistemas", "tecnico-em-informatica", "tecnologia-da-informacao", "desenvolvedor", "programador", "seguranca-da-informacao", "redes", "suporte-tecnico"], "pci_nacional": true, "pci_primeira_carga": "individual"}, {"area": "EDUCACAO", "display_name": "Educacao", "url": "https://blog.grancursosonline.com.br/concursos-educacao/", "chat_ids": ["CHAT_ID_EDUCACAO"], "keywords_include": [], "keywords_exclude": [], "pci_slugs": ["professor", "pedagogo", "professor-de-educacao-basica", "supervisor-escolar", "orientador-educacional"], "pci_primeira_carga": "resumo_uf"}, {"area": "SOCIOLOGIA_ARTES", "display_name": "Sociologia, Artes e Licenciaturas", "url": "https://blog.grancursosonline.com.br/concursos-abertos/", "chat_ids": ["CHAT_ID_EDUCACAO"], "keywords_include": ["sociologia", "antropologia", "artes", "licenciatura"], "keywords_exclude": [], "pci_slugs": ["professor-de-artes", "professor-de-sociologia", "professor-de-filosofia", "arte-educador"], "pci_primeira_carga": "resumo_uf"}]
 ```
 
-### 3. Backends de LLM Suportados
-
-O backend é selecionado automaticamente pelo formato de `LLM_MODEL`:
-
-| Formato de `LLM_MODEL` | Backend | Custo Marginal | Latência | Requisitos |
-|---|---|---|---|---|
-| `llama3.1`, `qwen2.5:7b` (sem `/`) | **Ollama Local** | Zero | Baixa | Servidor Ollama local ativo (`OLLAMA_BASE_URL`) |
-| `anthropic/claude-haiku-4-5-...`, `openai/gpt-4o-mini` | **LiteLLM (API)** | Por token | Muito baixa | Chave de API do provedor no ambiente |
-| `claude-cli:haiku` (`sonnet` / `opus`) | **Claude Code CLI** | Zero (assinatura) | Média/Alta | Binário `claude` autenticado no `PATH` |
-
----
-
-## 🚀 Como Executar
-
-### Execução Manual e Modo `--dry-run`
-
-```bash
-# Simulação segura (varre todas as fontes e loga decisões sem gravar no banco nem enviar Telegram):
-python main.py --dry-run
-
-# Execução real (varredura única em todas as áreas configuradas):
-python main.py
-```
-
 ### Agendamento Automático
 
 - **Linux (`cron` com Catch-Up Horário + `@reboot` + Dead-Man's-Switch):**
@@ -374,25 +389,13 @@ python main.py
   crontab -l                           # Inspecionar entradas instaladas
   ./scripts/install_schedule.sh --remove
   ```
-  O wrapper `scripts/run_daily.sh` roda de hora em hora, mas grava um marcador diário (`.last_success_date`) após a primeira execução bem-sucedida do dia — os ticks seguintes saem imediatamente em 3 linhas. Se o computador estava desligado de madrugada ou se uma rodada falhar (`exit != 0`), a hora seguinte faz o *catch-up* automaticamente.
-
 - **Windows (`Task Scheduler` com `StartWhenAvailable`):**
   ```powershell
   .\scripts\install_schedule.ps1
   .\scripts\install_schedule.ps1 -Time 04:30
   ```
 
----
-
-## 🧪 Testes Automatizados
-
-A suíte conta com **272 testes unitários e de integração** (`pytest` + `pytest-mock`), 100% determinísticos e sem dependência de rede ou LLM ao vivo:
-
-```bash
-pip install -r requirements-dev.txt
-pytest                                     # Roda os 272 testes
-pytest --cov=src --cov=config              # Com relatório de cobertura
-```
+### Suíte de Testes (272 testes em 12 arquivos)
 
 | Arquivo de Teste | Escopo Coberto |
 |---|---|
@@ -408,3 +411,5 @@ pytest --cov=src --cov=config              # Com relatório de cobertura
 | `test_claude_cli_backend.py` | Invocação via `stdin`, timeouts, parsing de aliases (`haiku`/`sonnet`/`opus`) |
 | `test_config_loader.py` | Parsing de `MONITOR_TARGETS_JSON`, slugs do PCI, flags nacionais e fallback legado |
 | `test_text_utils.py` | Normalização sem acentos, `extrair_uf`, `status_fingerprint` e heurística `mesma_entidade` |
+
+</details>
