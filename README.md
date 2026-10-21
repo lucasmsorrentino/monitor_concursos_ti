@@ -1,91 +1,81 @@
-# 🏠 Monitor de Concursos (TI + Multi-Area) — AI-First Web Scraping
+# 🎯 Monitor de Concursos (TI + Multi-Área) — Arquitetura Híbrida AI-First & Determinística
 
-Sistema automatizado para monitorar, analisar e notificar atualizações de concursos em diferentes áreas. A versão atual suporta monitoramento multi-area com roteamento de mensagens por chat do Telegram (ex.: TI para você, Educação para sua namorada).
+![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![SQLite Schema v5](https://img.shields.io/badge/SQLite-Schema%20v5-003B57?logo=sqlite&logoColor=white)
+![LangChain + Multi-LLM](https://img.shields.io/badge/LLM-Ollama%20%7C%20LiteLLM%20%7C%20Claude%20CLI-10A37F)
+![Telegram Bot API](https://img.shields.io/badge/Telegram-Interactive%20Bot-26A5E4?logo=telegram&logoColor=white)
+![Tests](https://img.shields.io/badge/pytest-272%20passed-2EA44F?logo=pytest&logoColor=white)
 
-Utiliza uma arquitetura **AI-First**, onde uma LLM (Ollama local, API remota ou Claude Code CLI) lê blocos de HTML, extrai dados estruturados e classifica a fase de cada concurso.
+Sistema automatizado de engenharia de dados e IA para monitorar, classificar e notificar atualizações de concursos públicos em múltiplas áreas (**Tecnologia da Informação**, **Educação**, **Sociologia, Artes e Licenciaturas**), com roteamento independente de mensagens por chat do Telegram.
 
-## Novidades desta versao
+Combina **extração semântica via LLM (AI-First)** onde o HTML é prosa livre com **parsing determinístico de alta velocidade** onde o volume exige escala (milhares de editais municipais/estaduais), convergindo em uma única **máquina de estados de fases** com deduplicação cruzada entre fontes e autodiagnóstico de saúde operacional.
 
-- **Detecção de mudança por fase estruturada** (schema v4): a LLM classifica cada concurso num vocabulário fechado (`previsto → banca_definida → edital_publicado → inscricoes_abertas → inscricoes_encerradas → concluido`). Só avanço de fase ou mudança de prazo notifica — reescrita de texto e regressão de fase (flapping da LLM) são silenciosas. Mata os falsos positivos de "ATUALIZAÇÃO IMPORTANTE".
-- **Filtro de listagem morta**: concurso sem inscrição ativa cujo último evento citado já passou (ex.: "provas previstas para maio de 2025") é salvo em silêncio, não notificado como novo. "Previstos" legítimos (sem data alguma) continuam notificando.
-- **Alerta de varredura cega**: pagina sem nenhum bloco (site fora do ar / layout mudou) envia ⚠️ em vez do falso "nada novo". Em alvos **filtrados** por `keywords_include` (ex.: nicho numa pagina generica), "0 concursos da area" e dia quieto normal e vira heartbeat.
-- **Botões interativos no Telegram**: ⭐ Seguir (notifica para sempre) / ❌ Não tenho interesse (silencia o concurso).
-- **Modo single-run**: `main.py` executa uma varredura e encerra. Agendamento diario pelo SO — Windows Task Scheduler (`scripts/install_schedule.ps1`) ou cron no Linux (`scripts/install_schedule.sh`).
-- **Tres backends de LLM** selecionaveis via `LLM_MODEL`: Ollama local, API remota (LiteLLM), ou Claude Code CLI (usa assinatura local, custo zero).
-- **Bateria de testes**: 149 testes unitarios e de integracao com pytest (`pip install -r requirements-dev.txt && pytest`).
-- Execucao multi-area no mesmo ciclo via `MONITOR_TARGETS_JSON`.
-- Roteamento de notificacoes para um ou mais `chat_id` por area.
-- Filtragem area-aware com palavras-chave de inclusao/exclusao (pre-filtro textual + reforco no prompt da IA).
-- Suporte a paginas de blog do Gran (`concursos-ti/`, `concursos-educacao/`, `concursos-abertos/`). As paginas de carreira (`/cursos/carreira/*`) viraram JS-rendered em jun/2026 e nao sao mais scrapeaveis — para nichos, use alvo filtrado por `keywords_include` na pagina generica `concursos-abertos/`.
-- Dedup por link canonico (prompt forca o link mais curto do blog) + chave composta `(area, nome)` case-insensitive no SQLite.
+> 📌 **Próxima Geração (Em Planejamento):** Veja o documento [PLANO_EVOLUCAO_AGENTICA.md](PLANO_EVOLUCAO_AGENTICA.md) com o projeto da evolução agêntica usando **`browser-use` + `Playwright`** para auto-regeneração de seletores (Self-Healing DOM), inspeção profunda de salários + benefícios por cargo (Superior/Médio) e corte geográfico/salarial por área.
 
 ---
 
-## 💡 Por que AI-First?
+## ✨ Destaques de Engenharia
 
-Na abordagem tradicional de Web Scraping, o código quebra toda vez que o site muda seu layout HTML (classes CSS renomeadas, tags reorganizadas, etc.). Neste projeto, o BeautifulSoup atua **apenas como fatiador** (Slicer): ele divide a página em blocos de HTML usando tags `<h3>` como delimitadores. Quem **interpreta** o conteúdo é a LLM:
-
-```
-┌─────────────┐       ┌──────────────┐       ┌──────────────────┐
-│  Página Web │──────▶│  Slicer (BS4) │──────▶│       LLM        │
-│  (HTML)     │       │  Fatia em     │       │  Lê o HTML bruto │
-│             │       │  blocos <h3>  │       │  e retorna JSON  │
-└─────────────┘       └──────────────┘       └──────────────────┘
-```
-
-**Vantagem:** Se o site trocar classes, reorganizar divs ou mudar o layout, o sistema continua funcionando — a LLM entende o *significado* do HTML, não a sua estrutura exata.
-
----
-
-## 🚀 Funcionalidades
-
-| Funcionalidade | Descrição |
-|---|---|
-| **AI-First Extraction** | A LLM lê blocos de HTML bruto e extrai JSON estruturado (`nome`, `status`, `link`, `data_fim_inscricao`, `data_referencia`, `fase`), filtrando automaticamente seções redundantes (listas genéricas, "Notícias Recomendadas", etc.). |
-| **Detecção por fase estruturada** | A mudança é detectada comparando a `fase` (vocabulário fechado de 6 estágios) e o prazo de inscrição — não o texto livre, que a LLM reformula a cada varredura. Só avanço de fase ou mudança de data notifica. |
-| **Filtro de listagem morta** | Concursos antigos que continuam na página (sem inscrição ativa e com último evento no passado) são salvos em silêncio. |
-| **Botões interativos** | Cada notificação traz ⭐ Seguir / ❌ Não tenho interesse; o estado controla as notificações futuras daquele concurso. |
-| **Scraping Resiliente** | O BeautifulSoup atua apenas como fatiador de HTML, sem depender de seletores CSS específicos. Página que não entrega nenhum bloco dispara alerta ⚠️ em vez de falso "nada novo". |
-| **Persistência (SQLite)** | Banco local (schema v4) com dedup por link canônico, fallback por nome case-insensitive e migrações automáticas. |
-| **Notificações Telegram** | Alertas formatados em HTML, roteados por área para um ou mais chats. |
-| **Agendamento Automático** | Execução diária via Windows Task Scheduler (`scripts/install_schedule.ps1`, com catch-up) ou cron no Linux (`scripts/install_schedule.sh`, sem catch-up). |
-| **Logging Profissional** | Registros com rotação de arquivos (`RotatingFileHandler`) para monitoramento de saúde do bot. |
+- **Ingestão Multi-Fonte Complementar (3 Portas de Entrada):**
+  1. **Gran Cursos Blog (`GranScraper`):** Fatiamento em blocos `<h3>` + extração semântica via LLM — cobre grandes concursos estaduais e federais.
+  2. **PCI Concursos por Cargo (`PciScraper`):** Parsing determinístico em `/cargos/<slug>` + enriquecimento sob demanda da data de inscrição na notícia — cobre toda a camada municipal, autarquias e conselhos (processa >1.000 concursos no slug `professor` em milissegundos, a custo zero de LLM).
+  3. **PCI Concursos Nacional (`PciNacionalScraper`):** Monitoramento de `/concursos/nacional/` — captura estatais federais de grande porte (ex.: Dataprev, Transpetro, Correios, BNDES) onde a coluna de cargos traz `"Vários Cargos"`. Usa calendário determinístico da listagem + 1 chamada de LLM apenas para itens inéditos (com cache de descartes por 30 dias em `data/pci_nacional_descartados.json`).
+- **Máquina de Estados por Fase Estruturada (Anti-Flapping):**
+  - Em vez de comparar texto livre (que a LLM reescreve a cada leitura, gerando falsos positivos), cada concurso é classificado num vocabulário fechado e ordenado:
+    `previsto → banca_definida → edital_publicado → inscricoes_abertas → inscricoes_encerradas → concluido`
+  - Apenas **avanço real de fase** ou **mudança na janela de inscrição** dispara alerta `🔔 ATUALIZAÇÃO`. Regressões acidentais da LLM são absorvidas (`fase_mais_avancada`).
+- **Resolução e Fusão de Entidades entre Fontes (`mesma_entidade`):**
+  - Um mesmo concurso capturado pelo Gran (`"Prefeitura de Ponta Grossa - PR"`) e pelo PCI (`"Concurso Prefeitura Ponta Grossa"`) é reconciliado por tokens discriminantes e validação de UF (impedindo colisões falsas como *"Ponta Grossa"* vs. *"Ponta Porã"*). Duplicatas históricas do mesmo órgão são fundidas no SQLite preservando a preferência do usuário (`⭐ Seguindo` > `❌ Ignorado` > `Ativo`).
+- **Observabilidade e Saúde por Fonte (`saude_fontes`):**
+  - Detecta individualmente quando uma fonte fica **vazia (`🕳️`)** ou **congelada (`🧊`)** devolvendo o mesmo conteúdo visível por mais de `dias_fonte_parada` dias (padrão: 21 dias), mesmo quando as outras fontes continuam trazendo novidades.
+  - Detecta **extração degradada (`🚨`)** quando $\ge 20\%$ dos blocos falham na LLM e inclui um **Dead-Man's-Switch (`⏰`)** no agendador Linux caso o bot fique mais de $N$ dias sem concluir uma varredura.
+- **Interatividade no Telegram:**
+  - Botões inline em cada notificação (`⭐ Seguir` / `❌ Não tenho interesse`) processados em lote via `getUpdates` no início de cada varredura, sem exigir servidor web ou webhook exposto.
+- **Três Backends de LLM Selecionáveis (`LLM_MODEL`):**
+  - **Ollama** (local, custo zero), **LiteLLM** (APIs remotas: Anthropic, OpenAI, MiniMax, etc.) ou **Claude Code CLI** (`claude -p` via assinatura local).
 
 ---
 
-## 🏗️ Arquitetura — Fluxo de Dados
+## 🏛️ Arquitetura — Três Fontes, Um Único Caminho de Decisão
 
-```
-main.py
+| Característica | 1. Gran Blog (`GranScraper`) | 2. PCI por Cargo (`PciScraper`) | 3. PCI Nacional (`PciNacionalScraper`) |
+|---|---|---|---|
+| **Endpoint** | 1 página de blog por área | `/cargos/<slug>` (N slugs por área) | `/concursos/nacional/` |
+| **Formato da Página** | Prosa livre em HTML | Lista estruturada (`ul.link-d` + `ul.link-i`) | Cards estruturados (`div.ca`) |
+| **Usa LLM?** | **Sim** (1 chamada por bloco pós-filtro) | **Não** (100% determinístico) | **Apenas para item inédito** (julga aderência à área) |
+| **Volume Típico** | ~45 blocos | 50 a 1.100+ itens por área | ~4 a 15 itens |
+| **Cobertura Principal** | Grandes editais estaduais/federais | Prefeituras, câmaras, autarquias, conselhos | **Estatais federais** (Dataprev, Transpetro, Correios) |
+| **Chave Primária de Dedup** | `link` canônico + `(area, nome)` | `pci_id` (`nXXXXXX`) + `link` | `link` da notícia (compartilhado com `PciScraper`) |
+
+### Fluxo de Dados do Pipeline
+
+```text
+main.py (--dry-run opcional | carrega MONITOR_ENV_FILE ou .env)
   │
   ▼
-MultiAreaRunner ──▶ executa N bots em sequencia
+MultiAreaRunner ──▶ executa N ConcursoBots em sequência (TI, EDUCACAO, SOCIOLOGIA_ARTES...)
   │
   ▼
-ConcursoBot (Orquestrador, um por area)
+ConcursoBot (Orquestrador por Área)
   │
-  ├──▶ TelegramCallbackProcessor.processar_pendentes()
-  │       │  Aplica cliques pendentes (⭐/❌) no banco antes da varredura
-  │       ▼
-  ├──▶ GranScraper.capturar_concursos()
-  │       │  Faz GET na URL ──▶ Fatia HTML em blocos <h3>
-  │       │  Retorna: List[str]  (blocos de HTML bruto)
-  │       ▼
-  ├──▶ IntelligenceUnit.extrair_dados(bloco_html)
-  │       │  Chain de Extração: Prompt + LLM (JSON mode) + Parser
-  │       │  Retorna: {"ignorar", "nome", "status", "link",
-  │       │            "data_fim_inscricao", "data_referencia", "fase"}
-  │       ▼
-  ├──▶ DatabaseManager.buscar_registro(nome, link)
-  │       │  Consulta SQLite ──▶ registro anterior (fase, data, estado) ou None
-  │       ▼
-  ├──▶ ConcursoBot._decidir_e_notificar(dados)
-  │       │  Matriz de decisão SEM LLM: compara fase antiga vs nova e
-  │       │  data_fim_inscricao. Avanço de fase ou data nova ──▶ notifica.
-  │       │  Reescrita, regressão de fase, listagem morta ──▶ silêncio.
-  │       ▼
-  └──▶ TelegramNotifier.notificar_concurso(id, mensagem)
-          Envia alerta com botões ⭐/❌ via API do Telegram
+  ├──▶ 1. TelegramCallbackProcessor.processar_pendentes()
+  │         Aplica cliques pendentes (⭐ Seguir / ❌ Ignorar) no SQLite antes da varredura
+  │
+  ├──▶ 2. Coleta Multi-Fonte:
+  │      ├─▶ [Fonte 1: GranScraper] ──▶ Blocos <h3> ──▶ Filtro rápido texto visível ──▶ IntelligenceUnit (LLM JSON)
+  │      ├─▶ [Fonte 2: PciScraper]  ──▶ /cargos/<slug> (Determinístico) ──▶ enriquecer() prazo na notícia (só inéditos)
+  │      └─▶ [Fonte 3: PciNacional] ──▶ /concursos/nacional/ ──▶ Cache descartes (30d) ──▶ detalhar() + LLM (só inéditos)
+  │
+  ├──▶ 3. DatabaseManager.buscar_registro(nome, link, url_indice, pci_id)
+  │         Resolução de identidade: pci_id ──▶ link específico ──▶ (area, nome) NOCASE ──▶ mesma_entidade()
+  │
+  ├──▶ 4. ConcursoBot._decidir_e_notificar(dados)
+  │         Matriz determinística por fase (previsto..concluido), prazo de inscrição e filtro de listagem morta
+  │
+  ├──▶ 5. TelegramNotifier (Cards individuais com botões ⭐/❌ ou Resumo por UF na 1ª carga do PCI)
+  │
+  └──▶ 6. Diagnóstico Operacional (Agregado + Por Fonte via saude_fontes)
+            Envia Heartbeat ✅, Alerta de Perda 🚨 (>=20% erros), Varredura Cega ⚠️, Fonte Vazia 🕳️ ou Fonte Parada 🧊
 ```
 
 ---
@@ -97,7 +87,8 @@ classDiagram
     direction LR
 
     class main {
-        +main() int
+        +build_bots(dry_run: bool) List~ConcursoBot~
+        +main(argv) int
     }
 
     class MultiAreaRunner {
@@ -107,37 +98,59 @@ classDiagram
     }
 
     class ConcursoBot {
-        -logger: Logger
+        -area_slug: str
+        -area_name: str
         -scraper: GranScraper
+        -pci_scraper: PciScraper
+        -nacional_scraper: PciNacionalScraper
         -db: DatabaseManager
         -ai: IntelligenceUnit
         -notifier: TelegramNotifier
-        -callbacks: TelegramCallbackProcessor
+        +falhou: bool
         +executar() void
-        -_decidir_e_notificar(dados: dict) str
-        -_passa_filtro_palavras(bloco: str) bool
-        -_prazo_encerrado(data_iso: str) bool
+        -_varrer_nacional(ja_vistos: set) ResultadoFonte
+        -_decidir_e_notificar(dados: dict, url_indice: str) str
+        -_alertar_fontes_doentes(diagnosticos: list, silenciar: bool) void
+        -_mensagem_final(...) bool
     }
 
     class BaseScraper {
         <<abstract>>
         #url: str
         #headers: dict
+        #tentativas: int
         +capturar_concursos()* List
-        +get_html() str
+        +get_html(url: str) str
     }
 
     class GranScraper {
         +capturar_concursos() List~str~
     }
 
+    class PciScraper {
+        -slugs: List~str~
+        +capturar_concursos() List~dict~
+        +enriquecer(item: dict) dict
+    }
+
+    class PciNacionalScraper {
+        +capturar_concursos() List~dict~
+        +detalhar(item: dict) dict
+        +bloco_para_ia(item: dict)$ str
+    }
+
+    class pci_comum {
+        <<module>>
+        +inferir_fase(titulo: str) str
+        +extrair_data_fim(texto: str) str
+        +para_texto(html: str) str
+    }
+
     class IntelligenceUnit {
         -llm_json: LLM
         -llm_text: LLM
         -chain_extracao: RunnableSequence
-        -chain_analise: RunnableSequence
         +extrair_dados(bloco_html: str) dict
-        +analisar_mudanca(antigo: str, novo: str) str
         -_detect_backend(model_name: str)$ str
     }
 
@@ -150,21 +163,35 @@ classDiagram
         +label(fase) str
     }
 
+    class saude_fontes {
+        <<module>>
+        +avaliar(area, fonte, assinaturas, dias_parada) Diagnostico
+    }
+
+    class text {
+        <<module>>
+        +status_fingerprint(texto: str) str
+        +mesma_entidade(nome_a: str, nome_b: str) bool
+        +extrair_uf(texto: str) str
+    }
+
     class DatabaseManager {
         -db_path: str
+        -area: str
         -conn: Connection
-        +buscar_registro(nome, link) dict
-        +buscar_status_antigo(nome, link) str
-        +atualizar_concurso(nome, status, link, ..., fase) int
+        +buscar_registro(nome, link, url_indice, pci_id) dict
+        +atualizar_concurso(nome, status, link, ..., fase, fonte, pci_id) int
         +atualizar_estado_usuario(id, estado) bool
+        +contar_por_fonte(fonte: str) int
         +fechar_conexao() void
     }
 
     class TelegramNotifier {
         -token: str
         -chat_ids: List~str~
-        +notificar(mensagem: str) void
-        +notificar_concurso(id_interno: int, msg: str) void
+        -dry_run: bool
+        +notificar(mensagem: str) bool
+        +notificar_concurso(id_interno: int, msg: str) bool
     }
 
     class TelegramCallbackProcessor {
@@ -172,293 +199,212 @@ classDiagram
         +processar_pendentes() int
     }
 
-    main --> MultiAreaRunner : cria via config/loader
+    main --> MultiAreaRunner : instancia via config/loader
     MultiAreaRunner --> ConcursoBot : executa N bots em sequencia
-    ConcursoBot --> TelegramCallbackProcessor : aplica cliques pendentes
-    ConcursoBot --> GranScraper : fatia HTML
-    ConcursoBot --> IntelligenceUnit : extrai JSON (nome, status, fase, datas)
+    ConcursoBot --> TelegramCallbackProcessor : aplica cliques pendentes (⭐/❌)
+    ConcursoBot --> GranScraper : Fonte 1 (blocos HTML)
+    ConcursoBot --> PciScraper : Fonte 2 (por slug de cargo)
+    ConcursoBot --> PciNacionalScraper : Fonte 3 (lista nacional)
+    ConcursoBot --> IntelligenceUnit : extrai JSON (Gran + Nacional novo)
     ConcursoBot --> fases : compara fase antiga vs nova
-    ConcursoBot --> DatabaseManager : persiste estado
-    ConcursoBot --> TelegramNotifier : envia alertas com botoes
+    ConcursoBot --> saude_fontes : diagnostica fonte vazia/congelada
+    ConcursoBot --> DatabaseManager : persiste estado (schema v5)
+    ConcursoBot --> TelegramNotifier : envia alertas e cards interativos
     TelegramCallbackProcessor --> DatabaseManager : grava estado_usuario
+    DatabaseManager --> text : deduplica entre fontes (mesma_entidade)
     GranScraper --|> BaseScraper : herda
+    PciScraper --|> BaseScraper : herda
+    PciNacionalScraper --|> BaseScraper : herda
+    PciScraper --> pci_comum : usa helpers de data/fase
+    PciNacionalScraper --> pci_comum : usa helpers de data/fase
 ```
-
-> O agendamento é externo (Task Scheduler/cron). `src/scheduler/runner.py` (`DailyScheduler`) é legado e não é mais usado pelo `main.py`.
 
 ---
 
 ## 📂 Estrutura do Projeto
 
-```
+```text
 monitor_concursos_ti/
-├── main.py                     # Ponto de entrada (carrega .env, cria bot e scheduler)
-├── requirements.txt            # Dependências do projeto
-├── .env                        # Variáveis sensíveis (Tokens, IDs, modelo)
+├── main.py                           # Ponto de entrada single-run (suporta --dry-run e MONITOR_ENV_FILE)
+├── requirements.txt                  # Dependências de produção
+├── requirements-dev.txt              # Dependências de teste (pytest, pytest-mock, pytest-cov)
+├── .env.example                      # Template completo de configuração (multi-área, PCI, LLMs)
+├── PLANO_EVOLUCAO_AGENTICA.md        # Roadmap da evolução agêntica (browser-use + Playwright + corte salarial)
+├── CLASS_DIAGRAM.md                  # Diagrama de classes Mermaid isolado
+├── CLAUDE.md                         # Guia técnico profundo da arquitetura e decisões de design
 ├── config/
-│   ├── loader.py               # Carregador multi-area / legado
-│   └── settings.py             # Configurações auxiliares
+│   └── loader.py                     # Carregador e validador de alvos (MONITOR_TARGETS_JSON e modo legado)
 ├── data/
-│   └── concursos.db            # Banco SQLite (gerado automaticamente)
+│   ├── concursos.db                  # Banco SQLite (schema v5, migração automática v1→v5)
+│   ├── saude_fontes.json             # Histórico de hashes/dias sem mudança por fonte
+│   ├── pci_nacional_descartados.json # Memoização de editais nacionais fora da área (TTL 30 dias)
+│   └── telegram_offset.json          # Offset de polling de botões interativos do Telegram
 ├── logs/
-│   └── bot_concursos.log       # Logs com rotação (gerado automaticamente)
+│   └── bot_concursos.log             # Logs rotativos + marcadores diários de execução/alerta
 ├── scripts/
-│   ├── install_schedule.ps1    # Agendamento diário no Windows (Task Scheduler)
-│   ├── run_daily.bat           # Wrapper chamado pela tarefa do Windows
-│   ├── install_schedule.sh     # Agendamento diário no Linux (cron)
-│   ├── run_daily.sh            # Wrapper chamado pelo cron (1 run/dia + catch-up)
-│   └── dedupe_db.py            # Limpeza one-off de duplicatas no banco
-└── src/
-    ├── __init__.py
-    ├── core/
-    │   ├── __init__.py
-    │   ├── bot.py              # ConcursoBot — Orquestrador + matriz de decisão por fase
-    │   └── multi_area_runner.py # MultiAreaRunner — Executor multi-area
-    ├── scrapers/
-    │   ├── __init__.py
-    │   ├── base_scraper.py     # BaseScraper — Classe abstrata (ABC)
-    │   └── gran_scraper.py     # GranScraper — Fatiador de HTML (Slicer)
-    ├── intelligence/
-    │   ├── __init__.py
-    │   ├── langchain_unit.py   # IntelligenceUnit — Chain de extração (HTML → JSON)
-    │   └── claude_cli_backend.py # ClaudeCliLLM — backend via Claude Code CLI
-    ├── database/
-    │   ├── __init__.py
-    │   └── manager.py          # DatabaseManager — Persistência SQLite (schema v4)
-    ├── notifiers/
-    │   ├── __init__.py
-    │   ├── telegram.py         # TelegramNotifier — Alertas com botões inline
-    │   └── telegram_callbacks.py # TelegramCallbackProcessor — aplica cliques ⭐/❌
-    ├── scheduler/
-    │   ├── __init__.py
-    │   └── runner.py           # DailyScheduler — LEGADO (agendamento agora é externo)
-    └── utils/
-        ├── __init__.py
-        ├── fases.py            # Vocabulário controlado de fases do concurso
-        ├── text.py             # status_fingerprint() — hash normalizado de status
-        └── logger.py           # setup_logger() — Logging com RotatingFileHandler
+│   ├── install_schedule.ps1          # Agendamento no Windows Task Scheduler (com StartWhenAvailable)
+│   ├── run_daily.bat                 # Wrapper de execução diária no Windows
+│   ├── install_schedule.sh           # Agendamento no Linux via cron horário + @reboot
+│   ├── run_daily.sh                  # Wrapper Linux: 1 sucesso/dia + catch-up horário + dead-man's-switch
+│   ├── export_known.py               # Exporta acervo ativo do SQLite em Markdown para auditoria externa
+│   └── dedupe_db.py                  # Utilitário one-off de limpeza de duplicatas históricas
+├── src/
+│   ├── core/
+│   │   ├── bot.py                    # ConcursoBot — Orquestrador multi-fonte, matriz de decisão e saúde
+│   │   └── multi_area_runner.py      # MultiAreaRunner — Executa bots em sequência e agrega status de falha
+│   ├── scrapers/
+│   │   ├── base_scraper.py           # BaseScraper — ABC com retry HTTP, backoff e User-Agent
+│   │   ├── gran_scraper.py           # GranScraper — Slicer de HTML por <h3> para artigos do Gran
+│   │   ├── pci_scraper.py            # PciScraper — Parser determinístico de /cargos/<slug> + enriquecer()
+│   │   ├── pci_nacional_scraper.py   # PciNacionalScraper — Parser de /concursos/nacional/ + bloco_para_ia()
+│   │   └── pci_comum.py              # Inferência determinística de fase e extração de datas em frases de inscrição
+│   ├── intelligence/
+│   │   ├── langchain_unit.py         # IntelligenceUnit — Extração HTML → JSON sobre 3 backends de LLM
+│   │   └── claude_cli_backend.py     # ClaudeCliLLM — Wrapper LangChain para `claude -p` via stdin
+│   ├── database/
+│   │   └── manager.py                # DatabaseManager — SQLite schema v5, resolução de identidade e fusão
+│   ├── notifiers/
+│   │   ├── telegram.py               # TelegramNotifier — Envio resiliente com botões inline e suporte a dry-run
+│   │   └── telegram_callbacks.py     # TelegramCallbackProcessor — Processa cliques em ⭐ Seguir / ❌ Ignorar
+│   └── utils/
+│       ├── fases.py                  # Vocabulário controlado de 6 fases e comparação anti-regressão
+│       ├── saude_fontes.py           # Diagnóstico de fonte vazia (🕳️) ou congelada (🧊)
+│       ├── memoria_json.py           # Persistência atômica de caches JSON em data/
+│       ├── text.py                   # mesma_entidade(), extrair_uf(), status_fingerprint() e normalização
+│       └── logger.py                 # Configuração de RotatingFileHandler
+└── tests/                            # Suíte automatizada com 272 testes (100% offline/mockada)
 ```
 
 ---
 
-## 📖 Descrição dos Módulos
+## 🧠 Decisões de Projeto & Matriz de Notificação
 
-| Módulo | Responsabilidade |
+### Vocabulário Controlado de Fases (`src/utils/fases.py`)
+```text
+previsto ──▶ banca_definida ──▶ edital_publicado ──▶ inscricoes_abertas ──▶ inscricoes_encerradas ──▶ concluido
+```
+
+### Quando o Bot Notifica (`ConcursoBot._decidir_e_notificar`)
+
+| Situação | Ação do Sistema |
 |---|---|
-| `main.py` | Carrega variáveis de ambiente, instancia os `ConcursoBot`s via `config/loader.py`, cria o `MultiAreaRunner` e executa **uma** varredura (exit 0/1). |
-| `src/core/bot.py` | **Orquestrador por area.** Processa cliques pendentes, recebe blocos HTML do scraper, envia para a IA extrair JSON e aplica a matriz de decisão por fase (sem segunda chamada de LLM). |
-| `src/core/multi_area_runner.py` | Executa uma lista de `ConcursoBot`s em sequência a cada ciclo. |
-| `src/scrapers/` | Fatiamento do HTML. O `GranScraper` usa `<h3>` como delimitador para recortar a página em blocos independentes. |
-| `src/intelligence/` | Chain de Extração (HTML → JSON com `nome`, `status`, `link`, datas e `fase`) sobre um dos três backends de LLM. A chain de análise (`analisar_mudanca`) existe mas saiu do fluxo de decisão. |
-| `src/database/` | Persistência SQLite (schema v4). Armazena nome, status, link, datas, fase e estado do usuário; dedup por link canônico; migrações automáticas. |
-| `src/notifiers/` | Integração de saída. `telegram.py` envia mensagens com botões inline; `telegram_callbacks.py` aplica os cliques (⭐/❌) no banco no início de cada run. |
-| `src/scheduler/` | **Legado.** `DailyScheduler` ainda existe mas nao e mais usado por `main.py` — o agendamento agora e externo (Task Scheduler no Windows, cron no Linux). |
-| `src/utils/` | `fases.py` (vocabulário de fases), `text.py` (fingerprint de status), `logger.py` (rotação de arquivos, 1 MB por arquivo, até 5 backups). |
-| `config/loader.py` | Carrega alvos de `MONITOR_TARGETS_JSON` ou modo legado (`URL_ALVO`). |
+| Concurso inédito, ativo ou previsto | Envia card **🆕 NOVO CONCURSO** (com fase, prazo e botões ⭐/❌) e salva no banco |
+| Concurso inédito na 1ª carga do PCI (`pci_primeira_carga="resumo_uf"`) | Acumula e envia **📦 Resumo agrupado por Estado (UF)** para evitar flood inicial |
+| Concurso inédito com inscrição já encerrada ou listagem morta (`data_referencia` passada) | Salva em silêncio no banco (sem notificar) |
+| **Fase avançou** (ex.: `banca_definida` → `edital_publicado`) | Envia card **🔔 ATUALIZAÇÃO** mostrando a transição `Fase Antiga → Fase Nova` |
+| **Prazo de inscrição mudou** (nova data válida diferente da anterior) | Envia card **🔔 ATUALIZAÇÃO** destacando o novo prazo |
+| LLM apenas reescreveu o resumo ou regrediu a fase | Atualiza em silêncio preservando a `fase_mais_avancada` |
+| Concurso marcado com **⭐ Seguir** pelo usuário | Notifica qualquer transição real, mesmo após o encerramento das inscrições |
+| Concurso marcado com **❌ Não tenho interesse** | Ignora completamente em todas as rodadas futuras |
+| Perda de $\ge 20\%$ dos blocos na extração via IA | Dispara alerta **🚨 Extração Degradada** e retorna exit code `1` (para retry horário) |
+| Varredura sem candidatos válidos (em alvo não filtrado) | Dispara alerta **⚠️ Varredura Cega** (rate-limited a 1x/dia) |
+| Uma fonte específica não retornou itens ou está congelada há $>21$ dias | Dispara alerta **🕳️ Fonte sem retorno** ou **🧊 Fonte parada** apontando a URL exata |
+| Varredura concluída sem novidades e fontes saudáveis | Envia heartbeat **✅ Varredura Concluída** |
 
 ---
 
 ## 🛠️ Instalação e Configuração
 
-### 1. Pré-requisitos
-
-* **Python 3.10+**
-* Um backend de LLM (veja "Opcoes de LLM" abaixo). Ollama só é necessário se `LLM_MODEL` for um nome simples como `llama3.1`:
-  ```bash
-  ollama pull llama3.1
-  ```
-
-### 2. Configurar o Ambiente
+### 1. Pré-requisitos e Ambiente Virtual
 
 ```bash
-# Clone o repositório
-git clone <url-do-repositorio>
+git clone https://github.com/lucasmsorrentino/monitor_concursos_ti.git
 cd monitor_concursos_ti
 
-# Crie e ative o ambiente virtual
 python -m venv .venv
-# Windows (Git Bash):
-source .venv/Scripts/activate
-# Linux/Mac:
+# Windows (Git Bash / PowerShell):
+source .venv/Scripts/activate   # ou .\.venv\Scripts\Activate.ps1
+# Linux / macOS:
 source .venv/bin/activate
 
-# Instale as dependências
 pip install -r requirements.txt
 ```
 
-### 3. Variaveis de Ambiente
+### 2. Configuração (`.env` ou `MONITOR_ENV_FILE`)
 
-Copie `.env.example` e ajuste para seu caso. Veja o proprio `.env.example` para a lista completa — abaixo estao apenas os blocos principais.
-
-**IMPORTANTE:** `MONITOR_TARGETS_JSON` deve ficar em UMA unica linha no `.env`. O `python-dotenv` nao suporta valores multilinha — se voce formatar bonito vai quebrar silenciosamente e cair no modo legado.
-
-Modo legado (single-area) continua disponivel com `URL_ALVO` e `TELEGRAM_CHAT_ID`.
-
----
-
-## Opcoes de LLM
-
-O backend e escolhido exclusivamente pelo formato de `LLM_MODEL`:
-
-| `LLM_MODEL`                          | Backend         | Custo            | Latencia | Notas                                              |
-| ------------------------------------ | --------------- | ---------------- | -------- | -------------------------------------------------- |
-| `llama3.1`, `qwen2.5:7b`, etc        | Ollama local    | Zero             | Baixa    | Precisa do Ollama rodando; pesa no hardware local. |
-| `anthropic/claude-haiku-4-5-...`     | LiteLLM (API)   | Por token        | Muito baixa | Requer `ANTHROPIC_API_KEY` (ou provider equivalente). |
-| `claude-cli:haiku` (`sonnet`/`opus`) | Claude Code CLI | Zero (assinatura) | Alta    | Usa o `claude` autenticado na maquina. Indicado para agendamentos de baixa frequencia. |
-
-**Regra de selecao** (em `src/intelligence/langchain_unit.py`):
-- Se o nome comeca com `claude-cli` → Claude Code CLI
-- Se contem `/` → LiteLLM
-- Caso contrario → Ollama
-
-Todos os tres compartilham `OLLAMA_TIMEOUT_S`, `OLLAMA_RETRIES` e `OLLAMA_RETRY_DELAY_S` (prefixo `OLLAMA_` e historico — aplica-se a qualquer backend).
-
----
-
-## Como Executar
-
-### Execucao manual (uma varredura)
+Copie `.env.example` para `.env` (em desenvolvimento local) ou aponte a variável de ambiente `MONITOR_ENV_FILE` para um arquivo de segredos externo ao repositório (ex.: `~/concursos-secrets/monitor.env` com `chmod 600` em produção):
 
 ```bash
+cp .env.example .env
+```
+
+> **Atenção:** `MONITOR_TARGETS_JSON` deve ficar em **uma única linha** no `.env` (limitação do `python-dotenv`).
+
+Exemplo de configuração para múltiplas áreas (`TI`, `EDUCACAO`, `SOCIOLOGIA_ARTES`) combinando Gran Cursos + PCI por Cargo + PCI Nacional:
+
+```ini
+TELEGRAM_TOKEN=seu_token_telegram
+LLM_MODEL=claude-cli:haiku
+LLM_TIMEOUT_S=120
+LLM_RETRIES=2
+LLM_RETRY_DELAY_S=2
+
+MONITOR_TARGETS_JSON=[{"area": "TI", "display_name": "Tecnologia da Informacao", "url": "https://blog.grancursosonline.com.br/concursos-ti/", "chat_ids": ["SEU_CHAT_ID"], "keywords_include": ["ti", "tecnologia", "informacao", "sistemas"], "keywords_exclude": ["sociologia", "artes", "pedagogia"], "pci_slugs": ["analista-de-sistemas", "tecnico-em-informatica", "tecnologia-da-informacao", "desenvolvedor", "programador", "seguranca-da-informacao", "redes", "suporte-tecnico"], "pci_nacional": true, "pci_primeira_carga": "individual"}, {"area": "EDUCACAO", "display_name": "Educacao", "url": "https://blog.grancursosonline.com.br/concursos-educacao/", "chat_ids": ["CHAT_ID_EDUCACAO"], "keywords_include": [], "keywords_exclude": [], "pci_slugs": ["professor", "pedagogo", "professor-de-educacao-basica", "supervisor-escolar", "orientador-educacional"], "pci_primeira_carga": "resumo_uf"}, {"area": "SOCIOLOGIA_ARTES", "display_name": "Sociologia, Artes e Licenciaturas", "url": "https://blog.grancursosonline.com.br/concursos-abertos/", "chat_ids": ["CHAT_ID_EDUCACAO"], "keywords_include": ["sociologia", "antropologia", "artes", "licenciatura"], "keywords_exclude": [], "pci_slugs": ["professor-de-artes", "professor-de-sociologia", "professor-de-filosofia", "arte-educador"], "pci_primeira_carga": "resumo_uf"}]
+```
+
+### 3. Backends de LLM Suportados
+
+O backend é selecionado automaticamente pelo formato de `LLM_MODEL`:
+
+| Formato de `LLM_MODEL` | Backend | Custo Marginal | Latência | Requisitos |
+|---|---|---|---|---|
+| `llama3.1`, `qwen2.5:7b` (sem `/`) | **Ollama Local** | Zero | Baixa | Servidor Ollama local ativo (`OLLAMA_BASE_URL`) |
+| `anthropic/claude-haiku-4-5-...`, `openai/gpt-4o-mini` | **LiteLLM (API)** | Por token | Muito baixa | Chave de API do provedor no ambiente |
+| `claude-cli:haiku` (`sonnet` / `opus`) | **Claude Code CLI** | Zero (assinatura) | Média/Alta | Binário `claude` autenticado no `PATH` |
+
+---
+
+## 🚀 Como Executar
+
+### Execução Manual e Modo `--dry-run`
+
+```bash
+# Simulação segura (varre todas as fontes e loga decisões sem gravar no banco nem enviar Telegram):
+python main.py --dry-run
+
+# Execução real (varredura única em todas as áreas configuradas):
 python main.py
 ```
 
-O bot executa uma varredura em todas as areas configuradas e encerra com exit code `0` (sucesso) ou `1` (erro). **Nao fica mais em loop** — o agendamento diario e feito pelo sistema operacional.
+### Agendamento Automático
 
-### Agendamento diario (Windows Task Scheduler)
+- **Linux (`cron` com Catch-Up Horário + `@reboot` + Dead-Man's-Switch):**
+  ```bash
+  ./scripts/install_schedule.sh        # Instala tick horário no minuto 20 + @reboot
+  crontab -l                           # Inspecionar entradas instaladas
+  ./scripts/install_schedule.sh --remove
+  ```
+  O wrapper `scripts/run_daily.sh` roda de hora em hora, mas grava um marcador diário (`.last_success_date`) após a primeira execução bem-sucedida do dia — os ticks seguintes saem imediatamente em 3 linhas. Se o computador estava desligado de madrugada ou se uma rodada falhar (`exit != 0`), a hora seguinte faz o *catch-up* automaticamente.
 
-O projeto inclui um script PowerShell que registra uma tarefa no Windows para rodar diariamente. Execute **uma vez** para instalar:
-
-```powershell
-# Rodar na raiz do projeto, em PowerShell normal (nao precisa admin):
-.\scripts\install_schedule.ps1
-
-# Para um horario diferente do padrao (03:00):
-.\scripts\install_schedule.ps1 -Time 04:30
-
-# Para inspecionar/testar/remover:
-schtasks /query /tn MonitorConcursos /v /fo LIST
-schtasks /run /tn MonitorConcursos
-schtasks /delete /tn MonitorConcursos /f
-```
-
-A tarefa chama `scripts\run_daily.bat`, que:
-1. Ativa o `.venv` local.
-2. Roda `python main.py`.
-3. Grava stdout/stderr em `logs\run_YYYYMMDD.log` (um arquivo por dia).
-
-Configuracoes relevantes da tarefa:
-- **LogonType Interactive**: roda como voce, sem senha — so dispara enquanto voce esta logado (apos reiniciar, basta logar 1x).
-- **StartWhenAvailable**: se o PC estava desligado/dormindo as 03:00, roda assim que voltar a ficar disponivel (catch-up).
-- **MultipleInstances=IgnoreNew**: se o run anterior ainda esta rodando, o novo trigger e ignorado (nao empilha).
-- **ExecutionTimeLimit=1h**: mata o processo se passar de 1h.
-- **DontStopIfGoingOnBatteries / AllowStartIfOnBatteries**: roda em qualquer condicao de energia.
-- **RestartCount=2 / RestartInterval=5min**: se o run falhar, reinicia ate 2x com 5min entre tentativas.
-- **RunLevel Limited**: sem elevacao de admin.
-
-### Agendamento diario (Linux, cron)
-
-```bash
-# Instalar as 03:00 (idempotente; pode rodar de novo apos mover o repo):
-./scripts/install_schedule.sh
-
-# Outro horario:
-./scripts/install_schedule.sh 04:30
-
-# Inspecionar / remover:
-crontab -l
-./scripts/install_schedule.sh --remove
-```
-
-O cron chama `scripts/run_daily.sh` **uma vez por dia, de madrugada** (03:00 por padrao). Um marker de sucesso diario evita varredura duplicada se voce rodar manualmente no mesmo dia, um `flock` impede execucoes simultaneas e a saida vai para `logs/run_YYYYMMDD.log`.
-
-> Diferente do Task Scheduler no Windows (`StartWhenAvailable`), o cron **nao tem catch-up**: se o computador estiver desligado/suspenso no horario, a varredura daquele dia nao acontece.
-
-No modo multi-area, cada ciclo executa todos os alvos configurados e aplica deduplicacao por area no banco.
-
-## Quando o bot notifica (matriz de decisao)
-
-| Situacao | Acao |
-|---|---|
-| Concurso novo, ativo ou previsto | 🆕 NOVO CONCURSO (com fase e prazo) |
-| Concurso novo, inscricao ja encerrada ou listagem morta | Salva em silencio |
-| Fase avancou (ex.: banca definida → edital publicado) | 🔔 ATUALIZAÇÃO |
-| Prazo de inscricao mudou | 🔔 ATUALIZAÇÃO |
-| LLM so reescreveu o texto / regrediu a fase | Silencio (fase mais avancada preservada) |
-| Concurso marcado ⭐ Seguir | Notifica toda transicao real, mesmo apos o prazo |
-| Concurso marcado ❌ Não tenho interesse | Nunca mais notifica (nem atualiza) |
-| Varredura sem nenhuma novidade | ✅ heartbeat "Varredura Concluída" |
-| Alvo filtrado (`keywords_include`): nenhum bloco da area hoje | ✅ heartbeat "nenhuma é da sua área hoje" |
-| Pagina sem nenhum bloco, ou 0 validos em alvo SEM filtro | ⚠️ alerta de possivel site fora do ar / layout novo |
-
-## Migracao de banco
-
-Ao iniciar, o sistema migra automaticamente schemas antigos ate o v4 (migracoes aditivas: v1 nome-PK → v2 `(area, nome)` → v3 `id` autoincrement + estado do usuario → v4 coluna `fase`).
-
-- Dados antigos sao preservados; linhas v1 sao marcadas com area `TI`.
-- Linhas sem `fase` recebem backfill silencioso na primeira varredura pos-upgrade.
-- Recomendado: fazer backup de `data/concursos.db` antes da primeira execucao nesta versao.
-
-### Monitoramento
-
-* **Logs:** pasta `logs/` — histórico de decisões da IA, erros e ciclos de execução.
-* **Banco de Dados:** pasta `data/` — visualize os editais salvos com qualquer leitor SQLite.
+- **Windows (`Task Scheduler` com `StartWhenAvailable`):**
+  ```powershell
+  .\scripts\install_schedule.ps1
+  .\scripts\install_schedule.ps1 -Time 04:30
+  ```
 
 ---
 
-## Testes
+## 🧪 Testes Automatizados
 
-O projeto usa `pytest` + `pytest-mock`. Todas as dependencias externas (HTTP, LLM, subprocess) sao mockadas — nenhum teste precisa de Ollama, API key ou rede.
+A suíte conta com **272 testes unitários e de integração** (`pytest` + `pytest-mock`), 100% determinísticos e sem dependência de rede ou LLM ao vivo:
 
 ```bash
-# Instalar dependencias de desenvolvimento
 pip install -r requirements-dev.txt
-
-# Rodar a suite completa
-pytest
-
-# Apenas um arquivo
-pytest tests/test_config_loader.py
-
-# Um teste especifico
-pytest tests/test_concurso_bot.py::TestExecutarFlow::test_new_concurso_triggers_notification_and_db_insert
-
-# Com cobertura
-pytest --cov=src --cov=config --cov-report=term-missing
+pytest                                     # Roda os 272 testes
+pytest --cov=src --cov=config              # Com relatório de cobertura
 ```
 
-Organizacao dos testes (`tests/`, 149 testes):
-
-| Arquivo | Cobertura |
-| --- | --- |
-| `test_config_loader.py`    | Parse de `MONITOR_TARGETS_JSON`, fallback legado, normalizacao de keywords. |
-| `test_database_manager.py` | Criacao de schema v4, migracoes v1→v4, isolamento por area, upsert, dedup por link. |
-| `test_intelligence_unit.py` | Selecao de backend (Ollama/LiteLLM/Claude CLI), parser JSON, sanitizacao de datas/fase, retry/fallback. |
-| `test_gran_scraper.py`     | Slicer padrao por `<h3>`, slicer de pagina de carreira, filtros de ruido. |
-| `test_telegram_notifier.py` | Dedup de `chat_ids`, no-op sem token, resiliencia a erros HTTP, botoes inline. |
-| `test_telegram_callbacks.py` | Polling de `getUpdates`, aplicacao de estado, persistencia de offset. |
-| `test_concurso_bot.py`     | Integracao: matriz de decisao completa (novo/backfill/reescrita/regressao/avanco de fase/listagem morta/alerta de varredura cega). |
-| `test_claude_cli_backend.py` | Montagem do comando, stdin, timeout, parsing de alias, tratamento de erros. |
-| `test_text_utils.py`       | `status_fingerprint`: normalizacao de acentos, espacos e pontuacao. |
-
----
-
-## 🧪 Stack Tecnológica
-
-| Tecnologia | Uso |
+| Arquivo de Teste | Escopo Coberto |
 |---|---|
-| Python 3.10+ | Linguagem principal |
-| BeautifulSoup 4 | Fatiamento de HTML (Slicer) |
-| LangChain | Framework de orquestração de prompts e chains |
-| Ollama / LiteLLM / Claude Code CLI | Backends de LLM para extração semântica (escolhido por `LLM_MODEL`) |
-| SQLite | Persistência leve e sem servidor (schema v4) |
-| Telegram Bot API | Notificações com botões inline + callbacks |
-| Task Scheduler / cron | Agendamento diário externo (Windows / Linux) |
-| python-dotenv | Carregamento de variáveis de ambiente |
-| pytest + pytest-mock | Suíte de 149 testes sem dependências externas |
-
----
-
-**Desenvolvido como um projeto de automação e estudo de Python / IA.**
-
-
+| `test_concurso_bot.py` | Fluxo ponta a ponta: 3 fontes, matriz de decisão por fase, listagem morta, 1ª carga por UF, extração degradada, alertas de saúde e dry-run |
+| `test_pci_scraper.py` | Parsing determinístico de `/cargos/<slug>`, deduplicação intra-rodada por `pci_id`, extração de prazo na notícia (`enriquecer`) |
+| `test_pci_nacional_scraper.py` | Parsing de `/concursos/nacional/`, precedência de janela de inscrição sobre verbo do título, montagem de bloco para IA |
+| `test_saude_fontes.py` | Detecção de fonte vazia (`🕳️`), fonte congelada por dias (`🧊`), insensibilidade à ordem dos blocos |
+| `test_database_manager.py` | Criação e migração automática de schema `v1 → v5`, resolução de identidade em 4 níveis, fusão automática de órgãos duplicados (`_fundir`) |
+| `test_intelligence_unit.py` | Roteamento entre Ollama, LiteLLM e Claude CLI, sanitização de datas/fases, retry e sinalização de erro (`erro: True`) |
+| `test_gran_scraper.py` | Fatiamento HTML por `<h3>`, páginas de carreira e filtros de ruído |
+| `test_telegram_notifier.py` | Roteamento multi-chat, botões inline (`⭐`/`❌`), resiliência HTTP e modo `dry_run` |
+| `test_telegram_callbacks.py` | Polling de `getUpdates`, transição de `estado_usuario` no banco e persistência de offset |
+| `test_claude_cli_backend.py` | Invocação via `stdin`, timeouts, parsing de aliases (`haiku`/`sonnet`/`opus`) |
+| `test_config_loader.py` | Parsing de `MONITOR_TARGETS_JSON`, slugs do PCI, flags nacionais e fallback legado |
+| `test_text_utils.py` | Normalização sem acentos, `extrair_uf`, `status_fingerprint` e heurística `mesma_entidade` |

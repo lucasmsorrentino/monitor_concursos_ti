@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Monitor de Concursos is an AI-first web scraping system that monitors job/competition postings on Gran Cursos Online. It uses an LLM (via LangChain, three selectable backends) to semantically extract structured data — including a controlled-vocabulary contest `fase` — from HTML blocks instead of brittle CSS selectors, then sends relevant notifications via Telegram. Supports multi-area monitoring (TI, Educação, ...) with per-area Telegram chat routing.
+Monitor de Concursos is a hybrid AI-first & deterministic web scraping system that monitors public competition postings across three complementary sources: **Gran Cursos Online** (blog), **PCI Concursos by cargo** (`/cargos/<slug>`), and **PCI Concursos Nacional** (`/concursos/nacional/`). It combines deterministic parsing for high-volume structured listings with LLM extraction (via LangChain, three selectable backends) for prose blocks and area classification — including a controlled-vocabulary contest `fase` — then sends relevant notifications via Telegram. Supports multi-area monitoring (`TI`, `EDUCACAO`, `SOCIOLOGIA_ARTES`, ...) with per-area Telegram chat routing.
+
+See `PLANO_EVOLUCAO_AGENTICA.md` for the planned next-generation evolution (deep-dive cargo/salary/benefits extraction, regional salary cutoffs, and `browser-use` + `Playwright` self-healing selectors).
 
 ## Running
 
@@ -16,6 +18,7 @@ pip install -r requirements.txt
 
 # Configure .env from .env.example, then run a single scan
 python main.py
+python main.py --dry-run                  # simulate without DB writes or Telegram
 ```
 
 `main.py` is **single-run**: one scan across all configured areas, then exit (0 on success, 1 on error). Daily scheduling is done by the OS:
@@ -31,7 +34,7 @@ Ollama is only required if `LLM_MODEL` is a plain name like `llama3.1`. See "LLM
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                                    # full suite (271 tests)
+pytest                                    # full suite (272 tests)
 pytest tests/test_concurso_bot.py -v      # one file
 pytest -k "TestExecutarFlow"              # by name pattern
 pytest --cov=src --cov=config             # with coverage
@@ -146,9 +149,9 @@ SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, no
 
 When a name collision turns out to be the same órgão, `_fundir` merges the rows instead of leaving both. The user's `estado_usuario` wins by priority (`seguindo` > `ignorado` > `ativo`) from either row — an automatic merge must never discard a manual ⭐.
 
-Auto-migrates v1 (PK `nome`) → v2 (PK `(area, nome)`) → v3 (`id` autoincrement) → v4 (adds `fase`, additive `ALTER TABLE`) on startup; legacy v1 rows are tagged with area `TI`. `atualizar_concurso` uses `COALESCE(?, fase)` so updates without a fase never erase a stored one. Connection opened with `check_same_thread=False`. Manager in `src/database/manager.py`.
+Auto-migrates v1 (PK `nome`) → v2 (PK `(area, nome)`) → v3 (`id` autoincrement) → v4 (adds `fase`) → v5 (adds `fonte`, `pci_id` and `(area, pci_id)` index) on startup; legacy v1 rows are tagged with area `TI`. `atualizar_concurso` uses `COALESCE(?, fase)` so updates without a fase never erase a stored one. Connection opened with `check_same_thread=False`. Manager in `src/database/manager.py`.
 
-`atualizar_concurso` does explicit UPDATE-if-exists (by `link` if specific, else by `(area, nome)`) before INSERT — this preserves `id` between runs, which is required for the Telegram callback buttons to stay valid.
+`atualizar_concurso` does explicit UPDATE-if-exists (by `pci_id` / `link` if specific, else by `(area, nome)` / `mesma_entidade`) before INSERT — this preserves `id` between runs, which is required for the Telegram callback buttons to stay valid.
 
 ## Decision matrix (`ConcursoBot._decidir_e_notificar`)
 
