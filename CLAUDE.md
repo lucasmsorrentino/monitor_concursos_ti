@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Production is down as of 22/10/2026: read `HANDOFF.md` first.** No scan has completed since 23/09 because the LLM credential is blocked (the z.ai key returns `1113` with no balance or plan). It also covers access to the notebook, the current LLM config, the ways to unblock it, and the open items (hourly heartbeat spam, a leaked Telegram token).
+
 ## Project Overview
 
 Monitor de Concursos is a hybrid AI-first & deterministic web scraping system that monitors public competition postings across three complementary sources: **Gran Cursos Online** (blog), **PCI Concursos by cargo** (`/cargos/<slug>`), and **PCI Concursos Nacional** (`/concursos/nacional/`). It combines deterministic parsing for high-volume structured listings with LLM extraction (via LangChain, three selectable backends) for prose blocks and area classification — including a controlled-vocabulary contest `fase` — then sends relevant notifications via Telegram. Supports multi-area monitoring (`TI`, `EDUCACAO`, `SOCIOLOGIA_ARTES`, ...) with per-area Telegram chat routing.
