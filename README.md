@@ -10,7 +10,7 @@ Automated data engineering and LLM pipeline that monitors, classifies, and notif
 
 Instead of relying solely on brittle CSS selectors or burning LLM tokens on every HTML row, the system uses a **hybrid deterministic + LLM architecture**: deterministic parsing handles high-volume structured listings (1,000+ exams per scan in milliseconds at zero LLM cost), while an LLM (via Ollama, LiteLLM, or Claude Code CLI) is invoked only where unstructured prose requires semantic extraction or area classification. All sources converge into a single **ordered stage state machine** with cross-source entity deduplication and per-source health diagnostics.
 
-> 📌 **Next-Generation Roadmap:** See [PLANO_EVOLUCAO_AGENTICA.md](PLANO_EVOLUCAO_AGENTICA.md) for the planned agentic evolution using **`browser-use` + `Playwright`** for self-healing DOM selectors, deep-dive role/salary/benefits inspection, and regional salary cutoffs.
+> 📌 **Next-Generation Roadmap:** See [PLANO_EVOLUCAO_AGENTICA.md](PLANO_EVOLUCAO_AGENTICA.md) for the planned evolution: Gran ingestion via the WordPress REST API, deep-dive role/salary/benefits inspection, and fail-open regional salary cutoffs rolled out in shadow mode (self-healing selectors deferred to the backlog).
 
 ---
 
@@ -227,7 +227,7 @@ monitor_concursos_ti/
 ├── requirements.txt                  # Production dependencies
 ├── requirements-dev.txt              # Test dependencies (pytest, pytest-mock, pytest-cov)
 ├── .env.example                      # Complete configuration template (multi-area, PCI, LLMs)
-├── PLANO_EVOLUCAO_AGENTICA.md        # Agentic evolution roadmap (browser-use + Playwright + salary cutoffs)
+├── PLANO_EVOLUCAO_AGENTICA.md        # Evolution roadmap (Gran API + salary/region eligibility)
 ├── CLASS_DIAGRAM.md                  # Standalone Mermaid class diagram
 ├── CLAUDE.md                         # Deep architectural & operational reference
 ├── config/
@@ -322,7 +322,7 @@ Sistema automatizado de engenharia de dados e LLM para monitorar, classificar e 
 
 Em vez de depender apenas de seletores CSS frágeis ou gastar chamadas de LLM em cada linha de HTML, o sistema adota uma **arquitetura híbrida determinística + LLM**: o parsing determinístico processa listagens estruturadas de alto volume (mais de 1.000 editais por varredura em milissegundos, a custo zero de LLM), enquanto a LLM (via Ollama, LiteLLM ou Claude Code CLI) entra apenas onde o texto em prosa exige extração semântica ou classificação de área. Todas as fontes convergem para uma única **máquina de estados de fases** com deduplicação cruzada de órgãos e autodiagnóstico de saúde por fonte.
 
-> 📌 **Próxima Geração (Em Planejamento):** Veja o documento [PLANO_EVOLUCAO_AGENTICA.md](PLANO_EVOLUCAO_AGENTICA.md) com o projeto da evolução agêntica usando **`browser-use` + `Playwright`** para auto-regeneração de seletores (Self-Healing DOM), inspeção profunda de salários + benefícios por cargo (Superior/Médio) e corte geográfico/salarial por área.
+> 📌 **Próxima Geração (Em Planejamento):** Veja o documento [PLANO_EVOLUCAO_AGENTICA.md](PLANO_EVOLUCAO_AGENTICA.md) com a evolução planejada: Gran via API REST do WordPress, inspeção profunda de salários + benefícios por cargo (Superior/Médio) e corte geográfico/salarial por área com *fail-open* e modo sombra (auto-regeneração de seletores ficou no backlog).
 
 ---
 
