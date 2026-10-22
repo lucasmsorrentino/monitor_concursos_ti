@@ -196,6 +196,23 @@ class TestFalhaDeLogin:
         assert ollama_unit.chain_extracao.invoke.call_count == 1
         assert ollama_unit.falha_autenticacao
 
+    def test_chave_ausente_tambem_para_a_rodada(self, ollama_unit, mocker):
+        """Mensagem real do LiteLLM 1.95 no notebook, 22/10/2026, sem ZAI_API_KEY."""
+
+        class InternalServerError(Exception):
+            pass
+
+        ollama_unit.chain_extracao = mocker.MagicMock()
+        ollama_unit.chain_extracao.invoke.side_effect = InternalServerError(
+            "ZaiException - Missing credentials. Please pass an `api_key`, ... or set "
+            "the `ZAI_API_KEY` or `ZAI_ADMIN_KEY` environment variable."
+        )
+
+        ollama_unit.extrair_dados("<h3>x</h3>")
+
+        assert ollama_unit.chain_extracao.invoke.call_count == 1
+        assert ollama_unit.falha_autenticacao
+
     def test_erro_passageiro_continua_com_retry(self, ollama_unit, mocker):
         ollama_unit.chain_extracao = mocker.MagicMock()
         ollama_unit.chain_extracao.invoke.side_effect = RuntimeError("503 overloaded")

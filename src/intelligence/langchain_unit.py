@@ -31,8 +31,16 @@ _PROVEDORES_VIA_EXTRA_BODY = ("zai/",)
 # pelo nome para nao importar o litellm (pesado) quando o backend e outro.
 _ERROS_DE_CREDENCIAL = {"AuthenticationError", "PermissionDeniedError"}
 
-# Saldo zerado tambem nao se resolve com retry. "1113" e o codigo do z.ai.
-_MARCAS_SEM_SALDO = ("insufficient balance", "余额不足", "'code': '1113'", '"code":"1113"')
+# Chave ausente e saldo zerado tambem nao se resolvem com retry, mas chegam com
+# outras classes: sem chave, o LiteLLM 1.95 levanta InternalServerError
+# ("Missing credentials"); "1113" e o codigo de saldo zerado do z.ai.
+_MARCAS_SEM_CREDENCIAL = (
+    "missing credentials",
+    "insufficient balance",
+    "余额不足",
+    "'code': '1113'",
+    '"code":"1113"',
+)
 
 
 def _e_falha_de_credencial(exc: Exception) -> bool:
@@ -42,7 +50,7 @@ def _e_falha_de_credencial(exc: Exception) -> bool:
     if _ERROS_DE_CREDENCIAL & {cls.__name__ for cls in type(exc).__mro__}:
         return True
     texto = str(exc).lower()
-    return any(marca in texto for marca in _MARCAS_SEM_SALDO)
+    return any(marca in texto for marca in _MARCAS_SEM_CREDENCIAL)
 
 
 class IntelligenceUnit:

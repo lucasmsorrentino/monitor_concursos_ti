@@ -34,7 +34,7 @@ Ollama is only required if `LLM_MODEL` is a plain name like `llama3.1`. See "LLM
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                                    # full suite (294 tests)
+pytest                                    # full suite (295 tests)
 pytest tests/test_concurso_bot.py -v      # one file
 pytest -k "TestExecutarFlow"              # by name pattern
 pytest --cov=src --cov=config             # with coverage
@@ -107,7 +107,7 @@ The Claude CLI backend (`ClaudeCliLLM`) wraps `claude -p --model <alias> --outpu
 
 Optional `LLM_API_BASE` / `LLM_API_KEY` point `openai/<model>` at any OpenAI-compatible endpoint. Subscriptions sold for coding agents (OpenCode Go, GLM Coding Plan) treat other traffic as abuse in their terms, so they are documented as not recommended. `python main.py --testar-llm` makes one real call with the production wiring and exits 0/1. Use it after changing model or credential instead of waiting for a ~13 min scan.
 
-**Credential failure.** `claude` prints auth errors ("Failed to authenticate: OAuth session expired and could not be refreshed") on **stdout** with exit 1 and an empty stderr. `ClaudeCliLLM` raises `ClaudeCliAuthError` for those. `_e_falha_de_credencial` also catches LiteLLM/OpenAI `AuthenticationError`/`PermissionDeniedError` and z.ai's insufficient balance (code 1113). `IntelligenceUnit` then stops calling the LLM for the rest of the run (no retry — a credential is not fixed by retrying), and the bot sends the 🔑 alert, with the fix for the active backend (`instrucao_login`), instead of "Varredura incompleta". The run still sets `bot.falhou`, so the hourly catch-up recovers within an hour of a new login.
+**Credential failure.** `claude` prints auth errors ("Failed to authenticate: OAuth session expired and could not be refreshed") on **stdout** with exit 1 and an empty stderr. `ClaudeCliLLM` raises `ClaudeCliAuthError` for those. `_e_falha_de_credencial` also catches LiteLLM/OpenAI `AuthenticationError`/`PermissionDeniedError` a missing key (LiteLLM raises it as `InternalServerError: Missing credentials`) and z.ai's insufficient balance (code 1113). `IntelligenceUnit` then stops calling the LLM for the rest of the run (no retry — a credential is not fixed by retrying), and the bot sends the 🔑 alert, with the fix for the active backend (`instrucao_login`), instead of "Varredura incompleta". The run still sets `bot.falhou`, so the hourly catch-up recovers within an hour of a new login.
 
 Incident that motivated this: **no successful scan from 23/09 to 22/10/2026.** The OAuth session on the notebook expired on 24/09 (again on 03/10 and from 14/10 on); in between, 25/09–02/10, the notebook had no DNS at all. The log only said `claude -p saiu com codigo 1:` followed by nothing, ~6,800 times a day. The durable fix is a long-lived token: run `claude setup-token` on the notebook and put it in `CLAUDE_CODE_OAUTH_TOKEN` inside `~/concursos-secrets/monitor.env` (`main.py` loads it into the environment the `claude` subprocess inherits). Interactive `/login` sessions expire and need a refresh that can fail.
 
