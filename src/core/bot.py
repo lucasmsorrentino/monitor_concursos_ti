@@ -528,6 +528,10 @@ class ConcursoBot:
     ) -> bool:
         """Decide entre alerta e heartbeat no fim da varredura da area.
 
+        O heartbeat tambem e diario (1 por area por dia): o catch-up horario
+        so roda quando alguma area falhou, e a area sadia nao precisa reconfirmar
+        "nada novo" a cada tentativa das outras.
+
         Returns:
             bool: ``True`` se enviou um alerta sobre a varredura inteira
             (degradada ou cega). Quem chama usa isso para nao empilhar o aviso
@@ -633,7 +637,12 @@ class ConcursoBot:
                 f"📭 Nenhum concurso de [{self.area_name}] entre os {total_blocos} blocos "
                 "da pagina (alvo filtrado, dia quieto). Enviando heartbeat..."
             )
-            self._notificar(
+            # Mesmo limite diario dos alertas: enquanto uma area falha e o cron
+            # repete de hora em hora, este heartbeat saia a cada rodada para as
+            # areas que terminam bem (45-48/dia no chat de Educacao/Soc-Artes,
+            # 15-22/10/2026).
+            self._alerta_uma_vez_por_dia(
+                "heartbeat",
                 f"✅ <b>Varredura Concluída</b>\n\n"
                 f"📚 <b>Área:</b> {self.area_name}\n"
                 f"🔍 Verifiquei <b>{total_blocos}</b> publicações e nenhuma é da sua área hoje.\n\n"
@@ -642,7 +651,8 @@ class ConcursoBot:
             return False
 
         self.logger.info("📭 Nenhuma novidade relevante encontrada. Enviando status para o Telegram...")
-        self._notificar(
+        self._alerta_uma_vez_por_dia(
+            "heartbeat",
             f"✅ <b>Varredura Concluída</b>\n\n"
             f"📚 <b>Área:</b> {self.area_name}\n"
             f"🔍 Analisei <b>{validos}</b> concursos e não encontrei nenhuma alteração "
@@ -652,11 +662,13 @@ class ConcursoBot:
         return False
 
     def _alerta_uma_vez_por_dia(self, tipo: str, mensagem: str, por_area: bool = True) -> None:
-        """Envia o alerta no maximo uma vez por dia, por area e por tipo.
+        """Envia a mensagem no maximo uma vez por dia, por area e por tipo.
 
+        Vale para alertas e para o heartbeat de "Varredura Concluida".
         Necessario porque o cron passou a rodar de hora em hora: sem isso, um
         problema estrutural (site mudou de layout) renderia ate 24 mensagens
-        identicas no mesmo dia.
+        identicas no mesmo dia — e uma area falhando faz TODAS as rodadas do
+        dia repetirem, nao so a primeira.
 
         Args:
             por_area: ``False`` para problema da maquina, nao da area (ex.: login

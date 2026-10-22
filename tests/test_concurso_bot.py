@@ -303,6 +303,27 @@ class TestExecutarFlow:
         assert "Varredura Concluída" in msg
         assert "Atenção" not in msg
 
+    def test_heartbeat_sai_uma_vez_por_dia(self, mock_deps, base_config):
+        """Uma area falhando (ex.: LLM sem login) faz o cron repetir de hora em
+        hora, e cada rodada reenviava o 'Varredura Concluída' das areas que
+        terminam bem: 45-48 por dia no chat de Educacao/Soc-Artes de 15 a
+        22/10/2026. Agora o heartbeat sai 1 vez por dia, por area."""
+        base_config["keywords_include"] = ["sociologia"]
+        mock_deps["scraper"].capturar_concursos.return_value = [
+            "<h3>Concurso PM SP</h3>",
+        ]
+        mock_deps["notifier"].notificar.return_value = True
+
+        ConcursoBot(base_config).executar()
+        segunda = ConcursoBot(base_config)
+        segunda.executar()
+
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert sum(1 for m in mensagens if "Varredura Concluída" in m) == 1
+        # Suprimir o heartbeat nao pode virar falha: dia quieto segue sendo dia
+        # quieto, senao o catch-up horario voltaria a rodar sem parar.
+        assert segunda.falhou is False
+
     def test_alvo_filtrado_scrape_vazio_ainda_alerta(self, mock_deps, base_config):
         """Mesmo com keywords_include, zero blocos brutos = pagina quebrada -> alerta."""
         base_config["keywords_include"] = ["sociologia"]
