@@ -18,6 +18,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 
 from dotenv import load_dotenv
 
@@ -79,6 +80,10 @@ def build_bots(dry_run: bool = False) -> list[ConcursoBot]:
         "ollama_retry_delay_s": _get_float_env_alias(
             ("LLM_RETRY_DELAY_S", "OLLAMA_RETRY_DELAY_S"), 2.0
         ),
+        # So para backend LiteLLM (LLM_MODEL com "/"). Ver .env.example.
+        "llm_api_base": os.getenv("LLM_API_BASE") or None,
+        "llm_api_key": os.getenv("LLM_API_KEY") or None,
+        "llm_reasoning_effort": os.getenv("LLM_REASONING_EFFORT") or None,
         "dry_run": dry_run,
     }
 
@@ -106,6 +111,43 @@ def build_bots(dry_run: bool = False) -> list[ConcursoBot]:
     return bots
 
 
+# Bloco curto no formato do blog do Gran, so para provar que a LLM responde com
+# o JSON esperado. Nao varre site, nao escreve no banco, nao manda Telegram.
+_BLOCO_TESTE_LLM = (
+    "<h3>Concurso Prefeitura de Curitiba - PR: edital publicado</h3>"
+    "<p>A Prefeitura de Curitiba publicou edital com 12 vagas para Analista de "
+    "Sistemas. Inscrições de 03/11/2026 a 30/11/2026, provas em 17/01/2027.</p>"
+    '<p><a href="https://blog.grancursosonline.com.br/concurso-prefeitura-curitiba/">'
+    "Veja o edital</a></p>"
+)
+
+
+def testar_llm() -> int:
+    """Uma chamada real a LLM configurada, com a fiacao de producao.
+
+    Existe para trocar de backend (ou renovar credencial) e saber em segundos
+    se funcionou, em vez de esperar uma varredura inteira de ~13 minutos.
+    """
+    bots = build_bots(dry_run=True)
+    if not bots:
+        logger.error("Nenhum alvo valido configurado; nao ha como montar a LLM.")
+        return 1
+
+    ai = bots[0].ai
+    logger.info(f"🧪 Testando a LLM {ai.model_name!r} com um bloco de exemplo...")
+    inicio = time.monotonic()
+    dados = ai.extrair_dados(_BLOCO_TESTE_LLM)
+    duracao = time.monotonic() - inicio
+
+    if dados.get("erro"):
+        motivo = ai.falha_autenticacao or "veja os avisos acima"
+        logger.error(f"❌ A LLM falhou em {duracao:.1f}s: {motivo}")
+        return 1
+
+    logger.info(f"✅ A LLM respondeu em {duracao:.1f}s: {dados}")
+    return 0
+
+
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Monitor de concursos (varredura unica).")
     parser.add_argument(
@@ -114,11 +156,19 @@ def _parse_args(argv=None) -> argparse.Namespace:
         help="Varre e mostra o que faria, sem escrever no banco nem notificar. "
              "Serve pra medir o volume da primeira carga antes de soltar.",
     )
+    parser.add_argument(
+        "--testar-llm",
+        action="store_true",
+        help="Faz UMA chamada a LLM configurada e sai (0 = ok). Sem varredura.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv=None) -> int:
     args = _parse_args(argv)
+    if args.testar_llm:
+        return testar_llm()
+
     modo = " (DRY-RUN: sem escrita e sem Telegram)" if args.dry_run else ""
     logger.info(f"Sistema de Monitoramento iniciado (modo single-run){modo}.")
 

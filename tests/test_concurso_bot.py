@@ -31,6 +31,9 @@ def mock_deps(mocker, tmp_path):
     cb_proc = cb_proc_cls.return_value
 
     scraper.url = "https://example.com"
+    # Default: LLM autenticada. Num MagicMock o atributo seria truthy.
+    ai.falha_autenticacao = None
+    ai.instrucao_login = "no notebook, <code>claude setup-token</code>"
     # Default: concurso nao existe no DB.
     db.buscar_registro.return_value = None
     # Default: upsert retorna id=42.
@@ -571,6 +574,16 @@ class TestFalhaPropaga:
 
         assert bot.falhou is True
 
+    def test_alerta_de_excecao_sai_uma_vez_por_dia(self, mock_deps, base_config):
+        mock_deps["scraper"].capturar_concursos.side_effect = RuntimeError("site fora")
+        mock_deps["notifier"].notificar.return_value = True
+
+        ConcursoBot(base_config).executar()
+        ConcursoBot(base_config).executar()
+
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert sum(1 for m in mensagens if "Falha na varredura" in m) == 1
+
     def test_varredura_limpa_nao_marca_falha(self, mock_deps, base_config):
         """Concurso extraido e sem novidade: dia quieto de verdade, nao falha."""
         mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
@@ -650,6 +663,64 @@ class TestErroDeExtracao:
         bot.executar()
 
         assert bot.falhou is False
+
+    def test_alerta_de_degradado_sai_uma_vez_por_dia(self, mock_deps, base_config):
+        """Causa persistente + catch-up horario rendiam 24 alertas iguais por dia."""
+        mock_deps["scraper"].capturar_concursos.return_value = self._blocos(10)
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True, "erro": True}
+        mock_deps["notifier"].notificar.return_value = True
+
+        primeira = ConcursoBot(base_config)
+        primeira.executar()
+        segunda = ConcursoBot(base_config)
+        segunda.executar()
+
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert sum(1 for m in mensagens if "incompleta" in m.lower()) == 1
+        # Silenciar o aviso nao pode silenciar a falha: o catch-up depende dela.
+        assert segunda.falhou is True
+
+
+class TestLlmSemLogin:
+    """OAuth do `claude` expirado: de 14/10 a 22/10/2026 isso chegou como
+    "Varredura incompleta" de hora em hora, sem pista nenhuma da causa."""
+
+    def _preparar(self, mock_deps, base_config):
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>a</h3>", "<h3>b</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True, "erro": True}
+        mock_deps["ai"].falha_autenticacao = "claude -p sem autenticacao: OAuth expirado"
+        mock_deps["notifier"].notificar.return_value = True
+
+    def test_alerta_diz_que_e_login_e_nao_varredura_incompleta(self, mock_deps, base_config):
+        self._preparar(mock_deps, base_config)
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert len(mensagens) == 1
+        assert "sem acesso" in mensagens[0]
+        assert "setup-token" in mensagens[0]
+        assert not any("incompleta" in m.lower() for m in mensagens)
+
+    def test_continua_marcando_falha_para_o_catch_up(self, mock_deps, base_config):
+        self._preparar(mock_deps, base_config)
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.falhou is True
+
+    def test_alerta_e_um_so_por_dia_para_todas_as_areas(self, mock_deps, base_config):
+        """O login e da maquina: Educacao e Soc/Artes nao repetem o aviso do TI."""
+        self._preparar(mock_deps, base_config)
+
+        ConcursoBot(base_config).executar()
+        ConcursoBot({**base_config, "area": "EDUCACAO", "display_name": "Educação"}).executar()
+        ConcursoBot(base_config).executar()
+
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert sum(1 for m in mensagens if "sem acesso" in m) == 1
 
 
 class TestPrimeiraCargaPci:

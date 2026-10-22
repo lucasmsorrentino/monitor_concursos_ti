@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Monitor de Concursos is a hybrid AI-first & deterministic web scraping system that monitors public competition postings across three complementary sources: **Gran Cursos Online** (blog), **PCI Concursos by cargo** (`/cargos/<slug>`), and **PCI Concursos Nacional** (`/concursos/nacional/`). It combines deterministic parsing for high-volume structured listings with LLM extraction (via LangChain, three selectable backends) for prose blocks and area classification — including a controlled-vocabulary contest `fase` — then sends relevant notifications via Telegram. Supports multi-area monitoring (`TI`, `EDUCACAO`, `SOCIOLOGIA_ARTES`, ...) with per-area Telegram chat routing.
 
-See `PLANO_EVOLUCAO_AGENTICA.md` for the planned next-generation evolution (deep-dive cargo/salary/benefits extraction, regional salary cutoffs, and `browser-use` + `Playwright` self-healing selectors).
+See `PLANO_EVOLUCAO_AGENTICA.md` (v2, 22/10/2026) for the planned evolution: Gran via the WordPress REST API (replaces the frozen curated articles, no Playwright), deep-dive cargo/salary/benefits extraction, and a fail-open regional salary eligibility rule rolled out in shadow mode first. `browser-use` self-healing selectors are deferred to the backlog with an explicit entry criterion.
 
 ## Running
 
@@ -34,7 +34,7 @@ Ollama is only required if `LLM_MODEL` is a plain name like `llama3.1`. See "LLM
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                                    # full suite (272 tests)
+pytest                                    # full suite (294 tests)
 pytest tests/test_concurso_bot.py -v      # one file
 pytest -k "TestExecutarFlow"              # by name pattern
 pytest --cov=src --cov=config             # with coverage
@@ -66,8 +66,8 @@ The `professor` slug alone lists 1000+ concursos, which is why the cargo pages m
 
 3. **ConcursoBot** (`src/core/bot.py`) orchestrates per-area: pending Telegram callbacks → per source, candidate → data dict → DB lookup → **fase-based decision matrix** (`_decidir_e_notificar`, no second LLM call) → notification. The keyword pre-filter (`_passa_filtro_palavras`) applies to Gran blocks and runs on **visible text**, not raw HTML — see "Key Design Decisions".
    - The nacional source (`_varrer_nacional`) costs nothing in steady state: an item already in the DB is refreshed from the listing with no request and no LLM; an item judged off-area is remembered for 30 days in `data/pci_nacional_descartados.json` (keyed by area+link, re-judged if the deadline changes) so the same "not TI" is not re-derived daily. Only a genuinely new item opens the news page and spends one LLM call. The LLM decides **only area fit** — `link`, `fase` and `data_fim_inscricao` keep the listing's deterministic values, because letting the LLM pick the link is what duplicates rows.
-   - End-of-cycle: a 🚨 *degraded* alert when ≥20% of blocks were lost in extraction (`LIMITE_ERRO_EXTRACAO`), else a ⚠️ blind-scan alert when the scan produced no candidates at all, else heartbeat. Degraded is checked first: 10 blocks with 5 lost is loss, not blindness. Blind = zero raw blocks with no alternate source, OR zero candidates on a target WITHOUT `keywords_include`. Filtered targets on generic pages treat zero valid as a normal quiet day.
-   - Blind-scan alerts are rate-limited to **one per area per day** (`_alerta_uma_vez_por_dia`, marker in `logs/.alerta_<area>_<tipo>`), because the cron now runs hourly and a layout change would otherwise send 24 identical messages.
+   - End-of-cycle: a 🔑 *LLM without login* alert when the Claude CLI lost its credential (`IntelligenceUnit.falha_autenticacao`), else a 🚨 *degraded* alert when ≥20% of blocks were lost in extraction (`LIMITE_ERRO_EXTRACAO`), else a ⚠️ blind-scan alert when the scan produced no candidates at all, else heartbeat. Degraded is checked first: 10 blocks with 5 lost is loss, not blindness. Blind = zero raw blocks with no alternate source, OR zero candidates on a target WITHOUT `keywords_include`. Filtered targets on generic pages treat zero valid as a normal quiet day.
+   - Every bot alert is rate-limited to **one per area per day** (`_alerta_uma_vez_por_dia`, marker in `logs/.alerta_<area>_<tipo>`): blind scan, degraded, crash, sick source. The cron runs hourly and a failed run is retried, so any persistent cause would otherwise send 24 identical messages — which is exactly what the degraded alert did from 14/10 to 22/10/2026 before it was limited. The 🔑 login alert is limited **globally** (`por_area=False`, marker `logs/.alerta_global_<tipo>`): the credential belongs to the machine, and the Educação/Soc-Artes chats must not get copies of a terminal instruction. The dead-man's-switch in `run_daily.sh` has its own daily marker (`logs/.last_dead_man_alert`) for the same reason.
    - **Per-source diagnosis** (`_alertar_fontes_doentes`, backed by `src/utils/saude_fontes.py`) runs *after* `_mensagem_final` and only when the aggregate stayed quiet — the aggregate alert wins, so one problem never sends two messages. It flags a source that returned **nothing** (🕳️) or that has returned **identical content for more than `dias_fonte_parada` days** (🧊, default 21). Neither sets `bot.falhou`: a frozen or dead source is not fixed by retrying, and marking failure would make the hourly catch-up burn LLM on the other sources all day. State lives in `data/saude_fontes.json`, keyed `<area>::<fonte>`; the digest is built from **visible text** (Gran) or ids/links (PCI) and is order-insensitive, so a reshuffled page does not read as an update.
    - `bot.falhou` is set by any failure. `MultiAreaRunner.executar()` returns False if any area failed, `main.py` exits 1, and `run_daily.sh` then does NOT write the success marker — so the next hourly tick retries.
 4. **IntelligenceUnit** (`src/intelligence/langchain_unit.py`) runs the extraction chain over the backend selected by `_detect_backend(model_name)`: HTML block → `{ignorar, nome, status, link, data_fim_inscricao, data_referencia, fase}`. The system prompt receives `area_context` + include/exclude keywords so the LLM rejects off-area blocks. `fase` is one of 6 literals (see "Fase vocabulary"); `data_referencia` is the most relevant event date (ISO; month/year → first day; null when no date). Both are sanitized post-parse (`sanitizar_fase`, `_sanitizar_data`). Retries on failure (`LLM_RETRIES`, `LLM_RETRY_DELAY_S`), and surfaces JSON wrapped in markdown fences via `_parse_json_response`. On final failure it returns `{"ignorar": True, "erro": True}` — the `erro` flag is what lets the bot tell a *lost* edital from an irrelevant block.
@@ -96,12 +96,24 @@ Only a fase ADVANCE or a `data_fim_inscricao` change triggers an update notifica
 | `LLM_MODEL` format | Backend | Entry point |
 | --- | --- | --- |
 | `llama3.1`, `qwen2.5:7b` (no `/`, no `claude-cli` prefix) | Ollama local | `_create_ollama` |
-| `anthropic/claude-haiku-4-5-...`, `openai/gpt-4o`, any `provider/model` | LiteLLM (API) | `_create_litellm` |
+| `zai/glm-5.3-flash`, `anthropic/claude-haiku-4-5-...`, `openai/gpt-4o`, any `provider/model` | LiteLLM (API) | `_create_litellm` |
 | `claude-cli` or `claude-cli:haiku` \| `:sonnet` \| `:opus` | Claude Code CLI | `_create_claude_cli` → `src/intelligence/claude_cli_backend.py` |
 
 The Claude CLI backend (`ClaudeCliLLM`) wraps `claude -p --model <alias> --output-format text --no-session-persistence`, piping the prompt on stdin (NOT argv — avoids Windows cmd length limits and escaping issues with Portuguese). It does not support JSON mode, relying on prompt instructions + `_parse_json_response` to handle fenced or inline JSON.
 
+**z.ai (GLM) via LiteLLM** (`LLM_MODEL=zai/glm-5.3-flash`, key in `ZAI_API_KEY`). Two things are not obvious:
+- LiteLLM's `zai/` adapter (1.95 on the notebook) does not declare `response_format` or `reasoning_effort`, and refuses the call if they come as normal params. `_create_litellm` sends both in `extra_body` for providers listed in `_PROVEDORES_VIA_EXTRA_BODY`.
+- GLM-5.3-Flash cannot turn thinking off, and the API default is `reasoning_effort=max`. Set `LLM_REASONING_EFFORT=low`.
+
+Optional `LLM_API_BASE` / `LLM_API_KEY` point `openai/<model>` at any OpenAI-compatible endpoint. Subscriptions sold for coding agents (OpenCode Go, GLM Coding Plan) treat other traffic as abuse in their terms, so they are documented as not recommended. `python main.py --testar-llm` makes one real call with the production wiring and exits 0/1. Use it after changing model or credential instead of waiting for a ~13 min scan.
+
+**Credential failure.** `claude` prints auth errors ("Failed to authenticate: OAuth session expired and could not be refreshed") on **stdout** with exit 1 and an empty stderr. `ClaudeCliLLM` raises `ClaudeCliAuthError` for those. `_e_falha_de_credencial` also catches LiteLLM/OpenAI `AuthenticationError`/`PermissionDeniedError` and z.ai's insufficient balance (code 1113). `IntelligenceUnit` then stops calling the LLM for the rest of the run (no retry — a credential is not fixed by retrying), and the bot sends the 🔑 alert, with the fix for the active backend (`instrucao_login`), instead of "Varredura incompleta". The run still sets `bot.falhou`, so the hourly catch-up recovers within an hour of a new login.
+
+Incident that motivated this: **no successful scan from 23/09 to 22/10/2026.** The OAuth session on the notebook expired on 24/09 (again on 03/10 and from 14/10 on); in between, 25/09–02/10, the notebook had no DNS at all. The log only said `claude -p saiu com codigo 1:` followed by nothing, ~6,800 times a day. The durable fix is a long-lived token: run `claude setup-token` on the notebook and put it in `CLAUDE_CODE_OAUTH_TOKEN` inside `~/concursos-secrets/monitor.env` (`main.py` loads it into the environment the `claude` subprocess inherits). Interactive `/login` sessions expire and need a refresh that can fail.
+
 ## Configuration
+
+**Logs never carry the Telegram token.** `src/utils/logger.py` installs `FormatterSemSegredos`, which redacts `<id>:<token>` from every formatted line, tracebacks included. Before it, a network error put the Bot API URL — token included — into 9 log files (25/09–02/10/2026), in a folder the Hermes container mounts. Rotate the token if logs from before this fix were ever readable elsewhere.
 
 Config is via a dotenv file. **It does NOT live in the repo folder** — the repo is mounted read-write into the Hermes agent container, which is reachable over Telegram (prompt-injection surface), so secrets stay outside anything the agent can read. Same pattern as `~/agenda-secrets` for the AgenteAgenda bot.
 

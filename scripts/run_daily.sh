@@ -27,6 +27,10 @@ HOJE="$(date +%Y%m%d)"
 LOG_FILE="$LOG_DIR/run_$HOJE.log"
 MARKER="$LOG_DIR/.last_success_date"
 LOCK="$LOG_DIR/.run_daily.lock"
+# Dia do ultimo aviso do dead-man. Sem ele o aviso saia em TODO tick: de 14/10 a
+# 22/10/2026 foram 24 "ficou N dias sem rodar" por dia, junto com o alerta do
+# proprio bot sobre a mesma falha.
+DEAD_MAN_MARK="$LOG_DIR/.last_dead_man_alert"
 
 # Cron tem PATH minimo; o backend claude-cli precisa do `claude` em ~/.local/bin.
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
@@ -59,8 +63,10 @@ alerta_atraso() {
     [[ -z "$chat" ]] && chat="$(grep -m1 '^TELEGRAM_CHAT_ID=' "$env_file" | cut -d= -f2- | tr -d '"'"'"' \r')"
     [[ -z "$token" || -z "$chat" ]] && return 0
 
+    # "sem varredura completa", e nao "sem rodar": o caso comum e o bot rodar
+    # de hora em hora e falhar (ex.: login da LLM caido), nao a maquina desligada.
     curl -s -m 20 -o /dev/null \
-        --data-urlencode "text=⏰ O monitor de concursos ficou ${dias} dia(s) sem rodar (última varredura com sucesso: ${2}). Retomando agora." \
+        --data-urlencode "text=⏰ O monitor de concursos está há ${dias} dia(s) sem uma varredura completa (último sucesso: ${2}). Ele segue tentando de hora em hora; a causa aparece nos alertas da própria varredura." \
         -d "chat_id=${chat}" \
         "https://api.telegram.org/bot${token}/sendMessage" || true
 }
@@ -69,9 +75,11 @@ if [[ -f "$MARKER" ]]; then
     ULTIMO="$(cat "$MARKER")"
     if [[ "$ULTIMO" =~ ^[0-9]{8}$ ]]; then
         DIAS=$(( ( $(date +%s) - $(date -d "$ULTIMO" +%s) ) / 86400 ))
-        if (( DIAS > MONITOR_MAX_DIAS_SEM_RODAR )); then
+        if (( DIAS > MONITOR_MAX_DIAS_SEM_RODAR )) \
+            && [[ "$(cat "$DEAD_MAN_MARK" 2>/dev/null)" != "$HOJE" ]]; then
             echo "[dead-man] ultima varredura ok em $ULTIMO ($DIAS dias atras); alertando." >> "$LOG_FILE"
             alerta_atraso "$DIAS" "$ULTIMO"
+            echo "$HOJE" > "$DEAD_MAN_MARK"
         fi
     fi
 fi

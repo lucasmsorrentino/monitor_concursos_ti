@@ -18,7 +18,31 @@ from datetime import date
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+from src.intelligence.claude_cli_backend import ClaudeCliAuthError
 from src.utils.fases import sanitizar_fase
+
+# Provedores cujo adaptador no LiteLLM nao declara `response_format` nem
+# `reasoning_effort` (o `zai/` da 1.95, que roda no notebook). Passados como
+# parametro normal, o LiteLLM recusa a chamada (UnsupportedParamsError); em
+# `extra_body` eles vao direto no corpo do POST, e a API do z.ai aceita os dois.
+_PROVEDORES_VIA_EXTRA_BODY = ("zai/",)
+
+# Classes que o LiteLLM e o SDK da OpenAI levantam para 401/403. Comparadas
+# pelo nome para nao importar o litellm (pesado) quando o backend e outro.
+_ERROS_DE_CREDENCIAL = {"AuthenticationError", "PermissionDeniedError"}
+
+# Saldo zerado tambem nao se resolve com retry. "1113" e o codigo do z.ai.
+_MARCAS_SEM_SALDO = ("insufficient balance", "余额不足", "'code': '1113'", '"code":"1113"')
+
+
+def _e_falha_de_credencial(exc: Exception) -> bool:
+    """Erro que so uma pessoa conserta: login, chave invalida ou saldo zerado."""
+    if isinstance(exc, ClaudeCliAuthError):
+        return True
+    if _ERROS_DE_CREDENCIAL & {cls.__name__ for cls in type(exc).__mro__}:
+        return True
+    texto = str(exc).lower()
+    return any(marca in texto for marca in _MARCAS_SEM_SALDO)
 
 
 class IntelligenceUnit:
@@ -47,14 +71,21 @@ class IntelligenceUnit:
         area_context: str = "TI",
         include_keywords: list[str] | None = None,
         exclude_keywords: list[str] | None = None,
+        api_base: str | None = None,
+        api_key: str | None = None,
+        reasoning_effort: str | None = None,
     ):
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.model_name = model_name
         self.timeout_s = timeout_s
         self.retries = max(0, retries)
         self.retry_delay_s = max(0.0, retry_delay_s)
         self.area_context = area_context
         self.include_keywords = include_keywords or []
         self.exclude_keywords = exclude_keywords or []
+        # Preenchido na primeira falha de login do backend. Dai em diante a
+        # rodada nao chama mais a LLM: ver `extrair_dados`.
+        self.falha_autenticacao: str | None = None
         self._backend = self._detect_backend(model_name)
 
         if self._backend == "claude_cli":
@@ -71,6 +102,9 @@ class IntelligenceUnit:
             timeout_s=timeout_s,
             temperature=0,
             format="json",
+            api_base=api_base,
+            api_key=api_key,
+            reasoning_effort=reasoning_effort,
         )
 
         include_keywords = ", ".join(self.include_keywords) if self.include_keywords else "nenhuma"
@@ -162,13 +196,34 @@ class IntelligenceUnit:
         timeout_s: float,
         temperature: float,
         format: str | None = None,
+        api_base: str | None = None,
+        api_key: str | None = None,
+        reasoning_effort: str | None = None,
     ):
         """Cria LLM adequada ao backend selecionado."""
         if self._backend == "claude_cli":
             return self._create_claude_cli(model_name, timeout_s)
         if self._backend == "litellm":
-            return self._create_litellm(model_name, timeout_s, temperature, format)
+            return self._create_litellm(
+                model_name, timeout_s, temperature, format,
+                api_base=api_base, api_key=api_key, reasoning_effort=reasoning_effort,
+            )
         return self._create_ollama(model_name, base_url, timeout_s, temperature, format)
+
+    @property
+    def instrucao_login(self) -> str:
+        """Como consertar uma falha de credencial deste backend (HTML do Telegram)."""
+        if self._backend == "claude_cli":
+            return (
+                "no notebook, <code>claude setup-token</code> e o token em "
+                "<code>CLAUDE_CODE_OAUTH_TOKEN</code> no monitor.env"
+            )
+        if self._backend == "litellm":
+            return (
+                f"confira a chave da API e o saldo do provedor de "
+                f"<code>{self.model_name}</code> (ex.: <code>ZAI_API_KEY</code> no monitor.env)"
+            )
+        return "confira se o Ollama está no ar"
 
     @staticmethod
     def _create_claude_cli(model_name: str, timeout_s: float):
@@ -213,17 +268,49 @@ class IntelligenceUnit:
         timeout_s: float,
         temperature: float,
         format: str | None = None,
+        api_base: str | None = None,
+        api_key: str | None = None,
+        reasoning_effort: str | None = None,
     ):
-        """Cria ChatLiteLLM para APIs remotas (MiniMax, OpenAI, etc.)."""
+        """Cria ChatLiteLLM para APIs remotas (z.ai, MiniMax, OpenAI, etc.).
+
+        ``api_base``/``api_key`` servem a endpoints compativeis com OpenAI
+        (``openai/<modelo>``). Sem eles, o LiteLLM le a chave da variavel do
+        provedor (``ZAI_API_KEY``, ``ANTHROPIC_API_KEY``...).
+
+        ``reasoning_effort`` importa no GLM-5.3-Flash: ele sempre "pensa" e o
+        padrao da API e ``max``, lento e caro para extrair meia duzia de campos.
+        """
+        import litellm
         from langchain_litellm import ChatLiteLLM
+
+        # Sem isso, todo erro do LiteLLM imprime um banner "Give Feedback / Get
+        # Help" no stdout, que o run_daily.sh manda direto pro log do dia, e
+        # toda chamada rende duas linhas INFO "completion() model=...".
+        litellm.suppress_debug_info = True
+        logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
         kwargs = {
             "model": model_name,
             "temperature": temperature,
             "timeout": timeout_s,
         }
+        if api_base:
+            kwargs["api_base"] = api_base
+        if api_key:
+            kwargs["api_key"] = api_key
+
+        extras = {}
         if format == "json":
-            kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+            extras["response_format"] = {"type": "json_object"}
+        if reasoning_effort:
+            extras["reasoning_effort"] = reasoning_effort
+
+        if extras:
+            if model_name.startswith(_PROVEDORES_VIA_EXTRA_BODY):
+                kwargs["model_kwargs"] = {"extra_body": extras}
+            else:
+                kwargs["model_kwargs"] = extras
 
         return ChatLiteLLM(**kwargs)
 
@@ -270,7 +357,16 @@ class IntelligenceUnit:
         Nos logs historicos ha 12 desistencias e 3 timeouts do `claude -p` que
         passaram batido assim. Agora quem chama consegue contar as duas coisas
         separadamente e alertar quando a taxa de erro sobe.
+
+        Falha de LOGIN e diferente das outras: nao ha retry e as chamadas
+        seguintes nem sobem o processo. Com o OAuth do notebook expirado, cada
+        rodada fazia 3 tentativas para cada um dos ~95 itens que precisam de LLM
+        (somando as tres areas), de hora em hora — 6.840 processos `claude` por
+        dia, todos fadados a falhar.
         """
+        if self.falha_autenticacao:
+            return {"ignorar": True, "erro": True}
+
         total_tentativas = self.retries + 1
         for tentativa in range(1, total_tentativas + 1):
             try:
@@ -285,6 +381,13 @@ class IntelligenceUnit:
                 dados["fase"] = sanitizar_fase(dados.get("fase"))
                 return dados
             except Exception as e:
+                if _e_falha_de_credencial(e):
+                    self.falha_autenticacao = str(e)
+                    self.logger.error(
+                        f"🔑 {e}. Pulando as demais chamadas desta rodada: retry nao "
+                        f"conserta credencial."
+                    )
+                    return {"ignorar": True, "erro": True}
                 self.logger.warning(
                     f"⚠️ Falha na extração via IA (tentativa {tentativa}/{total_tentativas}): {e}"
                 )

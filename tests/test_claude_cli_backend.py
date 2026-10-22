@@ -8,6 +8,7 @@ import pytest
 
 from src.intelligence.claude_cli_backend import (
     DEFAULT_MODEL_ALIAS,
+    ClaudeCliAuthError,
     ClaudeCliLLM,
     parse_model_spec,
 )
@@ -83,6 +84,37 @@ class TestClaudeCliLLM:
         llm = ClaudeCliLLM()
         with pytest.raises(RuntimeError, match="codigo 2"):
             llm.invoke("x")
+
+    def test_stdout_entra_na_mensagem_quando_stderr_vem_vazio(self, mocker):
+        """O `claude` explica o erro no stdout; o log antigo terminava em ': '."""
+        mocker.patch("shutil.which", return_value="claude")
+        completed = mocker.MagicMock(returncode=1, stdout="Rate limited", stderr="")
+        mocker.patch("subprocess.run", return_value=completed)
+
+        with pytest.raises(RuntimeError, match="Rate limited"):
+            ClaudeCliLLM().invoke("x")
+
+    def test_oauth_expirado_vira_erro_de_autenticacao(self, mocker):
+        """Saida real do notebook em 22/10/2026, no stdout e com exit 1."""
+        mocker.patch("shutil.which", return_value="claude")
+        completed = mocker.MagicMock(
+            returncode=1,
+            stdout="Failed to authenticate: OAuth session expired and could not be refreshed\n",
+            stderr="",
+        )
+        mocker.patch("subprocess.run", return_value=completed)
+
+        with pytest.raises(ClaudeCliAuthError, match="OAuth session expired"):
+            ClaudeCliLLM().invoke("x")
+
+    def test_erro_comum_nao_e_confundido_com_login(self, mocker):
+        mocker.patch("shutil.which", return_value="claude")
+        completed = mocker.MagicMock(returncode=1, stdout="", stderr="overloaded")
+        mocker.patch("subprocess.run", return_value=completed)
+
+        with pytest.raises(RuntimeError) as exc:
+            ClaudeCliLLM().invoke("x")
+        assert not isinstance(exc.value, ClaudeCliAuthError)
 
     def test_file_not_found_raises_with_helpful_message(self, mocker):
         mocker.patch("shutil.which", return_value=None)

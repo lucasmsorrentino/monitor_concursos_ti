@@ -29,6 +29,28 @@ from langchain_core.language_models.llms import LLM
 DEFAULT_MODEL_ALIAS = "haiku"
 VALID_ALIASES = {"haiku", "sonnet", "opus"}
 
+# Frases que o `claude` imprime quando a credencial morreu. Saem no STDOUT, nao
+# no stderr — por isso, de 24/09 a 22/10/2026, o log so dizia "claude -p saiu
+# com codigo 1:" seguido de nada, cerca de 6.800 vezes por dia, enquanto a causa
+# real era "Failed to authenticate: OAuth session expired and could not be
+# refreshed".
+_MARCAS_AUTENTICACAO = (
+    "failed to authenticate",
+    "please run /login",
+    "invalid api key",
+    "oauth token",
+    "oauth session",
+    "not logged in",
+)
+
+
+class ClaudeCliAuthError(RuntimeError):
+    """O `claude` esta sem credencial valida.
+
+    Separada do RuntimeError generico porque retry nao conserta: todas as
+    chamadas seguintes vao falhar igual ate alguem refazer o login.
+    """
+
 
 def parse_model_spec(spec: str) -> str:
     """Extrai o alias do modelo de uma spec `claude-cli[:alias]`.
@@ -100,9 +122,13 @@ class ClaudeCliLLM(LLM):
             ) from exc
 
         if completed.returncode != 0:
-            stderr = (completed.stderr or "").strip()
+            # O motivo pode vir em qualquer um dos dois canais (ver
+            # _MARCAS_AUTENTICACAO); stderr vazio nao significa "sem motivo".
+            detalhe = (completed.stderr or "").strip() or (completed.stdout or "").strip()
+            if any(marca in detalhe.lower() for marca in _MARCAS_AUTENTICACAO):
+                raise ClaudeCliAuthError(f"claude -p sem autenticacao: {detalhe[:300]}")
             raise RuntimeError(
-                f"claude -p saiu com codigo {completed.returncode}: {stderr[:500]}"
+                f"claude -p saiu com codigo {completed.returncode}: {detalhe[:500]}"
             )
 
         return (completed.stdout or "").strip()

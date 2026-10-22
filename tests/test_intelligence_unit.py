@@ -8,6 +8,7 @@ import json
 
 import pytest
 
+from src.intelligence.claude_cli_backend import ClaudeCliAuthError
 from src.intelligence.langchain_unit import IntelligenceUnit
 
 
@@ -140,3 +141,104 @@ class TestExtrairDados:
         # `erro` separa edital PERDIDO de bloco irrelevante; o bot conta os dois
         # e alerta quando a taxa de perda passa de LIMITE_ERRO_EXTRACAO.
         assert result == {"ignorar": True, "erro": True}
+
+
+class TestFalhaDeLogin:
+    """Login caido nao se conserta com retry: uma chamada basta para saber."""
+
+    def test_nao_retenta_e_registra_o_motivo(self, ollama_unit, mocker):
+        ollama_unit.chain_extracao = mocker.MagicMock()
+        ollama_unit.chain_extracao.invoke.side_effect = ClaudeCliAuthError("OAuth expirado")
+
+        result = ollama_unit.extrair_dados("<h3>x</h3>")
+
+        assert result == {"ignorar": True, "erro": True}
+        assert ollama_unit.chain_extracao.invoke.call_count == 1
+        assert "OAuth expirado" in ollama_unit.falha_autenticacao
+
+    def test_chamadas_seguintes_nem_sobem_a_llm(self, ollama_unit, mocker):
+        ollama_unit.chain_extracao = mocker.MagicMock()
+        ollama_unit.chain_extracao.invoke.side_effect = ClaudeCliAuthError("OAuth expirado")
+
+        for _ in range(5):
+            result = ollama_unit.extrair_dados("<h3>x</h3>")
+
+        # Continua contando como erro (o bot precisa saber que ficou sem leitura).
+        assert result == {"ignorar": True, "erro": True}
+        assert ollama_unit.chain_extracao.invoke.call_count == 1
+
+    def test_comeca_sem_falha(self, ollama_unit):
+        assert ollama_unit.falha_autenticacao is None
+
+    def test_chave_invalida_da_api_tambem_para_a_rodada(self, ollama_unit, mocker):
+        """401 do LiteLLM/OpenAI SDK: mesma classe de problema que o OAuth vencido."""
+
+        class AuthenticationError(Exception):
+            pass
+
+        ollama_unit.chain_extracao = mocker.MagicMock()
+        ollama_unit.chain_extracao.invoke.side_effect = AuthenticationError("ZaiException - 401")
+
+        ollama_unit.extrair_dados("<h3>x</h3>")
+        ollama_unit.extrair_dados("<h3>y</h3>")
+
+        assert ollama_unit.chain_extracao.invoke.call_count == 1
+        assert "401" in ollama_unit.falha_autenticacao
+
+    def test_saldo_zerado_do_zai_tambem_para_a_rodada(self, ollama_unit, mocker):
+        ollama_unit.chain_extracao = mocker.MagicMock()
+        ollama_unit.chain_extracao.invoke.side_effect = RuntimeError(
+            "RateLimitError: Insufficient balance or no resource package. Please recharge."
+        )
+
+        ollama_unit.extrair_dados("<h3>x</h3>")
+
+        assert ollama_unit.chain_extracao.invoke.call_count == 1
+        assert ollama_unit.falha_autenticacao
+
+    def test_erro_passageiro_continua_com_retry(self, ollama_unit, mocker):
+        ollama_unit.chain_extracao = mocker.MagicMock()
+        ollama_unit.chain_extracao.invoke.side_effect = RuntimeError("503 overloaded")
+
+        ollama_unit.extrair_dados("<h3>x</h3>")
+
+        assert ollama_unit.chain_extracao.invoke.call_count == 2   # retries=1
+        assert ollama_unit.falha_autenticacao is None
+
+
+class TestBackendLiteLLM:
+    """Parametros que chegam ao ChatLiteLLM (sem rede: so a construcao)."""
+
+    def test_zai_manda_json_e_esforco_em_extra_body(self):
+        """O adaptador `zai/` do LiteLLM nao declara esses dois parametros."""
+        llm = IntelligenceUnit._create_litellm(
+            "zai/glm-5.3-flash", 60, 0, format="json", reasoning_effort="low"
+        )
+
+        assert llm.model_kwargs == {
+            "extra_body": {"response_format": {"type": "json_object"}, "reasoning_effort": "low"}
+        }
+
+    def test_outros_provedores_seguem_com_parametro_normal(self):
+        llm = IntelligenceUnit._create_litellm("anthropic/claude-haiku-4-5", 60, 0, format="json")
+
+        assert llm.model_kwargs == {"response_format": {"type": "json_object"}}
+
+    def test_endpoint_compativel_com_openai_recebe_base_e_chave(self):
+        llm = IntelligenceUnit._create_litellm(
+            "openai/glm-5.3-flash", 60, 0,
+            api_base="https://exemplo.test/v1", api_key="chave-de-teste",
+        )
+
+        assert llm.api_base == "https://exemplo.test/v1"
+        assert llm.api_key == "chave-de-teste"
+
+    def test_instrucao_de_conserto_depende_do_backend(self, mocker):
+        mocker.patch.object(IntelligenceUnit, "_create_litellm", return_value=mocker.MagicMock())
+        mocker.patch.object(IntelligenceUnit, "_create_claude_cli", return_value=mocker.MagicMock())
+
+        api = IntelligenceUnit(model_name="zai/glm-5.3-flash", retries=0)
+        cli = IntelligenceUnit(model_name="claude-cli:haiku", retries=0)
+
+        assert "ZAI_API_KEY" in api.instrucao_login
+        assert "setup-token" in cli.instrucao_login

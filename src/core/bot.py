@@ -132,6 +132,9 @@ class ConcursoBot:
             area_context=self.area_name,
             include_keywords=self.keywords_include,
             exclude_keywords=self.keywords_exclude,
+            api_base=config.get('llm_api_base'),
+            api_key=config.get('llm_api_key'),
+            reasoning_effort=config.get('llm_reasoning_effort'),
         )
         self.notifier = TelegramNotifier(
             self.token,
@@ -249,10 +252,11 @@ class ConcursoBot:
             # gravava o marker e o dia seguinte parecia saudavel.
             self.falhou = True
             self.logger.error(f"❌ Erro crítico durante o loop de execução: {e}", exc_info=True)
-            self._notificar(
+            self._alerta_uma_vez_por_dia(
+                "excecao",
                 f"⚠️ <b>Falha na varredura - {self.area_name}</b>\n\n"
                 f"A varredura foi interrompida por um erro: {html.escape(str(e)[:300])}\n\n"
-                f"<i>O bot vai tentar de novo na próxima hora.</i>"
+                f"<i>O bot segue tentando de hora em hora; este aviso não se repete hoje.</i>"
             )
 
     def _preparar_primeira_carga(self) -> bool:
@@ -535,6 +539,35 @@ class ConcursoBot:
         taxa_erro = (erros / base) if base else 0.0
         extracao_degradada = erros > 0 and taxa_erro >= LIMITE_ERRO_EXTRACAO
 
+        # Credencial da LLM recusada vem antes de tudo: e a causa dos erros, e o
+        # alerta generico de "varredura incompleta" escondia isso — foi o que o
+        # Lucas recebeu de hora em hora de 14/10 a 22/10/2026 sem pista do motivo
+        # (OAuth do `claude` expirado). Continua marcando `falhou`, para o
+        # catch-up horario recuperar a area na primeira hora depois do conserto.
+        if self.ai.falha_autenticacao:
+            self.falhou = True
+            self.logger.error(
+                f"🔑 [{self.area_name}] LLM recusou a credencial; {erros} item(ns) "
+                f"ficaram sem leitura."
+            )
+            # Global, nao por area: a credencial e uma so para as tres, e o aviso
+            # e operacional. Por area, os chats de Educacao e Sociologia/Artes
+            # receberiam duas copias de uma instrucao de terminal.
+            self._alerta_uma_vez_por_dia(
+                "llm_sem_login",
+                f"🔑 <b>IA sem acesso no monitor de concursos</b>\n\n"
+                f"O provedor de IA recusou a credencial (login vencido, chave inválida "
+                f"ou saldo zerado). Tudo que depende de IA (blog do Gran e lista "
+                f"nacional do PCI) parou em todas as áreas; só em {self.area_name} "
+                f"foram <b>{erros}</b> publicações sem leitura nesta varredura. O PCI "
+                f"por cargo segue normal, porque não usa IA.\n\n"
+                f"Conserto: {self.ai.instrucao_login}.\n\n"
+                f"<i>O que ainda estiver publicado entra na primeira varredura depois "
+                f"do conserto. Este aviso não se repete hoje.</i>",
+                por_area=False,
+            )
+            return True
+
         # Degradado e checado ANTES de cegueira: 10 blocos dos quais 5 se
         # perderam na LLM nao e cegueira, e perda. Sao diagnosticos diferentes
         # e o alerta precisa dizer qual dos dois foi.
@@ -544,11 +577,15 @@ class ConcursoBot:
                 f"🚨 [{self.area_name}] perdeu {erros}/{base} blocos na extracao "
                 f"({taxa_erro:.0%}); resultado do dia nao e confiavel."
             )
-            self._notificar(
+            # Uma vez por dia, como a cegueira: a falha marca `falhou`, o
+            # catch-up roda de hora em hora, e sem o limite uma causa
+            # persistente rendia 24 alertas identicos por dia.
+            self._alerta_uma_vez_por_dia(
+                "degradado",
                 f"🚨 <b>Varredura incompleta - {self.area_name}</b>\n\n"
                 f"Perdi <b>{erros}</b> de <b>{base}</b> publicações na extração "
                 f"({taxa_erro:.0%}). Pode ter escapado edital.\n\n"
-                f"<i>Vou tentar de novo na próxima hora.</i>"
+                f"<i>Sigo tentando de hora em hora; este aviso não se repete hoje.</i>"
             )
             return True
 
@@ -614,18 +651,24 @@ class ConcursoBot:
         )
         return False
 
-    def _alerta_uma_vez_por_dia(self, tipo: str, mensagem: str) -> None:
+    def _alerta_uma_vez_por_dia(self, tipo: str, mensagem: str, por_area: bool = True) -> None:
         """Envia o alerta no maximo uma vez por dia, por area e por tipo.
 
         Necessario porque o cron passou a rodar de hora em hora: sem isso, um
         problema estrutural (site mudou de layout) renderia ate 24 mensagens
         identicas no mesmo dia.
+
+        Args:
+            por_area: ``False`` para problema da maquina, nao da area (ex.: login
+                da LLM). O primeiro bot da rodada avisa no proprio chat e os
+                demais so registram no log.
         """
         if self.dry_run:
             self.logger.info(f"[DRY-RUN] alerta {tipo!r} suprimido.")
             return
 
-        marcador = os.path.join(LOG_DIR, f".alerta_{self.area_slug}_{tipo}")
+        escopo = self.area_slug if por_area else "global"
+        marcador = os.path.join(LOG_DIR, f".alerta_{escopo}_{tipo}")
         hoje = date.today().isoformat()
         try:
             if os.path.exists(marcador):
