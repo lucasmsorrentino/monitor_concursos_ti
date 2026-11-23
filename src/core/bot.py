@@ -4,11 +4,13 @@ Contém a classe :class:`ConcursoBot`, que coordena o fluxo completo:
 Scraping (HTML) → Extração via IA (JSON) → Banco de Dados → Notificação
 (Telegram) com botoes de interesse.
 
-Fontes (08/2026): cada area pode ler de mais de um lugar. O blog do Gran
+Fontes (11/2026): cada area pode ler de mais de um lugar. O blog do Gran
 devolve blocos de HTML que precisam da LLM para virar dados; o PCI Concursos
-devolve dados ja estruturados e nao passa pela LLM. O loop trata os dois como
-"candidatos" e so muda o caminho ate obter o dict de dados — dali pra frente
-(matriz de decisao, dedup, botoes) tudo e igual.
+devolve dados ja estruturados e nao passa pela LLM — pela pagina de cargo,
+pela lista nacional ou pelo servidor MCP, a porta nova que substitui as duas
+de HTML e nao precisa de `enriquecer` porque ja traz o prazo (ADR-0001). O
+loop trata todos como "candidatos" e so muda o caminho ate obter o dict de
+dados — dali pra frente (matriz de decisao, dedup, botoes) tudo e igual.
 """
 
 import html
