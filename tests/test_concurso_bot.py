@@ -9,6 +9,7 @@ from datetime import date, timedelta
 import pytest
 
 from src.core.bot import ConcursoBot
+from src.scrapers.pci_mcp_scraper import URL_SERVIDOR
 from src.utils import saude_fontes
 
 
@@ -1086,6 +1087,316 @@ class TestFonteNacional:
         ConcursoBot(base_config).executar()
 
         nacional_cls.assert_not_called()
+
+
+class TestFonteMcp:
+    """Quarta fonte: a porta do PCI pelo servidor MCP (estruturada, sem LLM).
+
+    A porta entra ENTRE a pagina de cargo e a lista nacional, de proposito:
+    e a lista nacional quem le o conjunto de links do PCI ja vistos na rodada,
+    e o MCP o alimenta — entrando depois dela, os links chegariam tarde
+    (ADR-0001). Sem filtro ainda; o filtro e do ticket seguinte.
+    """
+
+    TERMO = "analista de sistemas"
+
+    def _item(self, i=1, **extra):
+        """Item no formato da SPEC-001, secao 3.1, escrito a mao."""
+        base = {
+            "ignorar": False,
+            "nome": f"Orgao {i} - MG",
+            "status": f"Concurso {i} com inscricoes abertas",
+            "link": f"https://www.pciconcursos.com.br/noticias/orgao-{i}",
+            "fase": "inscricoes_abertas",
+            "data_fim_inscricao": _amanha(),
+            "data_referencia": None,
+            "pci_id": str(296653 + i),
+            "uf": "MG",
+            "cargos": ["ANALISTA DE SISTEMAS"],
+            "fonte": "pci_mcp",
+            "regiao": "SUDESTE",
+            "cargos_total": 3,
+            "vagas_salario": "10 vagas ate R$ 5.000,00",
+            "termos_origem": [self.TERMO],
+        }
+        base.update(extra)
+        return base
+
+    def _montar(self, mock_deps, base_config, mocker, itens):
+        """Liga a porta do MCP com o duble devolvendo `itens`; Gran zerado."""
+        mcp_cls = mocker.patch("src.core.bot.PciMcpScraper")
+        mcp = mcp_cls.return_value
+        mcp.url = URL_SERVIDOR
+        mcp.capturar_concursos.return_value = itens
+
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["notifier"].notificar.return_value = True
+        mock_deps["notifier"].notificar_concurso.return_value = True
+
+        base_config["pci_mcp"] = True
+        base_config["pci_mcp_cargos"] = [self.TERMO]
+        return mcp
+
+    def test_mcp_desligado_nao_instancia_scraper(
+        self, mock_deps, base_config, mocker
+    ):
+        mcp_cls = mocker.patch("src.core.bot.PciMcpScraper")
+        avaliar = mocker.patch("src.core.bot.saude_fontes.avaliar")
+        mock_deps["scraper"].capturar_concursos.return_value = []
+
+        bot = ConcursoBot(base_config)
+
+        assert bot.mcp_scraper is None
+        mcp_cls.assert_not_called()
+        # Nenhuma fonte nova no diagnostico de saude.
+        fontes = [c.args[1] for c in avaliar.call_args_list]
+        assert "pci_mcp" not in fontes
+
+    def test_mcp_ligado_instancia_com_os_termos(
+        self, mock_deps, base_config, mocker
+    ):
+        mcp_cls = mocker.patch("src.core.bot.PciMcpScraper")
+        base_config["pci_mcp"] = True
+        base_config["pci_mcp_cargos"] = [
+            "tecnico em informatica", "analista de sistemas",
+        ]
+
+        bot = ConcursoBot(base_config)
+
+        mcp_cls.assert_called_once_with(
+            ["tecnico em informatica", "analista de sistemas"]
+        )
+        assert bot.mcp_scraper is mcp_cls.return_value
+
+    def test_itens_do_mcp_passam_pela_decisao(
+        self, mock_deps, base_config, mocker
+    ):
+        itens = [self._item(i) for i in (1, 2, 3)]
+        self._montar(mock_deps, base_config, mocker, itens)
+        mock_deps["db"].buscar_registro.return_value = None
+
+        bot = ConcursoBot(base_config)
+        decisao = mocker.spy(bot, "_decidir_e_notificar")
+        bot.executar()
+
+        assert decisao.call_count == 3
+        assert [c.kwargs["url_indice"] for c in decisao.call_args_list] == [
+            i["link"] for i in itens
+        ]
+        # Tres itens novos: tres cards de NOVO (o contador de novos fecha 3).
+        cards = mock_deps["notifier"].notificar_concurso.call_args_list
+        assert len(cards) == 3
+        assert all("NOVO CONCURSO" in c.args[1] for c in cards)
+
+    def test_mcp_nao_chama_enriquecer(self, mock_deps, base_config, mocker):
+        mcp = self._montar(mock_deps, base_config, mocker, [self._item(1)])
+        mock_deps["db"].buscar_registro.return_value = None
+
+        ConcursoBot(base_config).executar()
+
+        # O MCP ja devolve `data_fim_inscricao`: nada de abrir a noticia por
+        # item novo (ADR-0001) — a requisicao extra era o custo da pagina de
+        # cargo, metade do motivo da troca de porta.
+        mcp.enriquecer.assert_not_called()
+
+    def test_mcp_registra_a_fonte_na_saude(
+        self, mock_deps, base_config, mocker
+    ):
+        itens = [self._item(1), self._item(2)]
+        self._montar(mock_deps, base_config, mocker, itens)
+        # O Gran entrega um bloco ja conhecido: sem cegueira agregada, para o
+        # alerta por fonte nao ser silenciado pelo agregado.
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>b</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "Orgao X", "status": "s",
+            "link": "https://example.com/x", "fase": "previsto",
+            "data_fim_inscricao": None, "data_referencia": None,
+        }
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 1, "fase": "previsto", "estado_usuario": "ativo",
+            "data_fim_inscricao": None, "nome": "Orgao X",
+        }
+
+        capturadas = {}
+
+        def avaliar_fake(area, fonte, assinaturas, **kw):
+            capturadas[fonte] = list(assinaturas)
+            doente = fonte == "pci_mcp"
+            return saude_fontes.Diagnostico(
+                fonte, 45, 89 if doente else 0, False, doente
+            )
+
+        mocker.patch("src.core.bot.saude_fontes.avaliar", side_effect=avaliar_fake)
+
+        ConcursoBot(base_config).executar()
+
+        # Assinatura no mesmo formato da fonte 2: `pci_id|status`.
+        assert capturadas.get("pci_mcp") == [
+            "296654|Concurso 1 com inscricoes abertas",
+            "296655|Concurso 2 com inscricoes abertas",
+        ]
+        mensagens = [
+            c.args[0] for c in mock_deps["notifier"].notificar.call_args_list
+        ]
+        alerta = [m for m in mensagens if "Fonte parada" in m]
+        assert len(alerta) == 1
+        assert "pci_mcp" in alerta[0]
+        assert URL_SERVIDOR in alerta[0]
+
+    def test_url_da_fonte_do_mcp(self, mock_deps, base_config):
+        # Sem dublar o PciMcpScraper (instanciar nao faz rede): o endereco
+        # afirmado e o do servidor real, o mesmo da ADR-0001.
+        base_config["pci_mcp"] = True
+        base_config["pci_mcp_cargos"] = ["analista de sistemas"]
+
+        bot = ConcursoBot(base_config)
+
+        assert bot._url_da_fonte("pci_mcp") == "https://mcp.pciconcursos.com.br/mcp"
+
+    def test_links_do_mcp_entram_no_conjunto_de_vistos(
+        self, mock_deps, base_config, mocker
+    ):
+        """A lista nacional roda DEPOIS e le o conjunto: mesmo link nao
+        reprocessa (sem abrir noticia, sem LLM)."""
+        item_mcp = self._item(1)
+        self._montar(mock_deps, base_config, mocker, [item_mcp])
+        mock_deps["db"].buscar_registro.return_value = None
+
+        nacional_cls = mocker.patch("src.core.bot.PciNacionalScraper")
+        nacional = nacional_cls.return_value
+        nacional.url = "https://www.pciconcursos.com.br/concursos/nacional/"
+        nacional.capturar_concursos.return_value = [{
+            "ignorar": False,
+            "nome": "Orgao 1",
+            "status": "Concurso com inscricoes abertas",
+            "link": item_mcp["link"],
+            "fase": "inscricoes_abertas",
+            "data_fim_inscricao": _amanha(),
+            "data_referencia": None,
+            "pci_id": None,
+            "uf": "MG",
+            "cargos": ["Vários Cargos"],
+            "nivel": "Superior",
+            "vagas": "10 vagas",
+            "inicio_inscricao": None,
+            "fonte": "pci_nacional",
+        }]
+        nacional.detalhar.side_effect = lambda i: i
+        nacional.bloco_para_ia.side_effect = lambda i: f"<h3>{i['nome']}</h3>"
+        base_config["pci_nacional"] = True
+
+        ConcursoBot(base_config).executar()
+
+        nacional.detalhar.assert_not_called()
+        mock_deps["ai"].extrair_dados.assert_not_called()
+        # O item do MCP, ele sim, virou card.
+        assert mock_deps["notifier"].notificar_concurso.call_count == 1
+
+    def test_falha_total_do_mcp_marca_a_area_e_segue(
+        self, mock_deps, base_config, mocker
+    ):
+        mcp = self._montar(mock_deps, base_config, mocker, [])
+        mcp.capturar_concursos.side_effect = RuntimeError(
+            "MCP: todos os 1 termo(s) falharam; a fonte pode estar parada."
+        )
+        # O Gran e varrido na frente e a nacional roda depois: a rodada nao
+        # pode parar no meio por causa da porta nova.
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "TRF1", "status": "edital publicado",
+            "link": "https://example.com/trf1", "data_fim_inscricao": _amanha(),
+            "data_referencia": None,
+        }
+        mock_deps["db"].buscar_registro.return_value = None
+
+        nacional_cls = mocker.patch("src.core.bot.PciNacionalScraper")
+        nacional = nacional_cls.return_value
+        nacional.url = "https://www.pciconcursos.com.br/concursos/nacional/"
+        nacional.capturar_concursos.return_value = []
+        base_config["pci_nacional"] = True
+
+        bot = ConcursoBot(base_config)
+        bot.executar()  # nao levanta para fora
+
+        mock_deps["ai"].extrair_dados.assert_called_once()   # o Gran foi varrido
+        nacional.capturar_concursos.assert_called_once()     # a fonte seguinte seguiu
+        assert bot.falhou is True                            # ...mas conta como falha
+
+    def test_mcp_e_gran_na_mesma_rodada_somam_contadores(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [self._item(1), self._item(2)])
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "TRF1", "status": "edital publicado",
+            "link": "https://example.com/trf1", "data_fim_inscricao": _amanha(),
+            "data_referencia": None, "fase": "edital_publicado",
+        }
+        mock_deps["db"].buscar_registro.return_value = None
+
+        ConcursoBot(base_config).executar()
+
+        # 1 novo do Gran + 2 novos do MCP: os contadores somam as duas fontes.
+        cards = mock_deps["notifier"].notificar_concurso.call_args_list
+        assert len(cards) == 3
+        assert sum("TRF1" in c.args[1] for c in cards) == 1
+        assert sum("Orgao" in c.args[1] for c in cards) == 2
+
+    def test_dedup_entre_mcp_e_gran_pelo_pci_id(
+        self, mock_deps, base_config, mocker, tmp_path
+    ):
+        """O mesmo concurso chega pelo Gran e pelo MCP: grava uma linha so.
+
+        Banco de verdade em disco temporario — o casamento entre fontes e do
+        DatabaseManager (`mesma_entidade`), e a costura precisa atravessa-lo.
+        """
+        from src.database.manager import DatabaseManager as BancoReal
+
+        self._montar(mock_deps, base_config, mocker, [self._item(
+            1,
+            nome="Tribunal Regional Eleitoral do Paraná - PR",
+            status="Inscrições abertas para o TRE-PR",
+            link="https://www.pciconcursos.com.br/noticias/tre-pr",
+            pci_id="296654",
+        )])
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False,
+            "nome": "TRE-PR - Tribunal Regional Eleitoral do Paraná",
+            "status": "edital publicado",
+            "link": "https://example.com/tre-pr",
+            "data_fim_inscricao": _amanha(),
+            "data_referencia": None,
+            "fase": "inscricoes_abertas",
+        }
+
+        caminho_banco = tmp_path / "concursos.db"
+        mocker.patch(
+            "src.core.bot.DatabaseManager",
+            side_effect=lambda area: BancoReal(area=area, db_path=str(caminho_banco)),
+        )
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        # Um card so: o item do MCP encontrou a linha que o Gran gravou.
+        assert mock_deps["notifier"].notificar_concurso.call_count == 1
+
+        conferencia = BancoReal(area="TI", db_path=str(caminho_banco))
+        try:
+            linha_do_gran = conferencia.buscar_registro(
+                "TRE-PR - Tribunal Regional Eleitoral do Paraná"
+            )
+            linha_do_mcp = conferencia.buscar_registro(
+                "Tribunal Regional Eleitoral do Paraná - PR", pci_id="296654"
+            )
+            assert linha_do_gran is not None and linha_do_mcp is not None
+            assert linha_do_gran["id"] == linha_do_mcp["id"]   # uma linha so
+            # E o dado do MCP chegou nela: so a porta nova conhece o pci_id.
+            assert linha_do_gran["pci_id"] == "296654"
+        finally:
+            conferencia.fechar_conexao()
+            bot.db.fechar_conexao()
 
 
 class TestAlertaPorFonte:
