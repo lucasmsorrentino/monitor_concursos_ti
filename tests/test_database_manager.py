@@ -493,6 +493,103 @@ class TestLinkCanonicalIdentity:
         assert reg_b is not None  # row_B intacta
 
 
+class TestListarFiltrados:
+    """listar_filtrados: o que o resumo semanal le da area."""
+
+    DESDE_ANTIGO = "2000-01-01 00:00:00"
+
+    def test_listar_filtrados_so_traz_filtrado(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sc", uf="SC", salario_teto=9000.0,
+            elegibilidade="filtrado", motivo_filtro="abaixo_do_corte",
+        )
+        db.atualizar_concurso(
+            "SEFAZ PR", "v1", "https://x/pr", uf="PR", elegibilidade="elegivel",
+        )
+        # Linha sem decisao gravada (pre-v6): conta como elegivel, nao lista.
+        db.atualizar_concurso("SEFAZ RS", "v1", "https://x/rs", uf="RS")
+
+        lista = db.listar_filtrados(self.DESDE_ANTIGO)
+
+        assert [r["nome"] for r in lista] == ["SEFAZ SC"]
+        unico = lista[0]
+        assert unico["uf"] == "SC"
+        assert unico["salario_teto"] == 9000.0
+        assert unico["motivo_filtro"] == "abaixo_do_corte"
+        assert unico["link"] == "https://x/sc"
+
+    def test_listar_filtrados_respeita_desde(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sc", elegibilidade="filtrado"
+        )
+        db.atualizar_concurso(
+            "SEFAZ PR", "v1", "https://x/pr", elegibilidade="filtrado"
+        )
+        # ultima_atualizacao nao vem pela interface publica; o arranjo das
+        # datas entra por SQL direto, so para montar o cenario.
+        conn = sqlite3.connect(db.db_path)
+        conn.execute(
+            "UPDATE editais SET ultima_atualizacao = ? WHERE nome = 'SEFAZ SC'",
+            ("2026-11-10 08:00:00",),
+        )
+        conn.execute(
+            "UPDATE editais SET ultima_atualizacao = ? WHERE nome = 'SEFAZ PR'",
+            ("2026-11-20 08:00:00",),
+        )
+        conn.commit()
+        conn.close()
+
+        lista = db.listar_filtrados("2026-11-15 00:00:00")
+
+        assert [r["nome"] for r in lista] == ["SEFAZ PR"]
+
+    def test_listar_filtrados_nao_vaza_area(self, db_path):
+        db_ti = DatabaseManager(area="TI", db_path=db_path)
+        db_edu = DatabaseManager(area="EDUCACAO", db_path=db_path)
+        db_ti.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sc", elegibilidade="filtrado"
+        )
+        db_edu.atualizar_concurso(
+            "Prefeitura de X", "v1", "https://x/pref", elegibilidade="filtrado"
+        )
+
+        nomes_ti = [r["nome"] for r in db_ti.listar_filtrados(self.DESDE_ANTIGO)]
+        nomes_edu = [r["nome"] for r in db_edu.listar_filtrados(self.DESDE_ANTIGO)]
+
+        assert nomes_ti == ["SEFAZ SC"]
+        assert nomes_edu == ["Prefeitura de X"]
+
+        db_ti.fechar_conexao()
+        db_edu.fechar_conexao()
+
+    def test_listar_filtrados_ordena_por_teto_desc_com_null_no_fim(self, db):
+        db.atualizar_concurso(
+            "Teto Medio", "v1", "https://x/m", uf="SC",
+            salario_teto=3000.0, elegibilidade="filtrado",
+        )
+        db.atualizar_concurso(
+            "Teto Alto", "v1", "https://x/a", uf="SC",
+            salario_teto=12000.0, elegibilidade="filtrado",
+        )
+        db.atualizar_concurso(
+            "Sem Teto", "v1", "https://x/s", uf="SC", elegibilidade="filtrado",
+        )
+
+        lista = db.listar_filtrados(self.DESDE_ANTIGO)
+
+        assert [(r["nome"], r["salario_teto"]) for r in lista] == [
+            ("Teto Alto", 12000.0),
+            ("Teto Medio", 3000.0),
+            ("Sem Teto", None),
+        ]
+
+    def test_listar_filtrados_futuro_vazio(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sc", elegibilidade="filtrado"
+        )
+        assert db.listar_filtrados("2099-01-01 00:00:00") == []
+
+
 class TestConnectionLifecycle:
     def test_fechar_conexao_is_safe_to_call(self, db_path):
         db = DatabaseManager(area="TI", db_path=db_path)
