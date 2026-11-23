@@ -299,6 +299,69 @@ class TestEstadoUsuario:
         assert db.atualizar_estado_usuario(9999, "ignorado") is False
 
 
+class TestGravacaoCamposV6:
+    """Gravacao dos sete campos: descricao se preserva, decisao se renova."""
+
+    def test_atualizar_concurso_grava_campos_novos(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "edital publicado", "https://x/sefaz-sc",
+            uf="SC", regiao="Sul", esfera="estadual",
+            cargos_total=42, salario_teto=18540.71,
+            elegibilidade="filtrado", motivo_filtro="abaixo_do_corte",
+        )
+
+        reg = db.buscar_registro("SEFAZ SC")
+        assert reg["uf"] == "SC"
+        assert reg["regiao"] == "Sul"
+        assert reg["esfera"] == "estadual"
+        assert reg["cargos_total"] == 42
+        assert reg["salario_teto"] == 18540.71
+        assert reg["elegibilidade"] == "filtrado"
+        assert reg["motivo_filtro"] == "abaixo_do_corte"
+
+    def test_coalesce_preserva_uf_quando_vem_none(self, db):
+        db.atualizar_concurso("SEFAZ SC", "v1", "https://x/sefaz-sc", uf="SC")
+        # Fonte que nao conhece a UF (None) nao apaga o que a outra descobriu.
+        db.atualizar_concurso("SEFAZ SC", "v2", "https://x/sefaz-sc", uf=None)
+        assert db.buscar_registro("SEFAZ SC")["uf"] == "SC"
+
+    def test_coalesce_preserva_salario_teto_quando_vem_none(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sefaz-sc", salario_teto=18540.71
+        )
+        db.atualizar_concurso(
+            "SEFAZ SC", "v2", "https://x/sefaz-sc", salario_teto=None
+        )
+        assert db.buscar_registro("SEFAZ SC")["salario_teto"] == 18540.71
+
+    def test_elegibilidade_e_sobrescrita_quando_vem_valor(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sefaz-sc", elegibilidade="filtrado"
+        )
+        # Decisao nova vence decisao velha: o edital saiu, o teto mudou.
+        db.atualizar_concurso(
+            "SEFAZ SC", "v2", "https://x/sefaz-sc", elegibilidade="elegivel"
+        )
+        assert db.buscar_registro("SEFAZ SC")["elegibilidade"] == "elegivel"
+
+    def test_elegibilidade_e_preservada_quando_vem_none(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sefaz-sc", elegibilidade="filtrado"
+        )
+        # Rodada em que o filtro esta desligado nao apaga a decisao gravada.
+        db.atualizar_concurso("SEFAZ SC", "v2", "https://x/sefaz-sc")
+        assert db.buscar_registro("SEFAZ SC")["elegibilidade"] == "filtrado"
+
+    def test_linha_pre_v6_nao_e_tocada(self, db_path):
+        _criar_banco_v5(db_path)
+        db = DatabaseManager(area="TI", db_path=db_path)
+
+        # Gravacao que nao passa o campo: elegibilidade nulo segue nulo.
+        db.atualizar_concurso("SEFIN RO", "fase nova")
+        assert db.buscar_registro("SEFIN RO")["elegibilidade"] is None
+        db.fechar_conexao()
+
+
 class TestBuscarRegistroEdataFim:
     def test_retorna_todos_os_campos(self, db):
         db.atualizar_concurso(
