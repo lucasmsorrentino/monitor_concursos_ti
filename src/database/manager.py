@@ -1,6 +1,6 @@
 """Persistencia SQLite para o monitor de concursos.
 
-Schema v5 (atual):
+Schema v6 (atual):
     editais(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         area TEXT NOT NULL,
@@ -13,6 +13,13 @@ Schema v5 (atual):
         estado_usuario TEXT NOT NULL DEFAULT 'ativo',  -- ativo|ignorado|seguindo
         fonte TEXT,                    -- 'gran' | 'pci'  (v5)
         pci_id TEXT,                   -- id da noticia no PCI, chave canonica (v5)
+        uf TEXT,                       -- sigla da UF do orgao (v6)
+        regiao TEXT,                   -- Sul | NACIONAL | ... (v6)
+        esfera TEXT,                   -- federal|estadual|distrital|municipal|conselho_profissional (v6)
+        cargos_total INTEGER,          -- quantos cargos o edital inteiro tem (v6)
+        salario_teto REAL,             -- teto do concurso, o maior salario do edital (v6)
+        elegibilidade TEXT,            -- decisao do bot: 'filtrado' | 'elegivel' | NULL = pre-v6 (v6)
+        motivo_filtro TEXT,            -- motivo do corte, conjunto fechado (v6)
         ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(area, nome)
     )
@@ -30,6 +37,10 @@ Historico de migracoes:
     v5: adiciona `fonte` e `pci_id`, quando o PCI Concursos entrou como segunda
         fonte ao lado do blog do Gran. Linhas anteriores sao backfilled com
         fonte='gran', que e de fato a unica origem que existia ate entao.
+    v6: adiciona `uf`, `regiao`, `esfera`, `cargos_total`, `salario_teto`,
+        `elegibilidade` e `motivo_filtro`. Aditiva e SEM backfill: linha
+        anterior ao v6 fica com `elegibilidade` NULL e conta como elegivel —
+        ja foi notificada, nao se renotifica, nao se reavalia e nao se apaga.
 
 Ordem de identidade (do mais forte pro mais fraco):
     1. `pci_id` — id da noticia no PCI, estavel entre rodadas.
@@ -83,7 +94,7 @@ class DatabaseManager:
         self._ensure_schema()
 
     def _ensure_schema(self):
-        """Cria a tabela v3 ou migra esquemas antigos (v1, v2) para v3."""
+        """Cria a tabela atual ou migra esquemas antigos, sempre de forma aditiva e idempotente."""
         try:
             cursor = self.conn.cursor()
 
@@ -130,6 +141,23 @@ class DatabaseManager:
                 cursor.execute(
                     "CREATE INDEX IF NOT EXISTS idx_editais_pci ON editais(area, pci_id)"
                 )
+            # v6: contexto do concurso e a decisao de elegibilidade. Migracao
+            # aditiva e sem backfill — linha anterior ao v6 fica NULL e conta
+            # como elegivel (nao se renotifica, nao se reavalia, nao se apaga).
+            if "uf" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN uf TEXT")
+            if "regiao" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN regiao TEXT")
+            if "esfera" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN esfera TEXT")
+            if "cargos_total" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN cargos_total INTEGER")
+            if "salario_teto" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN salario_teto REAL")
+            if "elegibilidade" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN elegibilidade TEXT")
+            if "motivo_filtro" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN motivo_filtro TEXT")
 
             self.conn.commit()
         except sqlite3.Error as e:
@@ -152,6 +180,13 @@ class DatabaseManager:
                 estado_usuario TEXT NOT NULL DEFAULT 'ativo',
                 fonte TEXT,
                 pci_id TEXT,
+                uf TEXT,
+                regiao TEXT,
+                esfera TEXT,
+                cargos_total INTEGER,
+                salario_teto REAL,
+                elegibilidade TEXT,
+                motivo_filtro TEXT,
                 ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(area, nome)
             )
@@ -175,6 +210,13 @@ class DatabaseManager:
                 estado_usuario TEXT NOT NULL DEFAULT 'ativo',
                 fonte TEXT,
                 pci_id TEXT,
+                uf TEXT,
+                regiao TEXT,
+                esfera TEXT,
+                cargos_total INTEGER,
+                salario_teto REAL,
+                elegibilidade TEXT,
+                motivo_filtro TEXT,
                 ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(area, nome)
             )
@@ -277,6 +319,37 @@ class DatabaseManager:
         ).fetchone()
         return row["n"] if row else 0
 
+    def listar_filtrados(self, desde: str) -> list[dict]:
+        """Lista os concursos que o filtro silenciou nesta area, do `desde` em diante.
+
+        E o que o resumo semanal le: so linhas com `elegibilidade = 'filtrado'`
+        e `ultima_atualizacao >= desde`, ordenadas por `salario_teto`
+        decrescente com NULL no fim. Linha pre-v6 (`elegibilidade` NULL) conta
+        como elegivel e nunca aparece aqui.
+
+        Returns:
+            list[dict]: um dict por linha, com ao menos `nome`, `uf`,
+            `salario_teto`, `motivo_filtro` e `link`.
+        """
+        # `ultima_atualizacao >= desde` compara TEXTO de proposito: as duas
+        # pontas sao AAAA-MM-DD HH:MM:SS (CURRENT_TIMESTAMP do SQLite), formato
+        # em que ordem lexicografica e ordem cronologica. Nao "melhore" para
+        # conversao de data.
+        # `salario_teto IS NULL` primeiro no ORDER BY deixa o NULL no fim.
+        cursor = self.conn.cursor()
+        rows = cursor.execute(
+            """
+            SELECT nome, uf, salario_teto, motivo_filtro, link
+              FROM editais
+             WHERE area = ?
+               AND elegibilidade = 'filtrado'
+               AND ultima_atualizacao >= ?
+             ORDER BY salario_teto IS NULL, salario_teto DESC
+            """,
+            (self.area, desde),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def atualizar_concurso(
         self,
         nome: str,
@@ -288,12 +361,26 @@ class DatabaseManager:
         fase: str | None = None,
         fonte: str | None = None,
         pci_id: str | None = None,
+        uf: str | None = None,
+        regiao: str | None = None,
+        esfera: str | None = None,
+        cargos_total: int | None = None,
+        salario_teto: float | None = None,
+        elegibilidade: str | None = None,
+        motivo_filtro: str | None = None,
     ) -> int:
         """Insere novo concurso ou atualiza existente, preservando `id`.
 
         A identidade sai de :meth:`buscar_registro`, entao busca e escrita usam
         exatamente a mesma regra. Preservar o `id` e obrigatorio: ele viaja no
         callback_data dos botoes do Telegram de mensagens ja enviadas.
+
+        Os campos do v6 (`uf` a `salario_teto`, `elegibilidade`, `motivo_filtro`)
+        sao opcionais: quem nao conhece o valor passa `None` e nao apaga o que
+        ja esta gravado. `elegibilidade` e `motivo_filtro` seguem a mesma regra
+        com uma diferenca de leitura: sao decisao, nao descricao — valor novo e
+        decisao nova, que vence a velha; `None` e rodada que nao avaliou, que
+        preserva a decisao gravada.
 
         Returns:
             int: `id` da linha (nova ou existente), ou 0 em erro.
@@ -323,11 +410,21 @@ class DatabaseManager:
                            fase = COALESCE(?, fase),
                            fonte = COALESCE(?, fonte),
                            pci_id = COALESCE(?, pci_id),
+                           uf = COALESCE(?, uf),
+                           regiao = COALESCE(?, regiao),
+                           esfera = COALESCE(?, esfera),
+                           cargos_total = COALESCE(?, cargos_total),
+                           salario_teto = COALESCE(?, salario_teto),
+                           -- Decisao (nao descricao): valor novo vence o velho,
+                           -- rodada sem avaliacao (None) preserva o gravado.
+                           elegibilidade = COALESCE(?, elegibilidade),
+                           motivo_filtro = COALESCE(?, motivo_filtro),
                            ultima_atualizacao = CURRENT_TIMESTAMP
                      WHERE id = ?
                     """,
                     (nome_final, status, link, status_hash, data_fim_inscricao,
-                     fase, fonte, pci_id, id_),
+                     fase, fonte, pci_id, uf, regiao, esfera, cargos_total,
+                     salario_teto, elegibilidade, motivo_filtro, id_),
                 )
                 self.conn.commit()
                 return id_
@@ -336,11 +433,15 @@ class DatabaseManager:
                 """
                 INSERT INTO editais
                     (area, nome, status, link, status_hash, data_fim_inscricao,
-                     fase, fonte, pci_id, ultima_atualizacao)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     fase, fonte, pci_id,
+                     uf, regiao, esfera, cargos_total, salario_teto,
+                     elegibilidade, motivo_filtro, ultima_atualizacao)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        CURRENT_TIMESTAMP)
                 """,
                 (self.area, nome, status, link, status_hash, data_fim_inscricao,
-                 fase, fonte, pci_id),
+                 fase, fonte, pci_id, uf, regiao, esfera, cargos_total,
+                 salario_teto, elegibilidade, motivo_filtro),
             )
             self.conn.commit()
             return cursor.lastrowid
