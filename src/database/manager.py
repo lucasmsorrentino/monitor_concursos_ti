@@ -364,11 +364,21 @@ class DatabaseManager:
                            fase = COALESCE(?, fase),
                            fonte = COALESCE(?, fonte),
                            pci_id = COALESCE(?, pci_id),
+                           uf = COALESCE(?, uf),
+                           regiao = COALESCE(?, regiao),
+                           esfera = COALESCE(?, esfera),
+                           cargos_total = COALESCE(?, cargos_total),
+                           salario_teto = COALESCE(?, salario_teto),
+                           -- Decisao (nao descricao): valor novo vence o velho,
+                           -- rodada sem avaliacao (None) preserva o gravado.
+                           elegibilidade = COALESCE(?, elegibilidade),
+                           motivo_filtro = COALESCE(?, motivo_filtro),
                            ultima_atualizacao = CURRENT_TIMESTAMP
                      WHERE id = ?
                     """,
                     (nome_final, status, link, status_hash, data_fim_inscricao,
-                     fase, fonte, pci_id, id_),
+                     fase, fonte, pci_id, uf, regiao, esfera, cargos_total,
+                     salario_teto, elegibilidade, motivo_filtro, id_),
                 )
                 self.conn.commit()
                 return id_
@@ -377,11 +387,15 @@ class DatabaseManager:
                 """
                 INSERT INTO editais
                     (area, nome, status, link, status_hash, data_fim_inscricao,
-                     fase, fonte, pci_id, ultima_atualizacao)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     fase, fonte, pci_id,
+                     uf, regiao, esfera, cargos_total, salario_teto,
+                     elegibilidade, motivo_filtro, ultima_atualizacao)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        CURRENT_TIMESTAMP)
                 """,
                 (self.area, nome, status, link, status_hash, data_fim_inscricao,
-                 fase, fonte, pci_id),
+                 fase, fonte, pci_id, uf, regiao, esfera, cargos_total,
+                 salario_teto, elegibilidade, motivo_filtro),
             )
             self.conn.commit()
             return cursor.lastrowid
