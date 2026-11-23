@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 
 
@@ -117,28 +118,67 @@ def _normalize_pci_mcp_cargos(valor) -> list[str]:
     return _split_csv_ou_lista(valor)
 
 
-def _normalize_escolha(valor, padrao: str) -> str:
-    """Normaliza chave de texto da config por area: sem caixa, sem bordas."""
-    if valor is None or valor is _AUSENTE:
+def _normalize_escolha(
+    valor, area: str, chave: str, validos: set[str], padrao: str, logger: logging.Logger
+) -> str:
+    """Normaliza chave de conjunto fechado, sem caixa e sem bordas.
+
+    Valor invalido (ou null explicito) loga warning e cai no padrao seguro,
+    como `_normalize_modo_carga` faz com `pci_primeira_carga`.
+    """
+    if valor is _AUSENTE:
         return padrao
-    return str(valor).strip().lower()
+    if valor is not None:
+        escolhido = str(valor).strip().lower()
+        if escolhido in validos:
+            return escolhido
+    logger.warning(
+        f"{chave} invalido para {area}: {valor!r} "
+        f"(validos: {sorted(validos)}). Usando '{padrao}'."
+    )
+    return padrao
 
 
-def _normalize_corte_fora_sul(valor) -> float:
-    """Converte `corte_fora_sul` em float, aceitando numero ou string de numero."""
-    if valor is None or valor is _AUSENTE:
+def _normalize_corte_fora_sul(valor, area: str, logger: logging.Logger) -> float:
+    """Converte `corte_fora_sul` em float, aceitando numero ou string.
+
+    Valor nao numerico ou negativo loga warning e cai em 0.0 (sem corte):
+    config invalida cai no modo mais conservador, nunca no mais agressivo.
+    """
+    if valor is _AUSENTE:
         return 0.0
-    return float(str(valor).strip())
+    try:
+        corte = float(str(valor).strip())
+        if math.isfinite(corte) and corte >= 0:
+            return corte
+    except (TypeError, ValueError):
+        pass
+    logger.warning(
+        f"corte_fora_sul invalido para {area}: {valor!r}. Usando 0.0 (sem corte)."
+    )
+    return 0.0
 
 
-def _normalize_cargos_total_inflado(valor) -> int:
-    """Converte `cargos_total_inflado` em int, aceitando numero ou string."""
-    if valor is None or valor is _AUSENTE:
+def _normalize_cargos_total_inflado(valor, area: str, logger: logging.Logger) -> int:
+    """Converte `cargos_total_inflado` em int, aceitando numero ou string.
+
+    Valor nao inteiro ou menor que 1 loga warning e cai no padrao 10.
+    """
+    if valor is _AUSENTE:
         return 10
-    return int(float(str(valor).strip()))
+    try:
+        numero = float(str(valor).strip())
+        if numero.is_integer() and numero >= 1:
+            return int(numero)
+    except (TypeError, ValueError):
+        pass
+    logger.warning(
+        f"cargos_total_inflado invalido para {area}: {valor!r}. Usando 10."
+    )
+    return 10
 
 
-def _config_por_area(bruto: dict) -> dict:
+def _config_por_area(bruto: dict, area: str, logger: logging.Logger) -> dict:
     """Monta as oito chaves por area (SPEC-001, secao 3.6) dos valores crus.
 
     `bruto` aceita tanto o objeto do MONITOR_TARGETS_JSON quanto variaveis
@@ -151,10 +191,15 @@ def _config_por_area(bruto: dict) -> dict:
             bruto.get("pci_mcp_cargos", _AUSENTE)
         ),
         "filtro_salarial": _normalize_escolha(
-            bruto.get("filtro_salarial", _AUSENTE), "desligado"
+            bruto.get("filtro_salarial", _AUSENTE),
+            area,
+            "filtro_salarial",
+            {"desligado", "ativo"},
+            "desligado",
+            logger,
         ),
         "corte_fora_sul": _normalize_corte_fora_sul(
-            bruto.get("corte_fora_sul", _AUSENTE)
+            bruto.get("corte_fora_sul", _AUSENTE), area, logger
         ),
         "ufs_sem_corte": _normalize_ufs_sem_corte(
             bruto.get("ufs_sem_corte", _AUSENTE)
@@ -163,10 +208,15 @@ def _config_por_area(bruto: dict) -> dict:
             bruto.get("esferas_sem_corte", _AUSENTE)
         ),
         "cargos_total_inflado": _normalize_cargos_total_inflado(
-            bruto.get("cargos_total_inflado", _AUSENTE)
+            bruto.get("cargos_total_inflado", _AUSENTE), area, logger
         ),
         "resumo_filtrados": _normalize_escolha(
-            bruto.get("resumo_filtrados", _AUSENTE), "nunca"
+            bruto.get("resumo_filtrados", _AUSENTE),
+            area,
+            "resumo_filtrados",
+            {"nunca", "semanal"},
+            "nunca",
+            logger,
         ),
     }
 
@@ -219,7 +269,7 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
                         item.get("pci_primeira_carga"), area, logger
                     ),
                 }
-                target.update(_config_por_area(item))
+                target.update(_config_por_area(item, area, logger))
                 targets.append(target)
 
             if targets:
@@ -238,7 +288,7 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
         "esferas_sem_corte": _env_opcional("ESFERAS_SEM_CORTE"),
         "cargos_total_inflado": _env_opcional("CARGOS_TOTAL_INFLADO"),
         "resumo_filtrados": _env_opcional("RESUMO_FILTRADOS"),
-    })
+    }, "TI", logger)
     return [{
         "area": "TI",
         "display_name": "TI",
