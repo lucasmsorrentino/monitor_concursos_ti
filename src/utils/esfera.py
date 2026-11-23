@@ -1,4 +1,39 @@
-"""Classificacao da esfera do orgao pelo nome (SPEC-001, secao 3.3)."""
+"""Classificacao da esfera do orgao pelo nome do orgao (SPEC-001, secao 3.3).
+
+O PCI so da o nome do orgao, e a elegibilidade isenta do corte salarial a
+esfera `federal` (ADR-0002: universidade e instituto federal pagam a tabela
+federal, fora do alcance do corte de TI). Este modulo e so o classificador:
+funcao pura, sem dependencia externa, sem olhar de onde o nome veio nem o que
+a esfera libera na elegibilidade.
+
+A comparacao e insensivel a acento e a caixa: o nome passa por
+`normalizar_nome` (de `src/utils/text.py`) antes de qualquer casamento.
+
+Precedencia quando padroes de esferas diferentes casam no mesmo nome,
+declarada no aceite do modulo:
+
+    conselho_profissional > municipal > federal > distrital > estadual
+
+Ela resolve os pares reais: "Conselho Regional ... da 5a Regiao" nao e
+estadual; "Instituto de Previdencia do Municipio de ..." nao e estadual;
+"Universidade do Estado de Minas Gerais" nao e federal (o que casa e
+"universidade federal", expressao inteira, nao a palavra "universidade").
+
+Duas excecoes ao pe da letra dos padroes, para as listas cumprirem o que
+declaram:
+
+- "Ministerio" casa federal (ministerio de Estado), mas "Ministerio Publico"
+  nao e ministerio: fica fora do federal. O MP estadual casa pelo padrao
+  proprio ("ministerio publico do estado"); MP da Uniao ou do Trabalho nao
+  casa nada e devolve None — fail-open, a elegibilidade decide pelo teto.
+- "Camara" casa municipal, menos "Camara Legislativa", que e do Distrito
+  Federal: cai no padrao distrital ("do distrito federal").
+
+A UF DF no sufixo do nome so decide distrital quando nenhum padrao decidiu
+antes ("TRF1 - Tribunal Regional Federal da 1a Regiao - DF" e federal).
+Nome que nao casa nada devolve None — inclusive None e string vazia. Esfera
+desconhecida nao isenta do corte nem condena: quem decide e a elegibilidade.
+"""
 
 from src.utils.text import extrair_uf, normalizar_nome
 
