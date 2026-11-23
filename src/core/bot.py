@@ -17,10 +17,11 @@ import html
 import logging
 import os
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from bs4 import BeautifulSoup
 
+from src.core import resumo_filtrados
 from src.core.elegibilidade import Candidato, Decisao, Politica, decidir
 from src.database.manager import DatabaseManager
 from src.intelligence.langchain_unit import IntelligenceUnit
@@ -129,6 +130,9 @@ class ConcursoBot:
         # Filtro salarial da area (SPEC-001, secao 3.6). Imutavel e vindo da
         # config: monta uma vez aqui, nao a cada item.
         self.politica = self._politica_de(config)
+        # `resumo_filtrados` (SPEC-001, secao 4.4): "semanal" liga o resumo do
+        # que o filtro silenciou; qualquer outro valor e "nunca".
+        self.resumo_semanal = config.get('resumo_filtrados') == 'semanal'
 
         # Setado quando qualquer etapa da varredura falha. O MultiAreaRunner
         # agrega e o main.py devolve exit != 0, para o run_daily.sh nao gravar o
@@ -294,6 +298,7 @@ class ConcursoBot:
                 total_blocos_gran, validos, erros_extracao, novos_cont, atualizados_cont
             )
             self._alertar_fontes_doentes(diagnosticos, silenciar=alertou_agregado)
+            self._enviar_resumo_semanal()
             self.logger.info("🏁 Ciclo finalizado.")
 
         except Exception as e:
@@ -782,6 +787,76 @@ class ConcursoBot:
                 f.write(hoje)
         except OSError as e:
             self.logger.warning(f"Nao consegui gravar o marcador de alerta {tipo!r}: {e}")
+
+    def _enviar_resumo_semanal(self) -> None:
+        """Manda, uma vez por semana por area, o que o filtro salarial silenciou.
+
+        O controle de "uma vez por semana" e um marcador em ``LOG_DIR``, ao
+        lado dos de ``_alerta_uma_vez_por_dia``, com a chave da semana ISO: a
+        primeira rodada da semana manda e as outras nao, caia o cron no dia que
+        cair. Semana sem filtrado nao manda nada e nao grava o marcador, para
+        o primeiro filtrado da semana ainda sair. Em dry-run nada sai e nada
+        se grava.
+
+        O resumo e informativo; a varredura e o trabalho. Falha aqui (banco,
+        montagem ou Telegram) e logada e nao marca ``falhou``: o catch-up
+        horario nao deve repetir a rodada inteira por causa dele. Envio
+        recusado tambem nao grava o marcador, e a rodada seguinte tenta de novo.
+        """
+        if not self.resumo_semanal:
+            return
+        if self.dry_run:
+            self.logger.info("[DRY-RUN] resumo semanal de filtrados suprimido.")
+            return
+
+        try:
+            semana = resumo_filtrados.marcador_da_semana(date.today())
+            marcador = os.path.join(LOG_DIR, f".resumo_{self.area_slug}_filtrados")
+            try:
+                if os.path.exists(marcador):
+                    with open(marcador, encoding="utf-8") as f:
+                        if f.read().strip() == semana:
+                            self.logger.info(
+                                f"🔁 Resumo de filtrados de [{self.area_name}] ja "
+                                f"enviado na semana {semana}; nao repete."
+                            )
+                            return
+            except OSError:
+                pass  # marcador ilegivel nunca pode impedir o resumo
+
+            # `ultima_atualizacao` e CURRENT_TIMESTAMP do SQLite: UTC, no
+            # formato AAAA-MM-DD HH:MM:SS. O corte sai no mesmo fuso e formato.
+            desde = (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            texto = resumo_filtrados.montar(
+                self.db.listar_filtrados(desde), self.area_name
+            )
+            if not texto:
+                self.logger.info(
+                    f"🔇 [{self.area_name}] nada filtrado nos ultimos 7 dias; sem resumo."
+                )
+                return
+
+            if not self.notifier.notificar(texto):
+                self.logger.warning(
+                    f"Resumo de filtrados de [{self.area_name}] nao foi entregue; "
+                    f"a proxima rodada tenta de novo."
+                )
+                return
+
+            try:
+                os.makedirs(LOG_DIR, exist_ok=True)
+                with open(marcador, "w", encoding="utf-8") as f:
+                    f.write(semana)
+            except OSError as e:
+                self.logger.warning(f"Nao consegui gravar o marcador do resumo semanal: {e}")
+        except Exception as e:
+            self.logger.error(
+                f"❌ [{self.area_name}] falha no resumo semanal de filtrados: {e}. "
+                f"A varredura nao e afetada.",
+                exc_info=True,
+            )
 
     def _notificar(self, mensagem: str, id_interno: int | None = None) -> None:
         """Envia (ou apenas registra, em dry-run) uma mensagem no Telegram."""
