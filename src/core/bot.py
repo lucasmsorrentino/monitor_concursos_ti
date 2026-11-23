@@ -641,9 +641,14 @@ class ConcursoBot:
         # Varredura cega = nao entregou NADA, nem valido nem perdido, e isso nao
         # se explica pela configuracao do alvo:
         # - 0 blocos brutos e nenhuma fonte alternativa: site fora, bloqueio ou layout mudou.
+        #   Fonte alternativa e a pagina de cargo OU a porta do MCP: com a porta do
+        #   MCP como unica porta do PCI, `pci_slugs` sai e o Gran vazio num dia
+        #   qualquer nao pode virar cegueira (a saude por fonte pega o Gran parado).
         # - 0 candidatos SEM keywords_include: pagina dedicada que sempre lista dezenas.
         # - 0 candidatos COM keywords_include: dia quieto e o caso NORMAL (heartbeat).
-        sem_materia_prima = total_blocos == 0 and not self.pci_scraper
+        sem_materia_prima = (
+            total_blocos == 0 and not self.pci_scraper and not self.mcp_scraper
+        )
         varredura_cega = sem_materia_prima or (base == 0 and not self.keywords_include)
 
         if varredura_cega:
