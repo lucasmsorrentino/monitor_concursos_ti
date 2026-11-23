@@ -68,6 +68,109 @@ def _normalize_modo_carga(value, area: str, logger: logging.Logger) -> str:
     return "individual"
 
 
+# Marcador de chave ausente: distingue "nao veio" de null explicito no JSON,
+# porque lista vazia ([] e falsy) e escolha valida e tem de ser respeitada.
+_AUSENTE = object()
+
+
+def _env_opcional(nome: str):
+    """Le variavel de ambiente como chave opcional: ausente vira _AUSENTE."""
+    valor = os.getenv(nome)
+    return _AUSENTE if valor is None else valor
+
+
+def _split_csv_ou_lista(valor) -> list[str]:
+    """Aceita lista do JSON ou CSV do .env, descartando itens vazios."""
+    items = valor.split(",") if isinstance(valor, str) else valor
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def _normalize_ufs_sem_corte(valor) -> list[str]:
+    """Normaliza `ufs_sem_corte`: UFs em maiuscula, aceitando lista ou CSV.
+
+    Lista vazia explicita significa "ninguem isento" e e respeitada;
+    chave ausente usa o padrao (as tres UFs do Sul).
+    """
+    if valor is None or valor is _AUSENTE:
+        return ["PR", "SC", "RS"]
+    return [item.upper() for item in _split_csv_ou_lista(valor)]
+
+
+def _normalize_esferas_sem_corte(valor) -> list[str]:
+    """Normaliza `esferas_sem_corte`: esferas em minuscula, lista ou CSV.
+
+    Lista vazia explicita significa "nenhuma esfera isenta" e e respeitada.
+    """
+    if valor is None or valor is _AUSENTE:
+        return ["federal"]
+    return [item.lower() for item in _split_csv_ou_lista(valor)]
+
+
+def _normalize_pci_mcp_cargos(valor) -> list[str]:
+    """Normaliza `pci_mcp_cargos` preservando a ordem e a caixa escritas.
+
+    O servidor MCP normaliza a busca sozinho; caixa e ordem sao de quem
+    configura e e isso que sai no log.
+    """
+    if valor is None or valor is _AUSENTE:
+        return []
+    return _split_csv_ou_lista(valor)
+
+
+def _normalize_escolha(valor, padrao: str) -> str:
+    """Normaliza chave de texto da config por area: sem caixa, sem bordas."""
+    if valor is None or valor is _AUSENTE:
+        return padrao
+    return str(valor).strip().lower()
+
+
+def _normalize_corte_fora_sul(valor) -> float:
+    """Converte `corte_fora_sul` em float, aceitando numero ou string de numero."""
+    if valor is None or valor is _AUSENTE:
+        return 0.0
+    return float(str(valor).strip())
+
+
+def _normalize_cargos_total_inflado(valor) -> int:
+    """Converte `cargos_total_inflado` em int, aceitando numero ou string."""
+    if valor is None or valor is _AUSENTE:
+        return 10
+    return int(float(str(valor).strip()))
+
+
+def _config_por_area(bruto: dict) -> dict:
+    """Monta as oito chaves por area (SPEC-001, secao 3.6) dos valores crus.
+
+    `bruto` aceita tanto o objeto do MONITOR_TARGETS_JSON quanto variaveis
+    de ambiente do modo legado embrulhadas em _env_opcional, porque a
+    chave ausente (_AUSENTE ou null) cai no padrao seguro da spec.
+    """
+    return {
+        "pci_mcp": _normalize_bool(bruto.get("pci_mcp")),
+        "pci_mcp_cargos": _normalize_pci_mcp_cargos(
+            bruto.get("pci_mcp_cargos", _AUSENTE)
+        ),
+        "filtro_salarial": _normalize_escolha(
+            bruto.get("filtro_salarial", _AUSENTE), "desligado"
+        ),
+        "corte_fora_sul": _normalize_corte_fora_sul(
+            bruto.get("corte_fora_sul", _AUSENTE)
+        ),
+        "ufs_sem_corte": _normalize_ufs_sem_corte(
+            bruto.get("ufs_sem_corte", _AUSENTE)
+        ),
+        "esferas_sem_corte": _normalize_esferas_sem_corte(
+            bruto.get("esferas_sem_corte", _AUSENTE)
+        ),
+        "cargos_total_inflado": _normalize_cargos_total_inflado(
+            bruto.get("cargos_total_inflado", _AUSENTE)
+        ),
+        "resumo_filtrados": _normalize_escolha(
+            bruto.get("resumo_filtrados", _AUSENTE), "nunca"
+        ),
+    }
+
+
 def load_monitor_targets(logger: logging.Logger) -> list[dict]:
     """Carrega alvos de monitoramento com fallback seguro para modo legado."""
     token = os.getenv("TELEGRAM_TOKEN")
@@ -116,6 +219,7 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
                         item.get("pci_primeira_carga"), area, logger
                     ),
                 }
+                target.update(_config_por_area(item))
                 targets.append(target)
 
             if targets:
@@ -125,6 +229,16 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
 
     legacy_url = os.getenv("URL_ALVO", "").strip()
     legacy_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    legacy_config_area = _config_por_area({
+        "pci_mcp": _env_opcional("PCI_MCP"),
+        "pci_mcp_cargos": _env_opcional("PCI_MCP_CARGOS"),
+        "filtro_salarial": _env_opcional("FILTRO_SALARIAL"),
+        "corte_fora_sul": _env_opcional("CORTE_FORA_SUL"),
+        "ufs_sem_corte": _env_opcional("UFS_SEM_CORTE"),
+        "esferas_sem_corte": _env_opcional("ESFERAS_SEM_CORTE"),
+        "cargos_total_inflado": _env_opcional("CARGOS_TOTAL_INFLADO"),
+        "resumo_filtrados": _env_opcional("RESUMO_FILTRADOS"),
+    })
     return [{
         "area": "TI",
         "display_name": "TI",
@@ -138,4 +252,5 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
         "pci_primeira_carga": _normalize_modo_carga(
             os.getenv("PCI_PRIMEIRA_CARGA"), "TI", logger
         ),
+        **legacy_config_area,
     }]
