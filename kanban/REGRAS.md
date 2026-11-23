@@ -26,3 +26,6 @@
   `docs:`. Uma fatia por par.
 - IDs do quadro (`T-NNN`): so em relatorio da esteira e mensagem de merge. Nunca em codigo, docstring,
   comentario, README ou doc do repo.
+- **Nao faca `push`.** O trabalho fica em commit local, na branch do worktree. Quem mescla e o integrador
+  da esteira, local; quem publica no `origin` e o Lucas. Isso vale para `git push`, `--set-upstream` e
+  qualquer coisa que fale com o remoto alem de `git fetch`.
