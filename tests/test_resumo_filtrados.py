@@ -1,14 +1,17 @@
-"""Testes do resumo semanal de filtrados: montagem do texto.
+"""Testes do resumo semanal de filtrados: montagem do texto e marcador de semana.
 
 Oraculo: listas de linhas escritas a mao e afirmacoes por substring e contagem,
-nao comparacao com blob inteiro.
+nao comparacao com blob inteiro. As datas do marcador vêm do calendario ISO,
+calculado a mao: 2026-11-23 e segunda da semana 48; 2026-12-28 e 2027-01-03
+sao segunda e domingo da semana 53 do ano ISO 2026.
 """
 
 import ast
+from datetime import date
 from pathlib import Path
 
 from src.core import resumo_filtrados
-from src.core.resumo_filtrados import montar
+from src.core.resumo_filtrados import marcador_da_semana, montar
 
 
 def _linha(
@@ -123,6 +126,26 @@ def test_secoes_na_ordem_do_aceite():
         texto.index("Orgao 01"),
     ]
     assert ordem == sorted(ordem)
+
+
+def test_marcador_da_semana_e_estavel_na_mesma_semana():
+    # 2026-11-23 e segunda; 2026-11-29 e domingo da mesma semana ISO (48).
+    assert marcador_da_semana(date(2026, 11, 23)) == marcador_da_semana(
+        date(2026, 11, 29)
+    )
+
+
+def test_marcador_da_semana_muda_na_semana_seguinte():
+    # 2026-11-29 e domingo da semana 48; 2026-11-30 ja e segunda da 49.
+    assert marcador_da_semana(date(2026, 11, 29)) != marcador_da_semana(
+        date(2026, 11, 30)
+    )
+
+
+def test_marcador_da_semana_na_virada_do_ano():
+    # Calendario ISO: 2027-01-03 e domingo da semana 53 do ano ISO 2026.
+    assert marcador_da_semana(date(2026, 12, 28)) == "2026-S53"
+    assert marcador_da_semana(date(2027, 1, 3)) == "2026-S53"
 
 
 def test_modulo_e_puro_sem_banco_rede_ou_bot():
