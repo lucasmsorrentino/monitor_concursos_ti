@@ -309,7 +309,24 @@ class DatabaseManager:
         return row["n"] if row else 0
 
     def listar_filtrados(self, desde: str) -> list[dict]:
-        raise NotImplementedError
+        # `ultima_atualizacao >= desde` compara TEXTO de proposito: as duas
+        # pontas sao AAAA-MM-DD HH:MM:SS (CURRENT_TIMESTAMP do SQLite), formato
+        # em que ordem lexicografica e ordem cronologica. Nao "melhore" para
+        # conversao de data.
+        # `salario_teto IS NULL` primeiro no ORDER BY deixa o NULL no fim.
+        cursor = self.conn.cursor()
+        rows = cursor.execute(
+            """
+            SELECT nome, uf, salario_teto, motivo_filtro, link
+              FROM editais
+             WHERE area = ?
+               AND elegibilidade = 'filtrado'
+               AND ultima_atualizacao >= ?
+             ORDER BY salario_teto IS NULL, salario_teto DESC
+            """,
+            (self.area, desde),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def atualizar_concurso(
         self,
