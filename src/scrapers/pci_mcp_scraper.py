@@ -1,4 +1,55 @@
-"""Porta do PCI Concursos pelo servidor MCP oficial (buscar_por_cargo)."""
+"""Porta do PCI Concursos pelo servidor MCP oficial (buscar_por_cargo).
+
+O servidor (`https://mcp.pciconcursos.com.br/mcp`, sem autenticacao, somente
+leitura) devolve ja estruturado o que as portas de HTML (`PciScraper`, por
+pagina de cargo, e `PciNacionalScraper`, pela lista nacional) liam raspando
+pagina — e mais: `regiao`, `cargos_total`, o teto do concurso e as datas de
+inscricao JA calculadas. A decisao de trocar a porta esta na ADR-0001; este
+modulo e so a porta, ninguem liga no bot aqui.
+
+Transporte
+----------
+
+Um POST JSON-RPC 2.0 por termo de cargo, com os cabecalhos
+``Content-Type: application/json``, ``Accept: application/json, text/event-stream``
+e ``MCP-Protocol-Version: 2025-06-18``. O pedido chama ``tools/call`` com a
+ferramenta ``buscar_por_cargo`` e ``arguments`` so com ``cargo``: sem o
+parametro ``uf`` a busca cobre todos os estados e os nacionais. O servidor
+respondeu ``tools/call`` direto, sem handshake de sessao, nas verificacoes
+feitas antes desta porta existir; se passar a exigir, o sintoma aparece na
+sonda de contrato antes de virar mudanca aqui.
+
+A resposta chega em duas formas, ambas lidas: JSON direto no corpo, ou SSE com
+uma linha ``data: `` carregando o JSON. Nas duas, o payload util e o primeiro
+item de ``result.content`` com ``type == "text"``, cujo ``text`` e um JSON em
+string que precisa de um segundo ``json.loads`` — o envelope carrega o payload
+embutido, e e ai que se erra.
+
+Regras da porta
+---------------
+
+- Uniao por ``id`` (o mesmo numero de noticia que o ``PciScraper`` extrai do
+  ``nXXXXXX`` da classe CSS, mantido como ``pci_id`` em string): concurso visto
+  por varios termos aparece uma vez, acumulando ``cargos`` e ``termos_origem``.
+- ``nome`` leva a UF no sufixo (``titulo - UF``), para o ``extrair_uf`` e o
+  ``mesma_entidade`` de ``src/utils/text.py`` casarem o mesmo concurso vindo do
+  blog do Gran; concurso NACIONAL (``uf`` nula) fica so com o titulo.
+- ``fase`` vem das datas calculadas pelo servidor: ``datas.aberto`` =>
+  ``inscricoes_abertas``; ``datas.em_breve`` => ``edital_publicado``; sem as
+  duas, cai no ``inferir_fase`` do titulo da noticia, em ``pci_comum``.
+- ``vagas_salario`` sai cru: o parse do teto mora em outro modulo.
+- Termo sem resultado (campo ``message`` com ``data`` vazia) e logado em
+  ``info`` e segue; nao se repete a chamada.
+- Termo que falha (rede, HTTP diferente de 200, JSON invalido, resposta sem o
+  ``content`` esperado) e logado em ``warning`` e a varredura segue com os
+  outros termos. Todos os termos falhando levanta excecao, para a fonte poder
+  ser diagnosticada como parada.
+- Termo com ``meta.total`` no limite de 200 itens do servidor e logado em
+  ``warning`` como lista truncada.
+
+O dado do PCI e estruturado e a extracao aqui e deterministica: nada deste
+modulo passa pela LLM.
+"""
 import json
 import time
 
