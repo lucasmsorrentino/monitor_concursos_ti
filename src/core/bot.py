@@ -24,6 +24,7 @@ from src.intelligence.langchain_unit import IntelligenceUnit
 from src.notifiers.telegram import TelegramNotifier
 from src.notifiers.telegram_callbacks import TelegramCallbackProcessor
 from src.scrapers.gran_scraper import GranScraper
+from src.scrapers.pci_mcp_scraper import PciMcpScraper
 from src.scrapers.pci_nacional_scraper import PciNacionalScraper
 from src.scrapers.pci_scraper import PciScraper
 from src.utils import memoria_json, saude_fontes
@@ -108,6 +109,8 @@ class ConcursoBot:
         self.nacional_scraper = (
             PciNacionalScraper() if config.get('pci_nacional') else None
         )
+        # Quarta porta: o servidor MCP do PCI Concursos (esqueleto ainda).
+        self.mcp_scraper = None
         self.dias_fonte_parada = int(
             config.get('dias_fonte_parada') or saude_fontes.DIAS_PARADA_PADRAO
         )
