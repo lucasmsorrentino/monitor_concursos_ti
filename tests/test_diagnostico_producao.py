@@ -45,7 +45,7 @@ def _caminho_bash(caminho: Path) -> str:
     return str(caminho).replace("\\", "/")
 
 
-def _rodar(raiz: Path) -> tuple[int, str]:
+def _rodar(raiz: Path, env_extra: dict[str, str] | None = None) -> tuple[int, str]:
     """Roda o script apontando para a arvore falsa e devolve (codigo, saida)."""
     env = os.environ.copy()
     # Garante um `python` que funciona no PATH do filho (o fallback do banco);
@@ -53,6 +53,7 @@ def _rodar(raiz: Path) -> tuple[int, str]:
     env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
     # A maquina de dev nao pode injetar config de producao por acidente.
     env.pop("MONITOR_TARGETS_JSON", None)
+    env.update(env_extra or {})
     # Caminho ABSOLUTO do bash: sem isso o CreateProcess do Windows acha o
     # bash.exe do WSL em System32 antes do bash do Git no PATH, e o WSL nao
     # entende caminhos C:/ (o script rodaria no bash errado e falharia com 127).
@@ -234,3 +235,25 @@ def test_conta_chave_ausente_por_dia(tmp_path):
     )
     _, saida = _rodar(tmp_path)
     assert f"{ontem:%Y%m%d}: 2" in saida
+
+
+def test_config_efetiva_mostra_areas_e_omite_segredo_do_json(tmp_path):
+    """Guarda: no MONITOR_TARGETS_JSON, token e chat_id nunca saem com valor."""
+    _criar_logs(tmp_path)
+    alvos = (
+        '[{"area": "TI", "display_name": "Tecnologia", "url": "https://exemplo.blog",'
+        ' "token": "654321:XYZTOKEN", "chat_ids": ["111222333"],'
+        ' "pci_slugs": ["desenvolvimento-de-sistemas"], "pci_nacional": true},'
+        ' {"area": "EDUCACAO", "url": "https://exemplo.blog/edu", "pci_nacional": false}]'
+    )
+    _, saida = _rodar(tmp_path, env_extra={"MONITOR_TARGETS_JSON": alvos})
+    assert "area TI (Tecnologia)" in saida
+    assert "porta gran: ligada" in saida
+    assert "porta pci_cargos: ligada (1 slug(s))" in saida
+    assert "porta pci_nacional: ligada" in saida
+    assert "area EDUCACAO" in saida
+    assert "porta pci_nacional: desligada" in saida
+    assert "XYZTOKEN" not in saida
+    assert "111222333" not in saida
+    assert "token: <omitido>" in saida
+    assert "chat_ids: <omitido> (1)" in saida
