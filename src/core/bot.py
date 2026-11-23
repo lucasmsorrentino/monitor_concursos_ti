@@ -109,8 +109,14 @@ class ConcursoBot:
         self.nacional_scraper = (
             PciNacionalScraper() if config.get('pci_nacional') else None
         )
-        # Quarta porta: o servidor MCP do PCI Concursos (esqueleto ainda).
-        self.mcp_scraper = None
+        # Quarta fonte: o servidor MCP do PCI Concursos, a porta que substitui
+        # as duas de HTML (ADR-0001). Os termos de busca vem em
+        # `pci_mcp_cargos`; a limpeza de termo vazio e do PciMcpScraper.
+        self.mcp_scraper = (
+            PciMcpScraper(config.get('pci_mcp_cargos') or [])
+            if config.get('pci_mcp')
+            else None
+        )
         self.dias_fonte_parada = int(
             config.get('dias_fonte_parada') or saude_fontes.DIAS_PARADA_PADRAO
         )
@@ -227,6 +233,38 @@ class ConcursoBot:
                     resultado = self._decidir_e_notificar(item, url_indice=item["link"])
                     novos_cont += resultado == "novo"
                     atualizados_cont += resultado == "atualizado"
+
+            # --- Fonte 2.5: PCI Concursos pelo servidor MCP (estruturado, sem LLM) ---
+            # Roda entre a pagina de cargo e a lista nacional de proposito:
+            # esta fonte alimenta o conjunto de links do PCI ja vistos nesta
+            # rodada e a lista nacional, logo abaixo, e quem o LE — entrando
+            # depois dela, os links do MCP chegariam tarde. Diferente da
+            # pagina de cargo, nao ha `enriquecer`: o MCP ja devolve
+            # `data_fim_inscricao` (ADR-0001).
+            if self.mcp_scraper:
+                try:
+                    itens_mcp = self.mcp_scraper.capturar_concursos()
+                except Exception as e:
+                    # O PciMcpScraper so levanta quando TODOS os termos
+                    # falharam. Conta como falha da area — o main.py sai com
+                    # codigo != 0 e o catch-up horario tenta de novo — mas nao
+                    # derruba a rodada: as fontes seguintes seguem.
+                    self.falhou = True
+                    self.logger.error(
+                        f"❌ [{self.area_name}] porta do MCP falhou: {e}. "
+                        f"As outras fontes seguem nesta rodada."
+                    )
+                else:
+                    diagnosticos.append(self._avaliar_fonte(
+                        "pci_mcp", (f"{i['pci_id']}|{i['status']}" for i in itens_mcp)
+                    ))
+
+                    for item in itens_mcp:
+                        validos += 1
+                        links_pci_vistos.add(item["link"])
+                        resultado = self._decidir_e_notificar(item, url_indice=item["link"])
+                        novos_cont += resultado == "novo"
+                        atualizados_cont += resultado == "atualizado"
 
             # --- Fonte 3: PCI Concursos, lista NACIONAL (estatal federal) ---
             if self.nacional_scraper:
@@ -463,6 +501,8 @@ class ConcursoBot:
         """URL que o alerta oferece pro Lucas abrir e conferir com o olho."""
         if fonte == "gran":
             return self.scraper.url
+        if fonte == "pci_mcp" and self.mcp_scraper:
+            return self.mcp_scraper.url
         if fonte == "pci_nacional" and self.nacional_scraper:
             return self.nacional_scraper.url
         return "https://www.pciconcursos.com.br/cargos/"
