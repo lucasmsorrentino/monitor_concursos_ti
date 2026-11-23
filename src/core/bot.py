@@ -4,11 +4,13 @@ Contém a classe :class:`ConcursoBot`, que coordena o fluxo completo:
 Scraping (HTML) → Extração via IA (JSON) → Banco de Dados → Notificação
 (Telegram) com botoes de interesse.
 
-Fontes (08/2026): cada area pode ler de mais de um lugar. O blog do Gran
+Fontes (11/2026): cada area pode ler de mais de um lugar. O blog do Gran
 devolve blocos de HTML que precisam da LLM para virar dados; o PCI Concursos
-devolve dados ja estruturados e nao passa pela LLM. O loop trata os dois como
-"candidatos" e so muda o caminho ate obter o dict de dados — dali pra frente
-(matriz de decisao, dedup, botoes) tudo e igual.
+devolve dados ja estruturados e nao passa pela LLM — pela pagina de cargo,
+pela lista nacional ou pelo servidor MCP, a porta nova que substitui as duas
+de HTML e nao precisa de `enriquecer` porque ja traz o prazo (ADR-0001). O
+loop trata todos como "candidatos" e so muda o caminho ate obter o dict de
+dados — dali pra frente (matriz de decisao, dedup, botoes) tudo e igual.
 """
 
 import html
@@ -24,6 +26,7 @@ from src.intelligence.langchain_unit import IntelligenceUnit
 from src.notifiers.telegram import TelegramNotifier
 from src.notifiers.telegram_callbacks import TelegramCallbackProcessor
 from src.scrapers.gran_scraper import GranScraper
+from src.scrapers.pci_mcp_scraper import PciMcpScraper
 from src.scrapers.pci_nacional_scraper import PciNacionalScraper
 from src.scrapers.pci_scraper import PciScraper
 from src.utils import memoria_json, saude_fontes
@@ -107,6 +110,14 @@ class ConcursoBot:
         # do PciNacionalScraper).
         self.nacional_scraper = (
             PciNacionalScraper() if config.get('pci_nacional') else None
+        )
+        # Quarta fonte: o servidor MCP do PCI Concursos, a porta que substitui
+        # as duas de HTML (ADR-0001). Os termos de busca vem em
+        # `pci_mcp_cargos`; a limpeza de termo vazio e do PciMcpScraper.
+        self.mcp_scraper = (
+            PciMcpScraper(config.get('pci_mcp_cargos') or [])
+            if config.get('pci_mcp')
+            else None
         )
         self.dias_fonte_parada = int(
             config.get('dias_fonte_parada') or saude_fontes.DIAS_PARADA_PADRAO
@@ -224,6 +235,38 @@ class ConcursoBot:
                     resultado = self._decidir_e_notificar(item, url_indice=item["link"])
                     novos_cont += resultado == "novo"
                     atualizados_cont += resultado == "atualizado"
+
+            # --- Fonte 2.5: PCI Concursos pelo servidor MCP (estruturado, sem LLM) ---
+            # Roda entre a pagina de cargo e a lista nacional de proposito:
+            # esta fonte alimenta o conjunto de links do PCI ja vistos nesta
+            # rodada e a lista nacional, logo abaixo, e quem o LE — entrando
+            # depois dela, os links do MCP chegariam tarde. Diferente da
+            # pagina de cargo, nao ha `enriquecer`: o MCP ja devolve
+            # `data_fim_inscricao` (ADR-0001).
+            if self.mcp_scraper:
+                try:
+                    itens_mcp = self.mcp_scraper.capturar_concursos()
+                except Exception as e:
+                    # O PciMcpScraper so levanta quando TODOS os termos
+                    # falharam. Conta como falha da area — o main.py sai com
+                    # codigo != 0 e o catch-up horario tenta de novo — mas nao
+                    # derruba a rodada: as fontes seguintes seguem.
+                    self.falhou = True
+                    self.logger.error(
+                        f"❌ [{self.area_name}] porta do MCP falhou: {e}. "
+                        f"As outras fontes seguem nesta rodada."
+                    )
+                else:
+                    diagnosticos.append(self._avaliar_fonte(
+                        "pci_mcp", (f"{i['pci_id']}|{i['status']}" for i in itens_mcp)
+                    ))
+
+                    for item in itens_mcp:
+                        validos += 1
+                        links_pci_vistos.add(item["link"])
+                        resultado = self._decidir_e_notificar(item, url_indice=item["link"])
+                        novos_cont += resultado == "novo"
+                        atualizados_cont += resultado == "atualizado"
 
             # --- Fonte 3: PCI Concursos, lista NACIONAL (estatal federal) ---
             if self.nacional_scraper:
@@ -460,6 +503,8 @@ class ConcursoBot:
         """URL que o alerta oferece pro Lucas abrir e conferir com o olho."""
         if fonte == "gran":
             return self.scraper.url
+        if fonte == "pci_mcp" and self.mcp_scraper:
+            return self.mcp_scraper.url
         if fonte == "pci_nacional" and self.nacional_scraper:
             return self.nacional_scraper.url
         return "https://www.pciconcursos.com.br/cargos/"
