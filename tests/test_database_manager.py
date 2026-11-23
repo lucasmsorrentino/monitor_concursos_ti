@@ -18,6 +18,59 @@ def db(db_path):
     manager.fechar_conexao()
 
 
+# Oracle do schema v6: conjunto escrito a mao a partir da SPEC-001 (secao 3.5)
+# e conferido por PRAGMA table_info, que e fonte independente do codigo de
+# migracao.
+COLUNAS_V6 = {
+    "id", "area", "nome", "status", "link",
+    "data_fim_inscricao", "status_hash", "fase", "estado_usuario",
+    "fonte", "pci_id",                                        # v5
+    "uf", "regiao", "esfera", "cargos_total", "salario_teto",  # v6
+    "elegibilidade", "motivo_filtro",                          # v6
+    "ultima_atualizacao",
+}
+
+COLUNAS_NOVAS_V6 = {
+    "uf", "regiao", "esfera", "cargos_total", "salario_teto",
+    "elegibilidade", "motivo_filtro",
+}
+
+
+def _criar_banco_v5(db_path):
+    """Monta a mao um banco no formato que o v5 deixava, com duas linhas."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE editais (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            area TEXT NOT NULL,
+            nome TEXT NOT NULL,
+            status TEXT NOT NULL,
+            link TEXT,
+            data_fim_inscricao TEXT,
+            status_hash TEXT,
+            fase TEXT,
+            estado_usuario TEXT NOT NULL DEFAULT 'ativo',
+            fonte TEXT,
+            pci_id TEXT,
+            ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(area, nome)
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO editais (area, nome, status, link, fonte, pci_id)"
+        " VALUES ('TI', 'SEFIN RO', 'edital publicado', 'https://x/sefin-ro',"
+        " 'pci', 'pci-123')"
+    )
+    conn.execute(
+        "INSERT INTO editais (area, nome, status, link, fonte, fase, data_fim_inscricao)"
+        " VALUES ('TI', 'TRF1', 'previsto', 'https://x/trf1', 'gran', 'previsto', '2026-12-31')"
+    )
+    conn.commit()
+    conn.close()
+
+
 class TestSchemaCreation:
     def test_creates_table_on_fresh_db(self, db_path):
         DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
@@ -29,12 +82,7 @@ class TestSchemaCreation:
 
         cursor.execute("PRAGMA table_info(editais)")
         columns = {row[1] for row in cursor.fetchall()}
-        assert columns == {
-            "id", "area", "nome", "status", "link",
-            "data_fim_inscricao", "status_hash", "fase", "estado_usuario",
-            "fonte", "pci_id",          # v5: PCI Concursos como segunda fonte
-            "ultima_atualizacao",
-        }
+        assert columns == COLUNAS_V6
         conn.close()
 
     def test_primary_key_is_autoincrement_id(self, db_path):
@@ -168,6 +216,67 @@ class TestMigration:
         assert count == 1
 
 
+class TestSchemaV6:
+    """Schema v6: sete colunas novas, nas duas pontas (banco novo e migrado)."""
+
+    def test_banco_novo_tem_as_colunas_do_v6(self, db_path):
+        DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(editais)")
+        colunas = {row[1] for row in cursor.fetchall()}
+        conn.close()
+
+        assert COLUNAS_NOVAS_V6 <= colunas
+
+    def test_migracao_do_v5_acrescenta_as_colunas(self, db_path):
+        _criar_banco_v5(db_path)
+        db = DatabaseManager(area="TI", db_path=db_path)
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(editais)")
+        colunas = {row[1] for row in cursor.fetchall()}
+        conn.close()
+        assert COLUNAS_NOVAS_V6 <= colunas
+
+        # Nada se perde: as duas linhas do v5 continuam la, com os valores
+        # de fonte e pci_id intactos e as colunas novas NULL.
+        reg_sefin = db.buscar_registro("SEFIN RO")
+        reg_trf1 = db.buscar_registro("TRF1")
+        assert reg_sefin is not None
+        assert reg_trf1 is not None
+        assert reg_sefin["status"] == "edital publicado"
+        assert reg_sefin["fonte"] == "pci"
+        assert reg_sefin["pci_id"] == "pci-123"
+        assert reg_trf1["fonte"] == "gran"
+        assert reg_trf1["fase"] == "previsto"
+        assert reg_trf1["data_fim_inscricao"] == "2026-12-31"
+        for coluna in COLUNAS_NOVAS_V6:
+            assert reg_sefin[coluna] is None
+            assert reg_trf1[coluna] is None
+
+        db.fechar_conexao()
+
+    def test_migracao_e_idempotente(self, db_path):
+        _criar_banco_v5(db_path)
+
+        colunas_por_abertura = []
+        for _ in range(3):
+            DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(editais)")
+            colunas_por_abertura.append({row[1] for row in cursor.fetchall()})
+            conn.close()
+
+        # Da segunda para a terceira abertura nenhuma coluna muda...
+        assert colunas_por_abertura[1] == colunas_por_abertura[2]
+        # ...e o conjunto final e exatamente o do v6, completo.
+        assert colunas_por_abertura[2] == COLUNAS_V6
+
+
 class TestEstadoUsuario:
     def test_default_estado_is_ativo(self, db):
         id_ = db.atualizar_concurso("TRF1", "aberto", "https://x/1")
@@ -188,6 +297,69 @@ class TestEstadoUsuario:
 
     def test_atualizar_estado_usuario_id_inexistente(self, db):
         assert db.atualizar_estado_usuario(9999, "ignorado") is False
+
+
+class TestGravacaoCamposV6:
+    """Gravacao dos sete campos: descricao se preserva, decisao se renova."""
+
+    def test_atualizar_concurso_grava_campos_novos(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "edital publicado", "https://x/sefaz-sc",
+            uf="SC", regiao="Sul", esfera="estadual",
+            cargos_total=42, salario_teto=18540.71,
+            elegibilidade="filtrado", motivo_filtro="abaixo_do_corte",
+        )
+
+        reg = db.buscar_registro("SEFAZ SC")
+        assert reg["uf"] == "SC"
+        assert reg["regiao"] == "Sul"
+        assert reg["esfera"] == "estadual"
+        assert reg["cargos_total"] == 42
+        assert reg["salario_teto"] == 18540.71
+        assert reg["elegibilidade"] == "filtrado"
+        assert reg["motivo_filtro"] == "abaixo_do_corte"
+
+    def test_coalesce_preserva_uf_quando_vem_none(self, db):
+        db.atualizar_concurso("SEFAZ SC", "v1", "https://x/sefaz-sc", uf="SC")
+        # Fonte que nao conhece a UF (None) nao apaga o que a outra descobriu.
+        db.atualizar_concurso("SEFAZ SC", "v2", "https://x/sefaz-sc", uf=None)
+        assert db.buscar_registro("SEFAZ SC")["uf"] == "SC"
+
+    def test_coalesce_preserva_salario_teto_quando_vem_none(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sefaz-sc", salario_teto=18540.71
+        )
+        db.atualizar_concurso(
+            "SEFAZ SC", "v2", "https://x/sefaz-sc", salario_teto=None
+        )
+        assert db.buscar_registro("SEFAZ SC")["salario_teto"] == 18540.71
+
+    def test_elegibilidade_e_sobrescrita_quando_vem_valor(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sefaz-sc", elegibilidade="filtrado"
+        )
+        # Decisao nova vence decisao velha: o edital saiu, o teto mudou.
+        db.atualizar_concurso(
+            "SEFAZ SC", "v2", "https://x/sefaz-sc", elegibilidade="elegivel"
+        )
+        assert db.buscar_registro("SEFAZ SC")["elegibilidade"] == "elegivel"
+
+    def test_elegibilidade_e_preservada_quando_vem_none(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sefaz-sc", elegibilidade="filtrado"
+        )
+        # Rodada em que o filtro esta desligado nao apaga a decisao gravada.
+        db.atualizar_concurso("SEFAZ SC", "v2", "https://x/sefaz-sc")
+        assert db.buscar_registro("SEFAZ SC")["elegibilidade"] == "filtrado"
+
+    def test_linha_pre_v6_nao_e_tocada(self, db_path):
+        _criar_banco_v5(db_path)
+        db = DatabaseManager(area="TI", db_path=db_path)
+
+        # Gravacao que nao passa o campo: elegibilidade nulo segue nulo.
+        db.atualizar_concurso("SEFIN RO", "fase nova")
+        assert db.buscar_registro("SEFIN RO")["elegibilidade"] is None
+        db.fechar_conexao()
 
 
 class TestBuscarRegistroEdataFim:
@@ -319,6 +491,103 @@ class TestLinkCanonicalIdentity:
         assert reg_a["status"] == "v2-novo"  # status atualizado
         reg_b = db.buscar_registro("Concurso Y", link=outro_link, url_indice=self.URL_INDICE)
         assert reg_b is not None  # row_B intacta
+
+
+class TestListarFiltrados:
+    """listar_filtrados: o que o resumo semanal le da area."""
+
+    DESDE_ANTIGO = "2000-01-01 00:00:00"
+
+    def test_listar_filtrados_so_traz_filtrado(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sc", uf="SC", salario_teto=9000.0,
+            elegibilidade="filtrado", motivo_filtro="abaixo_do_corte",
+        )
+        db.atualizar_concurso(
+            "SEFAZ PR", "v1", "https://x/pr", uf="PR", elegibilidade="elegivel",
+        )
+        # Linha sem decisao gravada (pre-v6): conta como elegivel, nao lista.
+        db.atualizar_concurso("SEFAZ RS", "v1", "https://x/rs", uf="RS")
+
+        lista = db.listar_filtrados(self.DESDE_ANTIGO)
+
+        assert [r["nome"] for r in lista] == ["SEFAZ SC"]
+        unico = lista[0]
+        assert unico["uf"] == "SC"
+        assert unico["salario_teto"] == 9000.0
+        assert unico["motivo_filtro"] == "abaixo_do_corte"
+        assert unico["link"] == "https://x/sc"
+
+    def test_listar_filtrados_respeita_desde(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sc", elegibilidade="filtrado"
+        )
+        db.atualizar_concurso(
+            "SEFAZ PR", "v1", "https://x/pr", elegibilidade="filtrado"
+        )
+        # ultima_atualizacao nao vem pela interface publica; o arranjo das
+        # datas entra por SQL direto, so para montar o cenario.
+        conn = sqlite3.connect(db.db_path)
+        conn.execute(
+            "UPDATE editais SET ultima_atualizacao = ? WHERE nome = 'SEFAZ SC'",
+            ("2026-11-10 08:00:00",),
+        )
+        conn.execute(
+            "UPDATE editais SET ultima_atualizacao = ? WHERE nome = 'SEFAZ PR'",
+            ("2026-11-20 08:00:00",),
+        )
+        conn.commit()
+        conn.close()
+
+        lista = db.listar_filtrados("2026-11-15 00:00:00")
+
+        assert [r["nome"] for r in lista] == ["SEFAZ PR"]
+
+    def test_listar_filtrados_nao_vaza_area(self, db_path):
+        db_ti = DatabaseManager(area="TI", db_path=db_path)
+        db_edu = DatabaseManager(area="EDUCACAO", db_path=db_path)
+        db_ti.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sc", elegibilidade="filtrado"
+        )
+        db_edu.atualizar_concurso(
+            "Prefeitura de X", "v1", "https://x/pref", elegibilidade="filtrado"
+        )
+
+        nomes_ti = [r["nome"] for r in db_ti.listar_filtrados(self.DESDE_ANTIGO)]
+        nomes_edu = [r["nome"] for r in db_edu.listar_filtrados(self.DESDE_ANTIGO)]
+
+        assert nomes_ti == ["SEFAZ SC"]
+        assert nomes_edu == ["Prefeitura de X"]
+
+        db_ti.fechar_conexao()
+        db_edu.fechar_conexao()
+
+    def test_listar_filtrados_ordena_por_teto_desc_com_null_no_fim(self, db):
+        db.atualizar_concurso(
+            "Teto Medio", "v1", "https://x/m", uf="SC",
+            salario_teto=3000.0, elegibilidade="filtrado",
+        )
+        db.atualizar_concurso(
+            "Teto Alto", "v1", "https://x/a", uf="SC",
+            salario_teto=12000.0, elegibilidade="filtrado",
+        )
+        db.atualizar_concurso(
+            "Sem Teto", "v1", "https://x/s", uf="SC", elegibilidade="filtrado",
+        )
+
+        lista = db.listar_filtrados(self.DESDE_ANTIGO)
+
+        assert [(r["nome"], r["salario_teto"]) for r in lista] == [
+            ("Teto Alto", 12000.0),
+            ("Teto Medio", 3000.0),
+            ("Sem Teto", None),
+        ]
+
+    def test_listar_filtrados_futuro_vazio(self, db):
+        db.atualizar_concurso(
+            "SEFAZ SC", "v1", "https://x/sc", elegibilidade="filtrado"
+        )
+        assert db.listar_filtrados("2099-01-01 00:00:00") == []
 
 
 class TestConnectionLifecycle:
