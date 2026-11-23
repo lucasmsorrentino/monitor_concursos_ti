@@ -3,7 +3,7 @@ id: T-006
 titulo: Config por area: as oito chaves novas
 tipo: codigo
 nivel: M-
-status: backlog
+status: entregue
 repo: principal
 spec: [SPEC-001, R-14]
 depende_de: []
@@ -11,6 +11,13 @@ toca: [config/loader.py, tests/test_config_loader.py, .env.example]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T11:38-03:00
+branch: t/T-006-config-por-area-as-oito-chaves-novas
+executor: glm
+executor_impl: glm
+corpo_lancado: f946d813ec5d
+fora_do_toca: []
+ponta: d9c08a233239bb81ad083b6ddd1f2affdff9faae
 ---
 # T-006 · Config por area: as oito chaves novas
 
@@ -116,3 +123,8 @@ Testes que nascem vermelhos em `tests/test_config_loader.py`:
   `analista de sistemas`, `tecnologia da informacao`, `desenvolvedor`, `programador`,
   `tecnico em informatica`, `informatica`, `analista de dados`, `ciencia da computacao`, `banco de dados`,
   `redes`, `suporte tecnico`, `computacao`, `software`.
+
+## Histórico
+- 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
+- 2026-11-23 11:26 pronto → fazendo · implementador · glm M-
+- 2026-11-23 11:38 fazendo → entregue · implementador: ENTREGUE · relatório T-006-implementador-1.md · 13 min
