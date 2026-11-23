@@ -394,3 +394,46 @@ class TestConfigPorAreaFailOpen:
             assert alvos[area]["cargos_total_inflado"] == 10
             assert isinstance(alvos[area]["cargos_total_inflado"], int)
         assert len(self._avisos(caplog, "cargos_total_inflado")) >= 1
+
+
+class TestAvisosDaPortaMcp:
+    def test_pci_mcp_sem_cargos_e_desligado_com_erro(self, monkeypatch, logger, caplog):
+        with caplog.at_level(logging.ERROR):
+            alvos = _carregar_alvos(monkeypatch, logger, [
+                _alvo_minimo(pci_mcp=True, pci_mcp_cargos=[])
+            ])
+
+        assert alvos["TI"]["pci_mcp"] is False
+        erros = [
+            rec.getMessage() for rec in caplog.records if rec.levelno == logging.ERROR
+        ]
+        assert erros
+        assert "nao vai render nada" in erros[0]
+
+    def test_pci_mcp_com_slugs_avisa_mas_nao_desliga(self, monkeypatch, logger, caplog):
+        with caplog.at_level(logging.WARNING):
+            alvos = _carregar_alvos(monkeypatch, logger, [
+                _alvo_minimo(
+                    area="COM_SLUGS",
+                    pci_mcp=True,
+                    pci_mcp_cargos=["informatica"],
+                    pci_slugs=["analista-de-sistemas"],
+                ),
+                _alvo_minimo(
+                    area="COM_NACIONAL",
+                    pci_mcp=True,
+                    pci_mcp_cargos=["informatica"],
+                    pci_nacional=True,
+                ),
+            ])
+
+        assert alvos["COM_SLUGS"]["pci_mcp"] is True
+        assert alvos["COM_SLUGS"]["pci_slugs"] == ["analista-de-sistemas"]
+        assert alvos["COM_NACIONAL"]["pci_mcp"] is True
+        assert alvos["COM_NACIONAL"]["pci_nacional"] is True
+        avisos = [
+            rec.getMessage()
+            for rec in caplog.records
+            if rec.levelno == logging.WARNING and "duplica" in rec.getMessage()
+        ]
+        assert avisos
