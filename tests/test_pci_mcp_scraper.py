@@ -266,6 +266,16 @@ class TestConstrucaoEDoPedido:
         assert post.call_count == 1
         assert len(itens) == 9
 
+    def test_posta_para_o_endpoint_do_servidor(self, mocker):
+        """O POST vai para o endpoint do servidor MCP, que e o `self.url` da porta."""
+        post = dublar_post(mocker, [corpo_de("tools_call_analista_de_sistemas.json")])
+
+        scraper = PciMcpScraper(["informatica"])
+        assert scraper.url == "https://mcp.pciconcursos.com.br/mcp"
+        scraper.capturar_concursos()
+
+        assert post.call_args.args[0] == "https://mcp.pciconcursos.com.br/mcp"
+
     def test_nao_envia_parametro_uf(self, mocker):
         """O pedido e tools/call de buscar_por_cargo com so `cargo`, sem `uf`."""
         post = dublar_post(mocker, [corpo_de("tools_call_analista_de_sistemas.json")])
