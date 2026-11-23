@@ -1627,10 +1627,10 @@ class TestFiltroSalarial:
         assert gravado["cargos_total"] == 72
         assert gravado["salario_teto"] == 8628.87
         # Contador de novos fecha em 0: a rodada termina no heartbeat de
-        # "nenhuma alteracao", nao no resumo de novidades.
+        # "nenhuma alteracao", que so sai quando novos e atualizados sao 0.
+        # (A outra mensagem possivel e o aviso de fonte do Gran vazio.)
         mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
-        assert len(mensagens) == 1
-        assert "não encontrei nenhuma alteração" in mensagens[0]
+        assert any("não encontrei nenhuma alteração" in m for m in mensagens)
 
     def test_municipal_inflado_nao_notifica(self, mock_deps, base_config, mocker):
         self._montar(mock_deps, base_config, mocker, [_item_mcp(**GUARATINGUETA_SP)])
