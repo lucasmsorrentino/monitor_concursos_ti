@@ -1,0 +1,281 @@
+{
+  "_nota": "Configuração da esteira. O script mescla este arquivo do projeto sobre o padrão da skill (modelos/esteira.json); 'repos' substitui inteiro. Regra de modelo do Lucas (07/11/2026): Claude só como Opus 5.5 e só em trabalho complexo (G); a única exceção é reaproveitar o cache de uma sessão Opus quente (seção 'cache').",
+  "versao": 1,
+  "projeto": "monitor-concursos",
+  "kanban": "kanban",
+  "worktrees": "_worktrees/{repo}-{id}",
+  "specs": [
+    "docs/specs/"
+  ],
+  "_nota_consulta": "Pastas de material de consulta (relativas à raiz do projeto ou absolutas). Quando preenchida, o prompt de todos os papéis ganha a linha «Material de consulta (só leitura)» com os caminhos absolutos, e o marcador {consulta} do comando do executor vira o fragmento `consulta` dele, repetido por pasta ({pasta} é o caminho absoluto). Só pasta que existe vira argumento: arquivo solto fica só no prompt, e entrada que não existe vira aviso no validar. O argumento dá à CLI acesso à pasta; o «só leitura» é instrução do prompt, não uma trava. No padrão: Claude e Antigravity com --add-dir, Qwen com --include-directories. O Codex roda sem sandbox e não precisa. O OpenCode não recebe: a config da skill (modelos/opencode-esteira.json) nega às ferramentas de arquivo o que está fora do worktree (o shell lê). O projeto que precisa aponta OPENCODE_CONFIG, no env do executor, para um arquivo próprio que libere as pastas; o formato das permissões muda entre versões do OpenCode, então confira na documentação da versão instalada.",
+  "consulta": [],
+  "_nota_recursos": "O que não é arquivo e os tickets disputam: GPU, emulador, aparelho, Colab. O ticket declara `recursos: [gpu]`. Recurso comum: só `vagas` tickets (padrão 1) o usam ao mesmo tempo, contando os que estão em fazendo e revisando; `condicao` (opcional) é um comando que precisa sair com 0 para o recurso valer, conferido no proximos e no lancar (teto de 30 s). Recurso do dono (`humano: true`): o ticket espera em pronto até o corpo trazer uma linha que começa por «Recurso <nome>: feito» (citada no meio de uma frase, não vale); `passos` (opcional) é o caminho da lista do que o dono faz. Exemplo: {\"gpu\": {\"vagas\": 1, \"condicao\": \"nvidia-smi\"}, \"colab\": {\"humano\": true, \"passos\": \"docs/COLAB.md\"}}",
+  "recursos": {
+    "notebook": {
+      "humano": true,
+      "passos": "docs/DEPLOY-PCI-MCP.md",
+      "_nota": "Notebook Linux de producao (lucas-inspiron-3583, Tailscale 100.98.50.59). Só o Lucas alcanca: o segredo vive em ~/concursos-secrets/monitor.env, fora do repo."
+    }
+  },
+  "repos": {
+    "principal": {
+      "nome": "monitor_concursos",
+      "caminho": ".",
+      "integracao": "main",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "lint": "",
+      "_nota": "O worktree nao tem .venv: o teste roda o interpretador do venv do checkout principal por caminho absoluto, com cwd no worktree, entao `python -m pytest` poe o worktree em sys.path[0] e testa o codigo do ticket. A suite leva mais de 2 min.",
+      "env": {
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8"
+      },
+      "teto_teste_min": 15
+    }
+  },
+  "executores": {
+    "opus": {
+      "provedor": "claude",
+      "comando": "claude -p {consulta} --model claude-opus-5-5 --effort {effort} --permission-mode auto --session-id {sessao} \"{instrucao}\"",
+      "retomar": "claude -p --resume {sessao} {add_dir} {consulta} --model claude-opus-5-5 --effort {effort} --permission-mode auto \"{instrucao}\"",
+      "consulta": "--add-dir \"{pasta}\"",
+      "familia": "anthropic"
+    },
+    "glm": {
+      "provedor": "opencode",
+      "env": {
+        "OPENCODE_CONFIG": "{skill}/modelos/opencode-esteira.json"
+      },
+      "comando": "opencode run --standalone --archived -m zai-coding-plan/glm-5.3{variant_sufixo} \"{instrucao}\" < /dev/null",
+      "esforcos": [
+        "high"
+      ],
+      "familia": "zai"
+    },
+    "glm-flash": {
+      "provedor": "opencode",
+      "env": {
+        "OPENCODE_CONFIG": "{skill}/modelos/opencode-esteira.json"
+      },
+      "comando": "opencode run --standalone --archived -m zai-coding-plan/glm-5.3-flash{variant_sufixo} \"{instrucao}\" < /dev/null",
+      "esforcos": [
+        "high"
+      ],
+      "familia": "zai"
+    },
+    "deepseek-flash": {
+      "provedor": "opencode",
+      "env": {
+        "OPENCODE_CONFIG": "{skill}/modelos/opencode-esteira.json"
+      },
+      "comando": "opencode run --standalone --archived -m opencode-go/deepseek-v4.1-flash{variant_sufixo} \"{instrucao}\" < /dev/null",
+      "esforcos": [
+        "high"
+      ],
+      "familia": "deepseek"
+    },
+    "qwen-max": {
+      "provedor": "qwen",
+      "comando": "qwen {consulta} -m qwen3.8-max --yolo \"{instrucao}\"",
+      "consulta": "--include-directories \"{pasta}\"",
+      "familia": "qwen"
+    },
+    "qwen-flash": {
+      "provedor": "qwen",
+      "comando": "qwen {consulta} -m qwen3.8-flash --yolo \"{instrucao}\"",
+      "consulta": "--include-directories \"{pasta}\"",
+      "familia": "qwen"
+    },
+    "agy-hydrogen": {
+      "provedor": "antigravity",
+      "esforco_padrao": "medium",
+      "comando": "agy -p \"{instrucao}\" --mode accept-edits --model gemini-4-hydrogen-{variant_valor} --settings \"{skill}/modelos/agy-esteira.json\" --add-dir \"{git_dir}\" {consulta}",
+      "consulta": "--add-dir \"{pasta}\"",
+      "esforcos": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "familia": "google"
+    },
+    "agy-neon": {
+      "provedor": "antigravity",
+      "esforco_padrao": "medium",
+      "comando": "agy -p \"{instrucao}\" --mode accept-edits --model gemini-4-neon-{variant_valor} --settings \"{skill}/modelos/agy-esteira.json\" --add-dir \"{git_dir}\" {consulta}",
+      "consulta": "--add-dir \"{pasta}\"",
+      "esforcos": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "familia": "google"
+    },
+    "agy-flash": {
+      "provedor": "antigravity",
+      "esforco_padrao": "medium",
+      "comando": "agy -p \"{instrucao}\" --mode accept-edits --model gemini-3.8-flash-{variant_valor} --settings \"{skill}/modelos/agy-esteira.json\" --add-dir \"{git_dir}\" {consulta}",
+      "consulta": "--add-dir \"{pasta}\"",
+      "esforcos": [
+        "medium",
+        "high"
+      ],
+      "familia": "google"
+    },
+    "agy-argon": {
+      "provedor": "antigravity",
+      "esforco_padrao": "medium",
+      "comando": "agy -p \"{instrucao}\" --mode accept-edits --model gemini-4-argon-{variant_valor} --settings \"{skill}/modelos/agy-esteira.json\" --add-dir \"{git_dir}\" {consulta}",
+      "consulta": "--add-dir \"{pasta}\"",
+      "esforcos": [
+        "medium",
+        "high"
+      ],
+      "familia": "google"
+    },
+    "codex": {
+      "provedor": "codex",
+      "esforco_padrao": "medium",
+      "comando": "codex exec -s danger-full-access -c approval_policy='\"never\"' -m gpt-6.1-sol -c model_reasoning_effort='\"{variant_valor}\"' --color never \"{instrucao}\" < /dev/null",
+      "familia": "openai"
+    },
+    "codex-luna": {
+      "provedor": "codex",
+      "esforco_padrao": "medium",
+      "comando": "codex exec -s danger-full-access -c approval_policy='\"never\"' -m gpt-6-luna -c model_reasoning_effort='\"{variant_valor}\"' --color never \"{instrucao}\" < /dev/null",
+      "familia": "openai"
+    }
+  },
+  "_nota_esforco": "Um só esforço por nível: `niveis.<nível>.esforco` (low < medium < high < xhigh < max; sem a chave, vale `esforco_padrao` do executor; sem esta, high no Claude e nenhum sufixo no OpenCode). Cada executor pode ter `esforco_padrao` e `esforcos`, a lista dos valores que ele aceita (sem a chave, aceita qualquer um): se o nível pede um valor fora da lista, vale o maior aceito abaixo dele; sem nenhum abaixo, é como se o nível não pedisse e vale o padrão. A skill só confere `#high` no OpenCode e `-medium`/`-high`/`-xhigh` no Antigravity (o `-xhigh` só no Neon e no Hydrogen). O valor efetivo alimenta {effort}, {variant}, {variant_sufixo} e {variant_valor}. As chaves antigas `effort` e `variant` do nível e `variant_padrao` do executor continuam lidas em esteira.json de projeto.",
+  "niveis": {
+    "P-": {
+      "executor": "glm-flash"
+    },
+    "P+": {
+      "executor": "glm-flash",
+      "esforco": "high"
+    },
+    "M-": {
+      "executor": "glm"
+    },
+    "M+": {
+      "executor": "glm",
+      "esforco": "high"
+    },
+    "G-": {
+      "executor": "opus",
+      "esforco": "high"
+    },
+    "G+": {
+      "executor": "opus",
+      "esforco": "xhigh"
+    }
+  },
+  "reservas": {
+    "_nota": "O proximos usa a primeira reserva com vaga quando o provedor do nível está lotado; o lancar também aceita --executor quando a cota acabou. G não tem reserva: espera a cota do Opus. Decisão do Lucas (08/11/2026): Antigravity só com modelos do Google (Gemini) e Codex (ChatGPT) sem sandbox, porque no sandbox do Windows ele não comita, não escreve no cache do uv e não tem rede.",
+    "P": [
+      "agy-hydrogen",
+      "codex-luna",
+      "deepseek-flash",
+      "qwen-flash"
+    ],
+    "M": [
+      "agy-neon",
+      "codex",
+      "qwen-max"
+    ],
+    "G": []
+  },
+  "papeis": {
+    "arquiteto": {
+      "nivel": "G+"
+    },
+    "despachante": {
+      "nivel": "P-"
+    },
+    "revisor": {
+      "por_nivel": {
+        "P": "M-",
+        "M": "M+",
+        "G": "G-"
+      },
+      "outra_familia": true,
+      "candidatos": {
+        "M-": [
+          "glm",
+          "codex",
+          "agy-neon"
+        ],
+        "M+": [
+          "glm",
+          "codex",
+          "agy-neon"
+        ],
+        "G-": [
+          "opus",
+          "codex",
+          "agy-neon"
+        ]
+      },
+      "_nota": "Decisão do Lucas (08/11/2026): o revisor é de família diferente da do implementador (Anthropic, Z.ai, OpenAI, Google), no nível do revisor (um degrau acima). O proximos percorre os candidatos em ordem até achar vaga; sem outra família disponível, volta à lista inteira."
+    },
+    "integrador": {
+      "nivel": "M-",
+      "com_conflito": "G-",
+      "modo": "script",
+      "_nota": "`script` (padrão): o proximos manda `esteira.py integrar T-NNN`, sem modelo e sem vaga de provedor; o agente integrador (`lancar`) fica para o conflito. `agente`: o proximos escolhe o executor do integrador, como antes."
+    }
+  },
+  "limites": {
+    "claude": 2,
+    "opencode": 3,
+    "codex": 2,
+    "antigravity": 2,
+    "integracoes_por_repo": 1
+  },
+  "max_retornos": 1,
+  "rodar": {
+    "_nota": "O laço `esteira.py rodar`. `shell`: o interpretador que recebe o arquivo com o comando do agente (vazio = bash; no Windows, o do Git, nunca o do WSL). `tetos_min`: minutos por agente; estourou, o laço mata a árvore do processo e bloqueia o ticket (medido no pklot: implementador até 29 min em P, 70 em M e 89 em G; revisor até 29). `espera_cota_min`: por quanto tempo um provedor que respondeu com erro de cota fica fora do despacho do laço. `vigiar_integracao` (padrão true): o laço guarda a ponta da branch de integração de cada repo ao começar e freia, até o fim da execução, se ela mudar por fora (só o `integrar` do próprio laço pode mudá-la).",
+    "shell": [],
+    "tetos_min": {
+      "implementador": {
+        "P": 45,
+        "M": 90,
+        "G": 150
+      },
+      "revisor": 45,
+      "integrador": 30
+    },
+    "espera_cota_min": 30,
+    "vigiar_integracao": true
+  },
+  "aviso": {
+    "_nota": "Opcional. `comando` roda no shell padrão do sistema, na raiz do projeto, quando o laço `rodar` termina e a cada ticket que bloqueia; o texto do resumo vai na entrada padrão. Variáveis: ESTEIRA_EVENTO (fim, bloqueio ou freio), ESTEIRA_TICKET (o ticket, quando há) e ESTEIRA_RESUMO (o caminho do RESUMO.md). Serve para ntfy, um bot do Telegram ou qualquer outro canal. Exemplo: curl -s -d @- https://ntfy.sh/<seu-topico>. Falha do comando nunca derruba o laço.",
+    "comando": ""
+  },
+  "doutor": {
+    "_nota": "O `esteira.py doutor` testa cada executor com um pedido de uma linha e grava kanban/doutor.json. Um executor reprovado há menos de `validade_h` horas fica fora da escolha do proximos, do lancar sem --executor e do laço rodar.",
+    "validade_h": 24
+  },
+  "pesos": {
+    "P": 1,
+    "M": 3,
+    "G": 8
+  },
+  "cache": {
+    "_nota": "Exceção de economia: um ticket destes níveis pode rodar na sessão Opus que já tem o contexto (afinidade), se ela está quente (dentro do TTL do cache, lido do transcrito) e não passou de contexto_max_tokens.",
+    "ttl_minutos": 5,
+    "contexto_max_tokens": 150000,
+    "niveis_elegiveis": [
+      "P-",
+      "P+",
+      "M-"
+    ]
+  },
+  "_nota_antigravity": "Antigravity (agy 1.5, desde 19/11/2026): só modelos do Google. Reservas e revisor no Gemini 4: Hydrogen (o rápido) em P, Neon (o padrão do Antigravity desde 18/11) em M e na revisão; o Argon e o 3.8 Flash continuam definidos para os projetos que os citam. `--mode accept-edits` é obrigatório: sem `--mode`, o `agy -p` roda no modo auto (desde a 1.5.7), que tenta cada comando primeiro no sandbox do Windows, onde ele falha por acesso (lock do git, python.exe, cache do Flutter) ou trava (o laço do tempfile do pytest); o agente então pede para sair do sandbox e os monitores do agy disparam. Fora do auto, os comandos passam pela regra `command(*)` de modelos/agy-esteira.json, que também desliga o sandbox (`enableTerminalSandbox`) caso o settings.json do usuário o ligue. O validar e o doutor avisam o executor do Antigravity sem `--mode` ou com `--mode auto`.",
+  "_nota_opencode": "OpenCode 2.x (desde 08/11/2026): o esforço vai no modelo (`#high`, placeholder {variant_sufixo}); --standalone sobe um servidor privado, o único jeito de o OPENCODE_CONFIG valer (sem ele, o CLI usa o serviço do app desktop); --archived tira a sessão da lista do app. A config da esteira (modelos/opencode-esteira.json) nega caminhos fora do worktree às ferramentas de arquivo (o shell não é coberto) e nega a busca na web: na 2.2.6 ela pede uma resposta que a execução headless não dá e derruba o exit code, mesmo com allow e --auto. O webfetch fica liberado. Para OpenCode 1.x, use `-m modelo {variant}`.",
+  "aprovacao_humana": {
+    "letras": [
+      "G"
+    ],
+    "marca": "OK do Lucas:"
+  }
+}

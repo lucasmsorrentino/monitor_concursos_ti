@@ -34,3 +34,6 @@ logs/
 # --- Sistema Operacional ---
 .DS_Store
 Thumbs.db
+# Worktrees da esteira SDD
+_worktrees/
+.esteira/
