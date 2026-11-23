@@ -130,6 +130,23 @@ class DatabaseManager:
                 cursor.execute(
                     "CREATE INDEX IF NOT EXISTS idx_editais_pci ON editais(area, pci_id)"
                 )
+            # v6: contexto do concurso e a decisao de elegibilidade. Migracao
+            # aditiva e sem backfill — linha anterior ao v6 fica NULL e conta
+            # como elegivel (nao se renotifica, nao se reavalia, nao se apaga).
+            if "uf" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN uf TEXT")
+            if "regiao" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN regiao TEXT")
+            if "esfera" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN esfera TEXT")
+            if "cargos_total" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN cargos_total INTEGER")
+            if "salario_teto" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN salario_teto REAL")
+            if "elegibilidade" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN elegibilidade TEXT")
+            if "motivo_filtro" not in column_names:
+                cursor.execute("ALTER TABLE editais ADD COLUMN motivo_filtro TEXT")
 
             self.conn.commit()
         except sqlite3.Error as e:
@@ -152,6 +169,13 @@ class DatabaseManager:
                 estado_usuario TEXT NOT NULL DEFAULT 'ativo',
                 fonte TEXT,
                 pci_id TEXT,
+                uf TEXT,
+                regiao TEXT,
+                esfera TEXT,
+                cargos_total INTEGER,
+                salario_teto REAL,
+                elegibilidade TEXT,
+                motivo_filtro TEXT,
                 ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(area, nome)
             )
@@ -175,6 +199,13 @@ class DatabaseManager:
                 estado_usuario TEXT NOT NULL DEFAULT 'ativo',
                 fonte TEXT,
                 pci_id TEXT,
+                uf TEXT,
+                regiao TEXT,
+                esfera TEXT,
+                cargos_total INTEGER,
+                salario_teto REAL,
+                elegibilidade TEXT,
+                motivo_filtro TEXT,
                 ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(area, nome)
             )
