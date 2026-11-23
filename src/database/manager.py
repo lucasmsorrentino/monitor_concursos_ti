@@ -1,6 +1,6 @@
 """Persistencia SQLite para o monitor de concursos.
 
-Schema v5 (atual):
+Schema v6 (atual):
     editais(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         area TEXT NOT NULL,
@@ -13,6 +13,13 @@ Schema v5 (atual):
         estado_usuario TEXT NOT NULL DEFAULT 'ativo',  -- ativo|ignorado|seguindo
         fonte TEXT,                    -- 'gran' | 'pci'  (v5)
         pci_id TEXT,                   -- id da noticia no PCI, chave canonica (v5)
+        uf TEXT,                       -- sigla da UF do orgao (v6)
+        regiao TEXT,                   -- Sul | NACIONAL | ... (v6)
+        esfera TEXT,                   -- federal|estadual|distrital|municipal|conselho_profissional (v6)
+        cargos_total INTEGER,          -- quantos cargos o edital inteiro tem (v6)
+        salario_teto REAL,             -- teto do concurso, o maior salario do edital (v6)
+        elegibilidade TEXT,            -- decisao do bot: 'filtrado' | 'elegivel' | NULL = pre-v6 (v6)
+        motivo_filtro TEXT,            -- motivo do corte, conjunto fechado (v6)
         ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(area, nome)
     )
@@ -30,6 +37,10 @@ Historico de migracoes:
     v5: adiciona `fonte` e `pci_id`, quando o PCI Concursos entrou como segunda
         fonte ao lado do blog do Gran. Linhas anteriores sao backfilled com
         fonte='gran', que e de fato a unica origem que existia ate entao.
+    v6: adiciona `uf`, `regiao`, `esfera`, `cargos_total`, `salario_teto`,
+        `elegibilidade` e `motivo_filtro`. Aditiva e SEM backfill: linha
+        anterior ao v6 fica com `elegibilidade` NULL e conta como elegivel —
+        ja foi notificada, nao se renotifica, nao se reavalia e nao se apaga.
 
 Ordem de identidade (do mais forte pro mais fraco):
     1. `pci_id` — id da noticia no PCI, estavel entre rodadas.
@@ -83,7 +94,7 @@ class DatabaseManager:
         self._ensure_schema()
 
     def _ensure_schema(self):
-        """Cria a tabela v3 ou migra esquemas antigos (v1, v2) para v3."""
+        """Cria a tabela atual ou migra esquemas antigos, sempre de forma aditiva e idempotente."""
         try:
             cursor = self.conn.cursor()
 
@@ -309,6 +320,17 @@ class DatabaseManager:
         return row["n"] if row else 0
 
     def listar_filtrados(self, desde: str) -> list[dict]:
+        """Lista os concursos que o filtro silenciou nesta area, do `desde` em diante.
+
+        E o que o resumo semanal le: so linhas com `elegibilidade = 'filtrado'`
+        e `ultima_atualizacao >= desde`, ordenadas por `salario_teto`
+        decrescente com NULL no fim. Linha pre-v6 (`elegibilidade` NULL) conta
+        como elegivel e nunca aparece aqui.
+
+        Returns:
+            list[dict]: um dict por linha, com ao menos `nome`, `uf`,
+            `salario_teto`, `motivo_filtro` e `link`.
+        """
         # `ultima_atualizacao >= desde` compara TEXTO de proposito: as duas
         # pontas sao AAAA-MM-DD HH:MM:SS (CURRENT_TIMESTAMP do SQLite), formato
         # em que ordem lexicografica e ordem cronologica. Nao "melhore" para
@@ -352,6 +374,13 @@ class DatabaseManager:
         A identidade sai de :meth:`buscar_registro`, entao busca e escrita usam
         exatamente a mesma regra. Preservar o `id` e obrigatorio: ele viaja no
         callback_data dos botoes do Telegram de mensagens ja enviadas.
+
+        Os campos do v6 (`uf` a `salario_teto`, `elegibilidade`, `motivo_filtro`)
+        sao opcionais: quem nao conhece o valor passa `None` e nao apaga o que
+        ja esta gravado. `elegibilidade` e `motivo_filtro` seguem a mesma regra
+        com uma diferenca de leitura: sao decisao, nao descricao — valor novo e
+        decisao nova, que vence a velha; `None` e rodada que nao avaliou, que
+        preserva a decisao gravada.
 
         Returns:
             int: `id` da linha (nova ou existente), ou 0 em erro.
