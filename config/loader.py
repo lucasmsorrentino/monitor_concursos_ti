@@ -3,6 +3,11 @@
 Suporta dois formatos:
 1) Legado (single-area): usa URL_ALVO + TELEGRAM_CHAT_ID.
 2) Multi-area: usa MONITOR_TARGETS_JSON com lista de alvos.
+
+Os dois caminhos devolvem, em cada alvo, as oito chaves por area da
+SPEC-001 (secao 3.6) — a porta do MCP e a elegibilidade — com padrao
+seguro: valor invalido loga aviso e cai no padrao, nunca no modo
+agressivo, e lista vazia explicita e respeitada.
 """
 
 from __future__ import annotations
