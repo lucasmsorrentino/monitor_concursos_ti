@@ -173,7 +173,13 @@ class ConcursoBot:
                ``IntelligenceUnit``; o PCI devolve dados ja estruturados.
             3. Matriz de decisao por concurso — ver ``_decidir_e_notificar``.
             4. Mensagem final: alerta se a varredura ficou cega ou se muitos
-               blocos se perderam na extracao; caso contrario heartbeat.
+               blocos se perderam na extracao; caso contrario heartbeat. A
+               cegueira por falta de materia-prima (0 blocos do Gran) so vale
+               quando nem a pagina de cargo nem a porta do MCP estao ligadas.
+            5. Aviso por fonte doente, quando o agregado ficou quieto.
+            6. Com ``resumo_filtrados == "semanal"``, o resumo do que o filtro
+               salarial silenciou nos ultimos 7 dias, uma vez por semana ISO
+               — ver ``_enviar_resumo_semanal``.
         """
         self.logger.info(f"🔍 Iniciando captura de novos editais para area [{self.area_name}]...")
 
@@ -884,10 +890,26 @@ class ConcursoBot:
         a cada extracao (fonte dos antigos falsos positivos). So avanco de fase
         ou mudanca de data geram notificacao; reescrita e regressao de fase nao.
 
+        Filtro salarial (SPEC-001, secoes 4.2 e 4.3): so o item de porta que
+        carrega `regiao` (hoje, a do MCP) e avaliado por
+        `elegibilidade.decidir`, com a `Politica` da area. Item do Gran, da
+        pagina de cargo ou da lista nacional segue a matriz sem avaliacao, sem
+        selo e sem gravar `elegibilidade`. Item avaliado grava as sete colunas
+        do v6 (`uf`, `regiao`, `esfera`, `cargos_total`, `salario_teto`,
+        `elegibilidade`, `motivo_filtro`) em toda gravacao. Com
+        `filtro_salarial` desligado a decisao e sempre `filtro_desligado` e
+        nada muda para o usuario.
+
         Matriz:
-            - estado 'ignorado' → skip total (nem atualiza DB)
-            - registro None + inativo → salva silencioso
-            - registro None + ativo → notifica NOVO + salva
+            - estado 'ignorado' → skip total (nem atualiza DB, nem avalia)
+            - item avaliado e filtrado → salva silencioso com
+              `elegibilidade='filtrado'` e o motivo; nunca notifica, nem para
+              linha que antes entrava (nada se apaga nem se renotifica)
+            - item avaliado que entra → `elegibilidade='elegivel'` e segue:
+            - registro None (ou linha avaliada que estava 'filtrado', que o
+              usuario nunca viu) + inativo → salva silencioso
+            - idem + ativo → notifica NOVO + salva; o selo da decisao
+              (`⚠️ salario nao verificado`) entra como linha do card
             - registro legado (fase NULL) → backfill silencioso da fase
             - sem avanco de fase e sem mudanca de data → refresh silencioso
             - transicao real (fase avancou e/ou data mudou):
