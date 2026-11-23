@@ -3,7 +3,7 @@ id: T-004
 titulo: Porta do PCI pelo servidor MCP
 tipo: codigo
 nivel: M+
-status: backlog
+status: entregue
 repo: principal
 spec: [SPEC-001, R-03]
 depende_de: []
@@ -11,6 +11,13 @@ toca: [src/scrapers/pci_mcp_scraper.py, tests/test_pci_mcp_scraper.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T11:28-03:00
+branch: t/T-004-porta-do-pci-pelo-servidor-mcp
+executor: glm
+executor_impl: glm
+corpo_lancado: 7bfbac42eb14
+fora_do_toca: []
+ponta: b4307bc4011edbd865e70851f127afa7673975ce
 ---
 # T-004 · Porta do PCI pelo servidor MCP
 
@@ -143,3 +150,8 @@ Testes que nascem vermelhos em `tests/test_pci_mcp_scraper.py`:
   afirma **igualdade** com o resultado do JSON, o que prova que a forma do transporte nao muda o item.
 - Nenhuma fixture tem item **sem** salario legivel. Se precisar desse caso, edite uma copia da fixture no
   proprio teste; nao saia buscando outro termo no servidor.
+
+## Histórico
+- 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
+- 2026-11-23 11:16 pronto → fazendo · implementador · glm M+ high
+- 2026-11-23 11:28 fazendo → entregue · implementador: ENTREGUE · relatório T-004-implementador-1.md · 12 min

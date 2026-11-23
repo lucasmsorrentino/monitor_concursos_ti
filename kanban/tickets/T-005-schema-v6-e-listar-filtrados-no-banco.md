@@ -3,7 +3,7 @@ id: T-005
 titulo: Schema v6 e listar_filtrados no banco
 tipo: codigo
 nivel: M+
-status: backlog
+status: entregue
 repo: principal
 spec: [SPEC-001, R-10]
 depende_de: []
@@ -11,6 +11,13 @@ toca: [src/database/manager.py, tests/test_database_manager.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T11:51-03:00
+branch: t/T-005-schema-v6-e-listar-filtrados-no-banco
+executor: glm
+executor_impl: glm
+corpo_lancado: f9d4d69520b4
+fora_do_toca: []
+ponta: e6b399e670da0b534e566034ba4788422fa1ef8d
 ---
 # T-005 · Schema v6 e listar_filtrados no banco
 
@@ -120,3 +127,8 @@ Testes que nascem vermelhos em `tests/test_database_manager.py`:
 - `listar_filtrados` compara `ultima_atualizacao >= desde` como texto. As duas pontas sao
   `AAAA-MM-DD HH:MM:SS` (`CURRENT_TIMESTAMP` do SQLite), formato em que ordem lexicografica e ordem
   cronologica. Documente isso num comentario para ninguem "melhorar" depois.
+
+## Histórico
+- 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
+- 2026-11-23 11:25 pronto → fazendo · implementador · glm M+ high
+- 2026-11-23 11:51 fazendo → entregue · implementador: ENTREGUE · relatório T-005-implementador-1.md · 27 min

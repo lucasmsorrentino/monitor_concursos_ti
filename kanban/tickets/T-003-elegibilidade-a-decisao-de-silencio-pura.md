@@ -3,7 +3,7 @@ id: T-003
 titulo: Elegibilidade: a decisao de silencio, pura
 tipo: codigo
 nivel: G-
-status: backlog
+status: entregue
 repo: principal
 spec: [SPEC-001, R-02]
 depende_de: []
@@ -11,6 +11,14 @@ toca: [src/core/elegibilidade.py, tests/test_elegibilidade.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T11:21-03:00
+branch: t/T-003-elegibilidade-a-decisao-de-silencio-pura
+executor: opus
+executor_impl: opus
+corpo_lancado: 9ccf8ce6d27b
+sessao: 9eb18560-77a2-4f90-afb5-e14907be9838
+fora_do_toca: []
+ponta: e2bcc9244f294db8c777ccbe90d23891e26f9e29
 ---
 # T-003 · Elegibilidade: a decisao de silencio, pura
 
@@ -123,3 +131,8 @@ Testes que nascem vermelhos em `tests/test_elegibilidade.py`:
   encoding, mas defina-o como constante no modulo e importe-a nos testes, em vez de repetir a string.
 - Use `tuple` nos campos de colecao da `Politica`, como a spec declara: `dataclass(frozen=True)` com `list`
   nao e hashavel e convida a mutacao acidental.
+
+## Histórico
+- 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
+- 2026-11-23 11:16 pronto → fazendo · implementador · opus G- high
+- 2026-11-23 11:21 fazendo → entregue · implementador: ENTREGUE · relatório T-003-implementador-1.md · 5 min
