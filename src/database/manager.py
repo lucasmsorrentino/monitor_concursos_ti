@@ -308,6 +308,9 @@ class DatabaseManager:
         ).fetchone()
         return row["n"] if row else 0
 
+    def listar_filtrados(self, desde: str) -> list[dict]:
+        raise NotImplementedError
+
     def atualizar_concurso(
         self,
         nome: str,
@@ -319,6 +322,13 @@ class DatabaseManager:
         fase: str | None = None,
         fonte: str | None = None,
         pci_id: str | None = None,
+        uf: str | None = None,
+        regiao: str | None = None,
+        esfera: str | None = None,
+        cargos_total: int | None = None,
+        salario_teto: float | None = None,
+        elegibilidade: str | None = None,
+        motivo_filtro: str | None = None,
     ) -> int:
         """Insere novo concurso ou atualiza existente, preservando `id`.
 
