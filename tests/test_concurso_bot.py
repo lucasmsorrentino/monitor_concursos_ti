@@ -1322,6 +1322,27 @@ class TestFonteMcp:
         nacional.capturar_concursos.assert_called_once()     # a fonte seguinte seguiu
         assert bot.falhou is True                            # ...mas conta como falha
 
+    def test_gran_vazio_com_mcp_trazendo_item_nao_e_cegueira(
+        self, mock_deps, base_config, mocker
+    ):
+        """Gran com 0 blocos, pagina de cargo desligada e a porta do MCP com item.
+
+        E o deploy da porta do MCP como unica porta do PCI: `pci_slugs` sai,
+        e um dia em que o blog do Gran nao devolve nada nao e varredura cega
+        enquanto o MCP trouxe materia-prima.
+        """
+        self._montar(mock_deps, base_config, mocker, [self._item(1)])
+        base_config["keywords_include"] = ["ti"]
+        mock_deps["db"].buscar_registro.return_value = None
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.pci_scraper is None
+        assert bot.falhou is False
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert not any("Atenção" in m for m in mensagens)
+
     def test_mcp_e_gran_na_mesma_rodada_somam_contadores(
         self, mock_deps, base_config, mocker
     ):
