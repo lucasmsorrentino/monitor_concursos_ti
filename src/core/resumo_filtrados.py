@@ -92,4 +92,5 @@ def marcador_da_semana(hoje: date) -> str:
     semana ISO (date.isocalendar()), nao o ano civil: 2027-01-03 e domingo da
     semana 53 do ano ISO 2026 e precisa devolver a mesma chave de 2026-12-28.
     """
-    raise NotImplementedError("marcador_da_semana ainda nao esta implementado")
+    ano_iso, semana, _ = hoje.isocalendar()
+    return f"{ano_iso}-S{semana:02d}"
