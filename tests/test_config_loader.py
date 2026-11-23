@@ -22,6 +22,17 @@ def _clear_env(monkeypatch):
         "URL_ALVO",
         "KEYWORDS_INCLUDE",
         "KEYWORDS_EXCLUDE",
+        "PCI_SLUGS",
+        "PCI_NACIONAL",
+        "PCI_PRIMEIRA_CARGA",
+        "PCI_MCP",
+        "PCI_MCP_CARGOS",
+        "FILTRO_SALARIAL",
+        "CORTE_FORA_SUL",
+        "UFS_SEM_CORTE",
+        "ESFERAS_SEM_CORTE",
+        "CARGOS_TOTAL_INFLADO",
+        "RESUMO_FILTRADOS",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -184,3 +195,143 @@ class TestLoadMonitorTargetsLegacy:
         targets = load_monitor_targets(logger)
 
         assert targets[0]["url_alvo"] == "https://legacy.com"
+
+
+# Oraculo: tabela da SPEC-001, secao 3.6, transcrita a mao — o teste nao
+# recalcula nada do loader, so confere contra o literal da spec.
+PADROES_SECAO_3_6 = {
+    "pci_mcp": False,
+    "pci_mcp_cargos": [],
+    "filtro_salarial": "desligado",
+    "corte_fora_sul": 0.0,
+    "ufs_sem_corte": ["PR", "SC", "RS"],
+    "esferas_sem_corte": ["federal"],
+    "cargos_total_inflado": 10,
+    "resumo_filtrados": "nunca",
+}
+
+
+def _alvo_minimo(**overrides):
+    """Alvo multi-area valido, com as chaves por area sob medida do teste."""
+    alvo = {"area": "TI", "url": "https://e.com", "chat_ids": ["111"]}
+    alvo.update(overrides)
+    return alvo
+
+
+def _carregar_alvos(monkeypatch, logger, alvos):
+    """Carrega MONITOR_TARGETS_JSON com os alvos crus e devolve {area: alvo}."""
+    monkeypatch.setenv("MONITOR_TARGETS_JSON", json.dumps(alvos))
+    return {t["area"]: t for t in load_monitor_targets(logger)}
+
+
+def _so_as_oito_chaves(alvo: dict) -> dict:
+    return {chave: alvo[chave] for chave in PADROES_SECAO_3_6}
+
+
+def _confere_padroes_da_spec(alvo: dict) -> None:
+    """Confere o alvo contra a tabela da secao 3.6, incluindo os tipos."""
+    assert _so_as_oito_chaves(alvo) == PADROES_SECAO_3_6
+    assert isinstance(alvo["corte_fora_sul"], float)
+    assert isinstance(alvo["cargos_total_inflado"], int)
+    assert isinstance(alvo["pci_mcp"], bool)
+
+
+class TestConfigPorArea:
+    def test_alvo_sem_as_chaves_novas_recebe_os_padroes(self, monkeypatch, logger):
+        alvos = _carregar_alvos(monkeypatch, logger, [_alvo_minimo()])
+
+        _confere_padroes_da_spec(alvos["TI"])
+
+    def test_padroes_valem_no_modo_legado(self, monkeypatch, logger):
+        monkeypatch.setenv("URL_ALVO", "https://legacy.com/ti")
+
+        (alvo,) = load_monitor_targets(logger)
+
+        _confere_padroes_da_spec(alvo)
+
+    def test_chaves_por_area_no_modo_legado_via_variaveis(self, monkeypatch, logger):
+        monkeypatch.setenv("URL_ALVO", "https://legacy.com/ti")
+        monkeypatch.setenv("PCI_MCP", "true")
+        monkeypatch.setenv("PCI_MCP_CARGOS", "analista de sistemas, informatica")
+        monkeypatch.setenv("FILTRO_SALARIAL", " ativo ")
+        monkeypatch.setenv("CORTE_FORA_SUL", "10000.50")
+        monkeypatch.setenv("UFS_SEM_CORTE", "pr, sc,rs")
+        monkeypatch.setenv("ESFERAS_SEM_CORTE", "FEDERAL,Distrital")
+        monkeypatch.setenv("CARGOS_TOTAL_INFLADO", "25")
+        monkeypatch.setenv("RESUMO_FILTRADOS", "semanal")
+
+        (alvo,) = load_monitor_targets(logger)
+
+        assert _so_as_oito_chaves(alvo) == {
+            "pci_mcp": True,
+            "pci_mcp_cargos": ["analista de sistemas", "informatica"],
+            "filtro_salarial": "ativo",
+            "corte_fora_sul": 10000.5,
+            "ufs_sem_corte": ["PR", "SC", "RS"],
+            "esferas_sem_corte": ["federal", "distrital"],
+            "cargos_total_inflado": 25,
+            "resumo_filtrados": "semanal",
+        }
+
+    def test_filtro_salarial_aceita_ativo(self, monkeypatch, logger):
+        alvos = _carregar_alvos(monkeypatch, logger, [
+            _alvo_minimo(area="A1", filtro_salarial="ativo"),
+            _alvo_minimo(area="A2", filtro_salarial="ATIVO"),
+            _alvo_minimo(area="A3", filtro_salarial=" ativo "),
+        ])
+
+        assert alvos["A1"]["filtro_salarial"] == "ativo"
+        assert alvos["A2"]["filtro_salarial"] == "ativo"
+        assert alvos["A3"]["filtro_salarial"] == "ativo"
+
+    def test_corte_aceita_numero_e_string(self, monkeypatch, logger):
+        alvos = _carregar_alvos(monkeypatch, logger, [
+            _alvo_minimo(area="A1", corte_fora_sul=10000),
+            _alvo_minimo(area="A2", corte_fora_sul="10000"),
+            _alvo_minimo(area="A3", corte_fora_sul=10000.5),
+            _alvo_minimo(area="A4", corte_fora_sul="10000.50"),
+        ])
+
+        for area in ("A1", "A2", "A3", "A4"):
+            assert isinstance(alvos[area]["corte_fora_sul"], float)
+        assert alvos["A1"]["corte_fora_sul"] == 10000.0
+        assert alvos["A2"]["corte_fora_sul"] == 10000.0
+        assert alvos["A3"]["corte_fora_sul"] == 10000.5
+        assert alvos["A4"]["corte_fora_sul"] == 10000.5
+
+    def test_ufs_sem_corte_aceita_csv_e_normaliza_caixa(self, monkeypatch, logger):
+        alvos = _carregar_alvos(monkeypatch, logger, [
+            _alvo_minimo(ufs_sem_corte="pr, sc,rs")
+        ])
+
+        assert alvos["TI"]["ufs_sem_corte"] == ["PR", "SC", "RS"]
+
+    def test_ufs_sem_corte_vazia_explicita_e_respeitada(self, monkeypatch, logger):
+        alvos = _carregar_alvos(monkeypatch, logger, [
+            _alvo_minimo(ufs_sem_corte=[])
+        ])
+
+        assert alvos["TI"]["ufs_sem_corte"] == []
+
+    def test_esferas_sem_corte_normaliza_para_minuscula(self, monkeypatch, logger):
+        alvos = _carregar_alvos(monkeypatch, logger, [
+            _alvo_minimo(esferas_sem_corte=["FEDERAL", "Distrital"])
+        ])
+
+        assert alvos["TI"]["esferas_sem_corte"] == ["federal", "distrital"]
+
+    def test_pci_mcp_cargos_aceita_csv_e_preserva_ordem(self, monkeypatch, logger):
+        alvos = _carregar_alvos(monkeypatch, logger, [
+            _alvo_minimo(pci_mcp_cargos="analista de sistemas, informatica")
+        ])
+
+        assert alvos["TI"]["pci_mcp_cargos"] == ["analista de sistemas", "informatica"]
+
+    def test_uma_area_filtrando_nao_afeta_a_outra(self, monkeypatch, logger):
+        alvos = _carregar_alvos(monkeypatch, logger, [
+            _alvo_minimo(area="TI", filtro_salarial="ativo"),
+            {"area": "EDUCACAO", "url": "https://e.com/ed", "chat_ids": ["222"]},
+        ])
+
+        assert alvos["TI"]["filtro_salarial"] == "ativo"
+        assert alvos["EDUCACAO"]["filtro_salarial"] == "desligado"
