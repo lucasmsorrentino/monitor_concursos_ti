@@ -3,7 +3,7 @@ id: T-002
 titulo: Esfera do orgao pelo nome
 tipo: codigo
 nivel: M+
-status: backlog
+status: entregue
 repo: principal
 spec: [SPEC-001, R-05]
 depende_de: []
@@ -11,6 +11,13 @@ toca: [src/utils/esfera.py, tests/test_esfera.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T11:26-03:00
+branch: t/T-002-esfera-do-orgao-pelo-nome
+executor: glm
+executor_impl: glm
+corpo_lancado: 001ef14f1685
+fora_do_toca: []
+ponta: 420f3160da3c26f99d5c9ac6dccc8b7bcea35337
 ---
 # T-002 · Esfera do orgao pelo nome
 
@@ -109,3 +116,8 @@ Testes que nascem vermelhos em `tests/test_esfera.py`:
   1a Regiao - DF" e `federal`, porque o padrao de tribunal federal vem antes na precedencia.
 - As fixtures em `tests/fixtures/pci_mcp/` sao resposta crua do servidor MCP. O caminho ate o nome de um orgao
   dentro delas e `result.content[0].text` (JSON em string), depois `data[].titulo` mais `data[].uf`.
+
+## Histórico
+- 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
+- 2026-11-23 11:16 pronto → fazendo · implementador · glm M+ high
+- 2026-11-23 11:26 fazendo → entregue · implementador: ENTREGUE · relatório T-002-implementador-1.md · 11 min

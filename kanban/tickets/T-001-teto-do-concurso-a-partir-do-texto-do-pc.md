@@ -3,7 +3,7 @@ id: T-001
 titulo: Teto do concurso a partir do texto do PCI
 tipo: codigo
 nivel: P+
-status: backlog
+status: entregue
 repo: principal
 spec: [SPEC-001, R-01]
 depende_de: []
@@ -11,6 +11,13 @@ toca: [src/utils/salario.py, tests/test_salario.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T11:24-03:00
+branch: t/T-001-teto-do-concurso-a-partir-do-texto-do-pc
+executor: glm-flash
+executor_impl: glm-flash
+corpo_lancado: e9d01fc9f303
+fora_do_toca: []
+ponta: 5462e73fa87fa8536af68ff91d3c6759a6f34ae1
 ---
 # T-001 · Teto do concurso a partir do texto do PCI
 
@@ -82,3 +89,8 @@ Testes que nascem vermelhos em `tests/test_salario.py`:
   antes de aplicar a regra de milhar, senao `6,6` vira `6.6` e some na banda de sanidade.
 - A banda de sanidade e refinamento desta funcao sobre a SPEC-001 secao 3.2, que diz apenas "valor legivel".
   Ela esta no aceite, e nao e opcional.
+
+## Histórico
+- 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
+- 2026-11-23 11:16 pronto → fazendo · implementador · glm-flash P+ high
+- 2026-11-23 11:24 fazendo → entregue · implementador: ENTREGUE · relatório T-001-implementador-1.md · 9 min
