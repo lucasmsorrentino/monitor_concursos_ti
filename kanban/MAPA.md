@@ -1,13 +1,13 @@
 # Mapa de trabalho — monitor-concursos
 
-> Gerado por `esteira.py mapa` em 2026-11-23 00:54. Não edite à mão: mude os tickets e gere de novo.
+> Gerado por `esteira.py mapa` em 2026-11-23 11:51. Não edite à mão: mude os tickets e gere de novo.
 
 ## Resumo
 
-- 12 tickets: 12 backlog
+- 12 tickets: 4 backlog, 1 fazendo, 7 entregue
 - Caminho crítico restante (peso 18): T-003 → T-010 → T-011 → T-012
 - Ondas: 5; paralelismo máximo: 8 tickets numa onda
-- Validação: 0 erro(s), 0 aviso(s)
+- Validação: 0 erro(s), 2 aviso(s)
 
 ## Ondas — o que vem antes e o que roda junto
 
@@ -17,14 +17,14 @@ Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependênc
 
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
-| T-001 | P+ | glm-flash (high) | principal | backlog | Teto do concurso a partir do texto do PCI |
-| T-002 | M+ | glm (high) | principal | backlog | Esfera do orgao pelo nome |
-| T-003 ★ | G- | opus (high) | principal | backlog | Elegibilidade: a decisao de silencio, pura |
-| T-004 | M+ | glm (high) | principal | backlog | Porta do PCI pelo servidor MCP |
-| T-005 | M+ | glm (high) | principal | backlog | Schema v6 e listar_filtrados no banco |
-| T-006 | M- | glm | principal | backlog | Config por area: as oito chaves novas |
-| T-007 | M- | glm | principal | backlog | Texto do resumo semanal de filtrados |
-| T-008 | P+ | glm-flash (high) | principal | backlog | Script de diagnostico da producao |
+| T-001 | P+ | glm-flash (high) | principal | entregue | Teto do concurso a partir do texto do PCI |
+| T-002 | M+ | glm (high) | principal | entregue | Esfera do orgao pelo nome |
+| T-003 ★ | G- | opus (high) | principal | entregue | Elegibilidade: a decisao de silencio, pura |
+| T-004 | M+ | glm (high) | principal | entregue | Porta do PCI pelo servidor MCP |
+| T-005 | M+ | glm (high) | principal | entregue | Schema v6 e listar_filtrados no banco |
+| T-006 | M- | glm | principal | entregue | Config por area: as oito chaves novas |
+| T-007 | M- | glm | principal | entregue | Texto do resumo semanal de filtrados |
+| T-008 | P+ | glm-flash (high) | principal | fazendo | Script de diagnostico da producao |
 
 ### Onda 1 — depois de T-004, T-006 (1 em paralelo)
 
@@ -102,6 +102,8 @@ graph LR
   T009 --> T010
   T010 --> T011
   T011 --> T012
+  classDef fazendo fill:#dbeafe,stroke:#2563eb
+  class T008 fazendo
   classDef critico stroke-width:3px
   class T003,T010,T011,T012 critico
 ```

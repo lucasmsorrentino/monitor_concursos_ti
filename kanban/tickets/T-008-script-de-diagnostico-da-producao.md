@@ -3,7 +3,7 @@ id: T-008
 titulo: Script de diagnostico da producao
 tipo: codigo
 nivel: P+
-status: backlog
+status: fazendo
 repo: principal
 spec: [SPEC-001, PED-01]
 depende_de: []
@@ -11,6 +11,11 @@ toca: [scripts/diagnostico_producao.sh, docs/DIAGNOSTICO.md]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T11:38-03:00
+branch: t/T-008-script-de-diagnostico-da-producao
+executor: glm-flash
+executor_impl: glm-flash
+corpo_lancado: 843c14c3bc21
 ---
 # T-008 · Script de diagnostico da producao
 
@@ -117,3 +122,7 @@ Testes que nascem vermelhos em `tests/test_diagnostico_producao.py`:
 - O teste roda o script por `subprocess`. No Windows isso exige o bash do Git; se o ambiente de teste nao
   tiver, marque os testes para pular com `pytest.mark.skipif` em vez de deixar a suite vermelha na maquina de
   desenvolvimento. A suite tem de ficar verde nos dois sistemas.
+
+## Histórico
+- 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
+- 2026-11-23 11:38 pronto → fazendo · implementador · glm-flash P+ high
