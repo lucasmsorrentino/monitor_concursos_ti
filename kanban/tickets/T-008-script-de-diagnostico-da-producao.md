@@ -3,7 +3,7 @@ id: T-008
 titulo: Script de diagnostico da producao
 tipo: codigo
 nivel: P+
-status: backlog
+status: entregue
 repo: principal
 spec: [SPEC-001, PED-01]
 depende_de: []
@@ -11,6 +11,13 @@ toca: [scripts/diagnostico_producao.sh, docs/DIAGNOSTICO.md]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T12:10-03:00
+branch: t/T-008-script-de-diagnostico-da-producao
+executor: glm-flash
+executor_impl: glm-flash
+corpo_lancado: 843c14c3bc21
+fora_do_toca: [tests/test_diagnostico_producao.py]
+ponta: 33af9861d224de7e81a09572dff77db67ea7ad36
 ---
 # T-008 · Script de diagnostico da producao
 
@@ -117,3 +124,10 @@ Testes que nascem vermelhos em `tests/test_diagnostico_producao.py`:
 - O teste roda o script por `subprocess`. No Windows isso exige o bash do Git; se o ambiente de teste nao
   tiver, marque os testes para pular com `pytest.mark.skipif` em vez de deixar a suite vermelha na maquina de
   desenvolvimento. A suite tem de ficar verde nos dois sistemas.
+
+**Decisão do arquiteto (2026-11-23 12:11):** O tests/test_diagnostico_producao.py saiu fora do toca, e o erro e do arquiteto: o toca deste ticket foi declarado com o script e o doc, sem o arquivo de teste, que o proprio plano de testes exigia. Nos outros onze tickets o teste esta declarado. Nao conte como desvio do implementador; o arquivo esta no lugar certo do repo.
+
+## Histórico
+- 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
+- 2026-11-23 11:38 pronto → fazendo · implementador · glm-flash P+ high
+- 2026-11-23 12:10 fazendo → entregue · implementador: ENTREGUE · relatório T-008-implementador-1.md · 33 min · fora do toca: 1 arquivo(s)

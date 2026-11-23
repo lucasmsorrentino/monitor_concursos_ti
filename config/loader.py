@@ -3,12 +3,18 @@
 Suporta dois formatos:
 1) Legado (single-area): usa URL_ALVO + TELEGRAM_CHAT_ID.
 2) Multi-area: usa MONITOR_TARGETS_JSON com lista de alvos.
+
+Os dois caminhos devolvem, em cada alvo, as oito chaves por area da
+SPEC-001 (secao 3.6) — a porta do MCP e a elegibilidade — com padrao
+seguro: valor invalido loga aviso e cai no padrao, nunca no modo
+agressivo, e lista vazia explicita e respeitada.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 
 
@@ -68,6 +74,189 @@ def _normalize_modo_carga(value, area: str, logger: logging.Logger) -> str:
     return "individual"
 
 
+# Marcador de chave ausente: distingue "nao veio" de null explicito no JSON,
+# porque lista vazia ([] e falsy) e escolha valida e tem de ser respeitada.
+_AUSENTE = object()
+
+
+def _env_opcional(nome: str):
+    """Le variavel de ambiente como chave opcional: ausente vira _AUSENTE."""
+    valor = os.getenv(nome)
+    return _AUSENTE if valor is None else valor
+
+
+def _split_csv_ou_lista(valor) -> list[str]:
+    """Aceita lista do JSON ou CSV do .env, descartando itens vazios."""
+    items = valor.split(",") if isinstance(valor, str) else valor
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def _normalize_ufs_sem_corte(valor) -> list[str]:
+    """Normaliza `ufs_sem_corte`: UFs em maiuscula, aceitando lista ou CSV.
+
+    Lista vazia explicita significa "ninguem isento" e e respeitada;
+    chave ausente usa o padrao (as tres UFs do Sul).
+    """
+    if valor is None or valor is _AUSENTE:
+        return ["PR", "SC", "RS"]
+    return [item.upper() for item in _split_csv_ou_lista(valor)]
+
+
+def _normalize_esferas_sem_corte(valor) -> list[str]:
+    """Normaliza `esferas_sem_corte`: esferas em minuscula, lista ou CSV.
+
+    Lista vazia explicita significa "nenhuma esfera isenta" e e respeitada.
+    """
+    if valor is None or valor is _AUSENTE:
+        return ["federal"]
+    return [item.lower() for item in _split_csv_ou_lista(valor)]
+
+
+def _normalize_pci_mcp_cargos(valor) -> list[str]:
+    """Normaliza `pci_mcp_cargos` preservando a ordem e a caixa escritas.
+
+    O servidor MCP normaliza a busca sozinho; caixa e ordem sao de quem
+    configura e e isso que sai no log.
+    """
+    if valor is None or valor is _AUSENTE:
+        return []
+    return _split_csv_ou_lista(valor)
+
+
+def _normalize_escolha(
+    valor, area: str, chave: str, validos: set[str], padrao: str, logger: logging.Logger
+) -> str:
+    """Normaliza chave de conjunto fechado, sem caixa e sem bordas.
+
+    Valor invalido (ou null explicito) loga warning e cai no padrao seguro,
+    como `_normalize_modo_carga` faz com `pci_primeira_carga`.
+    """
+    if valor is _AUSENTE:
+        return padrao
+    if valor is not None:
+        escolhido = str(valor).strip().lower()
+        if escolhido in validos:
+            return escolhido
+    logger.warning(
+        f"{chave} invalido para {area}: {valor!r} "
+        f"(validos: {sorted(validos)}). Usando '{padrao}'."
+    )
+    return padrao
+
+
+def _normalize_corte_fora_sul(valor, area: str, logger: logging.Logger) -> float:
+    """Converte `corte_fora_sul` em float, aceitando numero ou string.
+
+    Valor nao numerico ou negativo loga warning e cai em 0.0 (sem corte):
+    config invalida cai no modo mais conservador, nunca no mais agressivo.
+    """
+    if valor is _AUSENTE:
+        return 0.0
+    try:
+        corte = float(str(valor).strip())
+        if math.isfinite(corte) and corte >= 0:
+            return corte
+    except (TypeError, ValueError):
+        pass
+    logger.warning(
+        f"corte_fora_sul invalido para {area}: {valor!r}. Usando 0.0 (sem corte)."
+    )
+    return 0.0
+
+
+def _normalize_cargos_total_inflado(valor, area: str, logger: logging.Logger) -> int:
+    """Converte `cargos_total_inflado` em int, aceitando numero ou string.
+
+    Valor nao inteiro ou menor que 1 loga warning e cai no padrao 10.
+    """
+    if valor is _AUSENTE:
+        return 10
+    try:
+        numero = float(str(valor).strip())
+        if numero.is_integer() and numero >= 1:
+            return int(numero)
+    except (TypeError, ValueError):
+        pass
+    logger.warning(
+        f"cargos_total_inflado invalido para {area}: {valor!r}. Usando 10."
+    )
+    return 10
+
+
+def _config_por_area(bruto: dict, area: str, logger: logging.Logger) -> dict:
+    """Monta as oito chaves por area (SPEC-001, secao 3.6) dos valores crus.
+
+    `bruto` aceita tanto o objeto do MONITOR_TARGETS_JSON quanto variaveis
+    de ambiente do modo legado embrulhadas em _env_opcional, porque a
+    chave ausente (_AUSENTE ou null) cai no padrao seguro da spec.
+    """
+    pci_mcp = _normalize_bool(bruto.get("pci_mcp"))
+    pci_mcp_cargos = _normalize_pci_mcp_cargos(bruto.get("pci_mcp_cargos", _AUSENTE))
+    if pci_mcp and not pci_mcp_cargos:
+        logger.error(
+            f"pci_mcp ligado para {area} sem nenhum termo em pci_mcp_cargos: a "
+            f"porta nao vai render nada (fonte morta). Devolvendo pci_mcp "
+            f"desligado; preencha pci_mcp_cargos para ligar a porta."
+        )
+        pci_mcp = False
+    return {
+        "pci_mcp": pci_mcp,
+        "pci_mcp_cargos": pci_mcp_cargos,
+        "filtro_salarial": _normalize_escolha(
+            bruto.get("filtro_salarial", _AUSENTE),
+            area,
+            "filtro_salarial",
+            {"desligado", "ativo"},
+            "desligado",
+            logger,
+        ),
+        "corte_fora_sul": _normalize_corte_fora_sul(
+            bruto.get("corte_fora_sul", _AUSENTE), area, logger
+        ),
+        "ufs_sem_corte": _normalize_ufs_sem_corte(
+            bruto.get("ufs_sem_corte", _AUSENTE)
+        ),
+        "esferas_sem_corte": _normalize_esferas_sem_corte(
+            bruto.get("esferas_sem_corte", _AUSENTE)
+        ),
+        "cargos_total_inflado": _normalize_cargos_total_inflado(
+            bruto.get("cargos_total_inflado", _AUSENTE), area, logger
+        ),
+        "resumo_filtrados": _normalize_escolha(
+            bruto.get("resumo_filtrados", _AUSENTE),
+            area,
+            "resumo_filtrados",
+            {"nunca", "semanal"},
+            "nunca",
+            logger,
+        ),
+    }
+
+
+def _avisar_portas_reserva(target: dict, logger: logging.Logger) -> None:
+    """Avisa quando a porta do MCP roda junto com porta de HTML do PCI.
+
+    As portas de HTML (pci_slugs, pci_nacional) sao reserva da porta do MCP
+    (ADR-0001); rodar as duas na mesma rodada duplica trabalho. A escolha e
+    de quem configura: nada e desligado aqui.
+    """
+    if not target["pci_mcp"]:
+        return
+    portas_html = []
+    if target["pci_slugs"]:
+        portas_html.append("pci_slugs")
+    if target["pci_nacional"]:
+        portas_html.append("pci_nacional")
+    if not portas_html:
+        return
+    logger.warning(
+        f"Area {target['area']}: a porta do MCP (pci_mcp) esta ligada junto com "
+        f"{' e '.join(portas_html)}. As portas de HTML sao reserva da porta do "
+        f"MCP (ADR-0001); rodar as duas duplica trabalho na mesma rodada. "
+        f"Nada foi desligado."
+    )
+
+
 def load_monitor_targets(logger: logging.Logger) -> list[dict]:
     """Carrega alvos de monitoramento com fallback seguro para modo legado."""
     token = os.getenv("TELEGRAM_TOKEN")
@@ -116,6 +305,8 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
                         item.get("pci_primeira_carga"), area, logger
                     ),
                 }
+                target.update(_config_por_area(item, area, logger))
+                _avisar_portas_reserva(target, logger)
                 targets.append(target)
 
             if targets:
@@ -125,7 +316,17 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
 
     legacy_url = os.getenv("URL_ALVO", "").strip()
     legacy_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-    return [{
+    legacy_config_area = _config_por_area({
+        "pci_mcp": _env_opcional("PCI_MCP"),
+        "pci_mcp_cargos": _env_opcional("PCI_MCP_CARGOS"),
+        "filtro_salarial": _env_opcional("FILTRO_SALARIAL"),
+        "corte_fora_sul": _env_opcional("CORTE_FORA_SUL"),
+        "ufs_sem_corte": _env_opcional("UFS_SEM_CORTE"),
+        "esferas_sem_corte": _env_opcional("ESFERAS_SEM_CORTE"),
+        "cargos_total_inflado": _env_opcional("CARGOS_TOTAL_INFLADO"),
+        "resumo_filtrados": _env_opcional("RESUMO_FILTRADOS"),
+    }, "TI", logger)
+    alvo_legado = {
         "area": "TI",
         "display_name": "TI",
         "url_alvo": legacy_url,
@@ -138,4 +339,7 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
         "pci_primeira_carga": _normalize_modo_carga(
             os.getenv("PCI_PRIMEIRA_CARGA"), "TI", logger
         ),
-    }]
+        **legacy_config_area,
+    }
+    _avisar_portas_reserva(alvo_legado, logger)
+    return [alvo_legado]
