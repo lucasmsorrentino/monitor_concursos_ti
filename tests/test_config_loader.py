@@ -335,3 +335,62 @@ class TestConfigPorArea:
 
         assert alvos["TI"]["filtro_salarial"] == "ativo"
         assert alvos["EDUCACAO"]["filtro_salarial"] == "desligado"
+
+
+class TestConfigPorAreaFailOpen:
+    """Valor invalido loga aviso e cai no padrao seguro, nunca no agressivo."""
+
+    def _avisos(self, caplog, chave: str) -> list:
+        return [
+            rec for rec in caplog.records
+            if rec.levelno == logging.WARNING and chave in rec.getMessage()
+        ]
+
+    def test_filtro_salarial_invalido_cai_em_desligado(self, monkeypatch, logger, caplog):
+        with caplog.at_level(logging.WARNING):
+            alvos = _carregar_alvos(monkeypatch, logger, [
+                _alvo_minimo(area="A1", filtro_salarial="sombra"),
+                _alvo_minimo(area="A2", filtro_salarial="1"),
+                _alvo_minimo(area="A3", filtro_salarial=""),
+                _alvo_minimo(area="A4", filtro_salarial=None),
+            ])
+
+        for area in ("A1", "A2", "A3", "A4"):
+            assert alvos[area]["filtro_salarial"] == "desligado"
+        assert len(self._avisos(caplog, "filtro_salarial")) >= 1
+
+    def test_resumo_filtrados_invalido_cai_em_nunca(self, monkeypatch, logger, caplog):
+        with caplog.at_level(logging.WARNING):
+            alvos = _carregar_alvos(monkeypatch, logger, [
+                _alvo_minimo(resumo_filtrados="diario")
+            ])
+
+        assert alvos["TI"]["resumo_filtrados"] == "nunca"
+        assert len(self._avisos(caplog, "resumo_filtrados")) >= 1
+
+    def test_corte_invalido_cai_em_zero(self, monkeypatch, logger, caplog):
+        with caplog.at_level(logging.WARNING):
+            alvos = _carregar_alvos(monkeypatch, logger, [
+                _alvo_minimo(area="A1", corte_fora_sul="dez mil"),
+                _alvo_minimo(area="A2", corte_fora_sul=-5),
+                _alvo_minimo(area="A3", corte_fora_sul=None),
+            ])
+
+        for area in ("A1", "A2", "A3"):
+            assert alvos[area]["corte_fora_sul"] == 0.0
+            assert isinstance(alvos[area]["corte_fora_sul"], float)
+        assert len(self._avisos(caplog, "corte_fora_sul")) >= 1
+
+    def test_cargos_total_inflado_invalido_cai_em_dez(self, monkeypatch, logger, caplog):
+        with caplog.at_level(logging.WARNING):
+            alvos = _carregar_alvos(monkeypatch, logger, [
+                _alvo_minimo(area="A1", cargos_total_inflado="muitos"),
+                _alvo_minimo(area="A2", cargos_total_inflado=0),
+                _alvo_minimo(area="A3", cargos_total_inflado=-1),
+                _alvo_minimo(area="A4", cargos_total_inflado=2.5),
+            ])
+
+        for area in ("A1", "A2", "A3", "A4"):
+            assert alvos[area]["cargos_total_inflado"] == 10
+            assert isinstance(alvos[area]["cargos_total_inflado"], int)
+        assert len(self._avisos(caplog, "cargos_total_inflado")) >= 1
