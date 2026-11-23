@@ -18,6 +18,59 @@ def db(db_path):
     manager.fechar_conexao()
 
 
+# Oracle do schema v6: conjunto escrito a mao a partir da SPEC-001 (secao 3.5)
+# e conferido por PRAGMA table_info, que e fonte independente do codigo de
+# migracao.
+COLUNAS_V6 = {
+    "id", "area", "nome", "status", "link",
+    "data_fim_inscricao", "status_hash", "fase", "estado_usuario",
+    "fonte", "pci_id",                                        # v5
+    "uf", "regiao", "esfera", "cargos_total", "salario_teto",  # v6
+    "elegibilidade", "motivo_filtro",                          # v6
+    "ultima_atualizacao",
+}
+
+COLUNAS_NOVAS_V6 = {
+    "uf", "regiao", "esfera", "cargos_total", "salario_teto",
+    "elegibilidade", "motivo_filtro",
+}
+
+
+def _criar_banco_v5(db_path):
+    """Monta a mao um banco no formato que o v5 deixava, com duas linhas."""
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE editais (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            area TEXT NOT NULL,
+            nome TEXT NOT NULL,
+            status TEXT NOT NULL,
+            link TEXT,
+            data_fim_inscricao TEXT,
+            status_hash TEXT,
+            fase TEXT,
+            estado_usuario TEXT NOT NULL DEFAULT 'ativo',
+            fonte TEXT,
+            pci_id TEXT,
+            ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(area, nome)
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO editais (area, nome, status, link, fonte, pci_id)"
+        " VALUES ('TI', 'SEFIN RO', 'edital publicado', 'https://x/sefin-ro',"
+        " 'pci', 'pci-123')"
+    )
+    conn.execute(
+        "INSERT INTO editais (area, nome, status, link, fonte, fase, data_fim_inscricao)"
+        " VALUES ('TI', 'TRF1', 'previsto', 'https://x/trf1', 'gran', 'previsto', '2026-12-31')"
+    )
+    conn.commit()
+    conn.close()
+
+
 class TestSchemaCreation:
     def test_creates_table_on_fresh_db(self, db_path):
         DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
@@ -29,12 +82,7 @@ class TestSchemaCreation:
 
         cursor.execute("PRAGMA table_info(editais)")
         columns = {row[1] for row in cursor.fetchall()}
-        assert columns == {
-            "id", "area", "nome", "status", "link",
-            "data_fim_inscricao", "status_hash", "fase", "estado_usuario",
-            "fonte", "pci_id",          # v5: PCI Concursos como segunda fonte
-            "ultima_atualizacao",
-        }
+        assert columns == COLUNAS_V6
         conn.close()
 
     def test_primary_key_is_autoincrement_id(self, db_path):
@@ -166,6 +214,67 @@ class TestMigration:
         count = cursor.fetchone()[0]
         conn.close()
         assert count == 1
+
+
+class TestSchemaV6:
+    """Schema v6: sete colunas novas, nas duas pontas (banco novo e migrado)."""
+
+    def test_banco_novo_tem_as_colunas_do_v6(self, db_path):
+        DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(editais)")
+        colunas = {row[1] for row in cursor.fetchall()}
+        conn.close()
+
+        assert COLUNAS_NOVAS_V6 <= colunas
+
+    def test_migracao_do_v5_acrescenta_as_colunas(self, db_path):
+        _criar_banco_v5(db_path)
+        db = DatabaseManager(area="TI", db_path=db_path)
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(editais)")
+        colunas = {row[1] for row in cursor.fetchall()}
+        conn.close()
+        assert COLUNAS_NOVAS_V6 <= colunas
+
+        # Nada se perde: as duas linhas do v5 continuam la, com os valores
+        # de fonte e pci_id intactos e as colunas novas NULL.
+        reg_sefin = db.buscar_registro("SEFIN RO")
+        reg_trf1 = db.buscar_registro("TRF1")
+        assert reg_sefin is not None
+        assert reg_trf1 is not None
+        assert reg_sefin["status"] == "edital publicado"
+        assert reg_sefin["fonte"] == "pci"
+        assert reg_sefin["pci_id"] == "pci-123"
+        assert reg_trf1["fonte"] == "gran"
+        assert reg_trf1["fase"] == "previsto"
+        assert reg_trf1["data_fim_inscricao"] == "2026-12-31"
+        for coluna in COLUNAS_NOVAS_V6:
+            assert reg_sefin[coluna] is None
+            assert reg_trf1[coluna] is None
+
+        db.fechar_conexao()
+
+    def test_migracao_e_idempotente(self, db_path):
+        _criar_banco_v5(db_path)
+
+        colunas_por_abertura = []
+        for _ in range(3):
+            DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(editais)")
+            colunas_por_abertura.append({row[1] for row in cursor.fetchall()})
+            conn.close()
+
+        # Da segunda para a terceira abertura nenhuma coluna muda...
+        assert colunas_por_abertura[1] == colunas_por_abertura[2]
+        # ...e o conjunto final e exatamente o do v6, completo.
+        assert colunas_por_abertura[2] == COLUNAS_V6
 
 
 class TestEstadoUsuario:
