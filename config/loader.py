@@ -185,11 +185,18 @@ def _config_por_area(bruto: dict, area: str, logger: logging.Logger) -> dict:
     de ambiente do modo legado embrulhadas em _env_opcional, porque a
     chave ausente (_AUSENTE ou null) cai no padrao seguro da spec.
     """
+    pci_mcp = _normalize_bool(bruto.get("pci_mcp"))
+    pci_mcp_cargos = _normalize_pci_mcp_cargos(bruto.get("pci_mcp_cargos", _AUSENTE))
+    if pci_mcp and not pci_mcp_cargos:
+        logger.error(
+            f"pci_mcp ligado para {area} sem nenhum termo em pci_mcp_cargos: a "
+            f"porta nao vai render nada (fonte morta). Devolvendo pci_mcp "
+            f"desligado; preencha pci_mcp_cargos para ligar a porta."
+        )
+        pci_mcp = False
     return {
-        "pci_mcp": _normalize_bool(bruto.get("pci_mcp")),
-        "pci_mcp_cargos": _normalize_pci_mcp_cargos(
-            bruto.get("pci_mcp_cargos", _AUSENTE)
-        ),
+        "pci_mcp": pci_mcp,
+        "pci_mcp_cargos": pci_mcp_cargos,
         "filtro_salarial": _normalize_escolha(
             bruto.get("filtro_salarial", _AUSENTE),
             area,
@@ -219,6 +226,30 @@ def _config_por_area(bruto: dict, area: str, logger: logging.Logger) -> dict:
             logger,
         ),
     }
+
+
+def _avisar_portas_reserva(target: dict, logger: logging.Logger) -> None:
+    """Avisa quando a porta do MCP roda junto com porta de HTML do PCI.
+
+    As portas de HTML (pci_slugs, pci_nacional) sao reserva da porta do MCP
+    (ADR-0001); rodar as duas na mesma rodada duplica trabalho. A escolha e
+    de quem configura: nada e desligado aqui.
+    """
+    if not target["pci_mcp"]:
+        return
+    portas_html = []
+    if target["pci_slugs"]:
+        portas_html.append("pci_slugs")
+    if target["pci_nacional"]:
+        portas_html.append("pci_nacional")
+    if not portas_html:
+        return
+    logger.warning(
+        f"Area {target['area']}: a porta do MCP (pci_mcp) esta ligada junto com "
+        f"{' e '.join(portas_html)}. As portas de HTML sao reserva da porta do "
+        f"MCP (ADR-0001); rodar as duas duplica trabalho na mesma rodada. "
+        f"Nada foi desligado."
+    )
 
 
 def load_monitor_targets(logger: logging.Logger) -> list[dict]:
@@ -270,6 +301,7 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
                     ),
                 }
                 target.update(_config_por_area(item, area, logger))
+                _avisar_portas_reserva(target, logger)
                 targets.append(target)
 
             if targets:
@@ -289,7 +321,7 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
         "cargos_total_inflado": _env_opcional("CARGOS_TOTAL_INFLADO"),
         "resumo_filtrados": _env_opcional("RESUMO_FILTRADOS"),
     }, "TI", logger)
-    return [{
+    alvo_legado = {
         "area": "TI",
         "display_name": "TI",
         "url_alvo": legacy_url,
@@ -303,4 +335,6 @@ def load_monitor_targets(logger: logging.Logger) -> list[dict]:
             os.getenv("PCI_PRIMEIRA_CARGA"), "TI", logger
         ),
         **legacy_config_area,
-    }]
+    }
+    _avisar_portas_reserva(alvo_legado, logger)
+    return [alvo_legado]
