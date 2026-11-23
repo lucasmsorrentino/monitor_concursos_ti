@@ -21,6 +21,7 @@ from datetime import date, timedelta
 
 from bs4 import BeautifulSoup
 
+from src.core.elegibilidade import Candidato, Decisao, Politica, decidir
 from src.database.manager import DatabaseManager
 from src.intelligence.langchain_unit import IntelligenceUnit
 from src.notifiers.telegram import TelegramNotifier
@@ -30,6 +31,7 @@ from src.scrapers.pci_mcp_scraper import PciMcpScraper
 from src.scrapers.pci_nacional_scraper import PciNacionalScraper
 from src.scrapers.pci_scraper import PciScraper
 from src.utils import memoria_json, saude_fontes
+from src.utils.esfera import esfera_de
 from src.utils.fases import (
     sanitizar_fase,
     fase_avancou,
@@ -37,7 +39,8 @@ from src.utils.fases import (
     label as fase_label,
 )
 from src.utils.logger import LOG_DIR
-from src.utils.text import status_fingerprint
+from src.utils.salario import teto_de
+from src.utils.text import extrair_uf, status_fingerprint
 
 # Acima desta fracao de blocos perdidos na extracao, a varredura da area deixa
 # de reportar "concluida" e passa a alertar. Perder 1 bloco em 45 e ruido de
@@ -123,6 +126,9 @@ class ConcursoBot:
             config.get('dias_fonte_parada') or saude_fontes.DIAS_PARADA_PADRAO
         )
         self.modo_primeira_carga = config.get('pci_primeira_carga', CARGA_INDIVIDUAL)
+        # Filtro salarial da area (SPEC-001, secao 3.6). Imutavel e vindo da
+        # config: monta uma vez aqui, nao a cada item.
+        self.politica = self._politica_de(config)
 
         # Setado quando qualquer etapa da varredura falha. O MultiAreaRunner
         # agrega e o main.py devolve exit != 0, para o run_daily.sh nao gravar o
@@ -301,6 +307,31 @@ class ConcursoBot:
                 f"A varredura foi interrompida por um erro: {html.escape(str(e)[:300])}\n\n"
                 f"<i>O bot segue tentando de hora em hora; este aviso não se repete hoje.</i>"
             )
+
+    @staticmethod
+    def _politica_de(config: dict) -> Politica:
+        """Monta a ``Politica`` do filtro salarial a partir da config do alvo.
+
+        O ``config/loader.py`` ja normaliza e valida as chaves; aqui so se cai
+        no padrao da ``Politica`` quando a chave nao veio (alvo montado a mao).
+        Lista vazia explicita em ``ufs_sem_corte``/``esferas_sem_corte`` e
+        respeitada, como no loader.
+        """
+        padrao = Politica()
+
+        def valor(chave: str, valor_padrao):
+            bruto = config.get(chave)
+            return valor_padrao if bruto is None else bruto
+
+        return Politica(
+            modo=valor('filtro_salarial', padrao.modo),
+            corte_fora_sul=float(valor('corte_fora_sul', padrao.corte_fora_sul)),
+            ufs_sem_corte=tuple(valor('ufs_sem_corte', padrao.ufs_sem_corte)),
+            esferas_sem_corte=tuple(valor('esferas_sem_corte', padrao.esferas_sem_corte)),
+            cargos_total_inflado=int(
+                valor('cargos_total_inflado', padrao.cargos_total_inflado)
+            ),
+        )
 
     def _preparar_primeira_carga(self) -> bool:
         """Liga o modo de coleta quando o PCI nunca rodou nesta area.
@@ -804,6 +835,9 @@ class ConcursoBot:
         nome_esc = html.escape(nome_raw)
         status_esc = html.escape(status_raw)
         hash_novo = status_fingerprint(status_raw)
+        # As sete colunas do v6. Ficam vazias para item que nao e avaliado:
+        # `None` no `atualizar_concurso` preserva o que ja esta gravado.
+        colunas_v6: dict = {}
 
         def salvar(fase_para_gravar):
             """Persiste este edital. Em dry-run nao escreve nada.
@@ -821,6 +855,7 @@ class ConcursoBot:
                 fase=fase_para_gravar,
                 fonte=fonte,
                 pci_id=pci_id,
+                **colunas_v6,
             )
 
         registro = self.db.buscar_registro(
@@ -830,6 +865,34 @@ class ConcursoBot:
         if registro and registro.get('estado_usuario') == 'ignorado':
             self.logger.debug(f"🚫 [IGNORADO] {nome_raw} marcado pelo usuario; skip.")
             return "skip"
+
+        # --- Elegibilidade (filtro salarial) ---
+        # Depois do `ignorado` (que nem toca o banco) e antes de qualquer
+        # decisao de novo, inativo ou transicao.
+        avaliacao = self._avaliar_elegibilidade(dados, nome_raw, registro)
+        decisao = None
+        if avaliacao is not None:
+            candidato, decisao = avaliacao
+            colunas_v6.update(
+                uf=candidato.uf,
+                regiao=candidato.regiao,
+                esfera=candidato.esfera,
+                cargos_total=candidato.cargos_total,
+                salario_teto=candidato.teto,
+                elegibilidade="elegivel" if decisao.entra else "filtrado",
+                motivo_filtro=decisao.motivo,
+            )
+            if not decisao.entra:
+                # Novo ou ja conhecido, filtrado nao notifica: so grava a
+                # decisao. Linha que entrava e passa a filtrada nao se apaga
+                # nem se renotifica; a fase vista nao regride.
+                self.logger.info(
+                    f"🔇 [FILTRADO] {nome_raw}: {decisao.motivo} "
+                    f"(teto={candidato.teto}); salvando silencioso."
+                )
+                fase_antiga = registro.get('fase') if registro else None
+                salvar(fase_mais_avancada(fase_antiga, fase_nova))
+                return "skip"
 
         prazo_encerrado = self._prazo_encerrado(data_fim)
         # Listagem morta: sem janela de inscricao conhecida E o ultimo evento citado
@@ -841,7 +904,14 @@ class ConcursoBot:
         inativo = prazo_encerrado or listagem_morta
 
         # --- Caso A: inedito ---
-        if registro is None:
+        # Linha gravada como `filtrado` existe no banco, mas o usuario nunca a
+        # viu: se agora entra, sai como NOVO, nao como atualizacao. So vale
+        # para item avaliado: o nao avaliado nao reescreve a elegibilidade, e
+        # a linha continuaria `filtrado` e sairia como NOVO a cada rodada.
+        inedito = registro is None or (
+            decisao is not None and registro.get('elegibilidade') == 'filtrado'
+        )
+        if inedito:
             if inativo:
                 motivo = "inscricao encerrada" if prazo_encerrado else "evento ja passou (listagem antiga)"
                 self.logger.info(
@@ -871,6 +941,7 @@ class ConcursoBot:
                 f"📝 <b>Status:</b> {status_esc}\n"
                 + (f"📊 <b>Fase:</b> {fase_label(fase_nova)}\n" if fase_nova else "")
                 + (f"📅 <b>Inscrições até:</b> {html.escape(data_fim)}\n" if data_fim else "")
+                + (f"{html.escape(decisao.selo)}\n" if decisao and decisao.selo else "")
                 + f"\n🔗 <a href='{link}'>Clique aqui para ver os detalhes</a>"
             )
             self._notificar(msg, id_interno=id_interno)
@@ -932,6 +1003,32 @@ class ConcursoBot:
         self._notificar(msg, id_interno=id_interno)
         self.logger.info(f"✅ Banco de dados atualizado para {nome_raw}.")
         return "atualizado"
+
+    def _avaliar_elegibilidade(
+        self, dados: dict, nome: str, registro: dict | None
+    ) -> tuple[Candidato, Decisao] | None:
+        """Monta o ``Candidato`` do item e decide com a ``Politica`` da area.
+
+        So item de porta que carrega ``regiao`` e avaliado (hoje, a do MCP):
+        o blog do Gran, a pagina de cargo e a lista nacional nao trazem
+        ``regiao``, ``cargos_total`` nem o teto, e avalia-los poria o selo de
+        "nao verificado" em todo card deles. Para esses devolve ``None`` e o
+        item segue a matriz como sempre seguiu.
+
+        A UF vem do campo ``uf`` do item, ou do sufixo do nome quando o item
+        nao traz. A estrela do usuario (``seguindo``) vem do registro no banco.
+        """
+        if "regiao" not in dados:
+            return None
+        candidato = Candidato(
+            uf=dados.get("uf") or extrair_uf(nome),
+            regiao=dados.get("regiao"),
+            esfera=esfera_de(nome),
+            teto=teto_de(dados.get("vagas_salario")),
+            cargos_total=dados.get("cargos_total"),
+            seguindo=bool(registro) and registro.get("estado_usuario") == "seguindo",
+        )
+        return candidato, decidir(candidato, self.politica)
 
     @staticmethod
     def _prazo_encerrado(data_fim_iso: str | None) -> bool:
