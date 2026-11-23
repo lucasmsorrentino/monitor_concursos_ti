@@ -1838,3 +1838,155 @@ class TestFiltroSalarial:
         gravacoes = [c.kwargs for c in mock_deps["db"].atualizar_concurso.call_args_list]
         assert all(g["elegibilidade"] == "elegivel" for g in gravacoes)
         assert all(g["motivo_filtro"] == "filtro_desligado" for g in gravacoes)
+
+
+# ---------------------------------------------------------------------------
+# Resumo semanal dos filtrados (SPEC-001, secao 4.4)
+# ---------------------------------------------------------------------------
+
+# Linha como `listar_filtrados` devolve (SPEC-001, secao 3.5).
+FILTRADO_SANTA_LUZIA = {
+    "nome": "Prefeitura de Santa Luzia - MG", "uf": "MG",
+    "salario_teto": 8628.87, "motivo_filtro": "abaixo_do_corte",
+    "link": "https://www.pciconcursos.com.br/noticias/concurso-295546",
+}
+
+SEGUNDA = date(2026, 11, 23)        # semana ISO 2026-S48
+SEXTA = date(2026, 11, 27)          # mesma semana
+SEGUNDA_SEGUINTE = date(2026, 11, 30)  # semana ISO 2026-S49
+
+
+class TestResumoSemanal:
+    """Uma vez por semana por area, o que o filtro silenciou vira uma mensagem."""
+
+    @staticmethod
+    def _hoje(mocker, dia: date) -> None:
+        """Dubla o relogio do bot: `date.today()` passa a devolver `dia`."""
+        class _Data(date):
+            @classmethod
+            def today(cls):
+                return cls(dia.year, dia.month, dia.day)
+
+        mocker.patch("src.core.bot.date", _Data)
+
+    def _montar(self, mock_deps, base_config, mocker, filtrados, resumo="semanal"):
+        """Rodada saudavel: Gran vazio e a porta do MCP com um item do Sul."""
+        mcp_cls = mocker.patch("src.core.bot.PciMcpScraper")
+        mcp = mcp_cls.return_value
+        mcp.url = URL_SERVIDOR
+        mcp.capturar_concursos.return_value = [_item_mcp(**LUIZ_ALVES_SC)]
+
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["notifier"].notificar.return_value = True
+        mock_deps["notifier"].notificar_concurso.return_value = True
+        mock_deps["db"].listar_filtrados.return_value = filtrados
+
+        base_config["pci_mcp"] = True
+        base_config["pci_mcp_cargos"] = ["analista de sistemas"]
+        if resumo is not None:
+            base_config["resumo_filtrados"] = resumo
+
+    @staticmethod
+    def _resumos(mock_deps):
+        return [
+            c.args[0] for c in mock_deps["notifier"].notificar.call_args_list
+            if "Santa Luzia" in c.args[0]
+        ]
+
+    def test_resumo_semanal_sai_uma_vez_na_semana(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA])
+
+        self._hoje(mocker, SEGUNDA)
+        ConcursoBot(base_config).executar()
+        ConcursoBot(base_config).executar()      # mesmo dia
+        self._hoje(mocker, SEXTA)
+        ConcursoBot(base_config).executar()      # outro dia, mesma semana
+
+        resumos = self._resumos(mock_deps)
+        assert len(resumos) == 1
+        assert "abaixo do corte" in resumos[0]
+
+    def test_resumo_semanal_volta_na_semana_seguinte(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA])
+
+        self._hoje(mocker, SEGUNDA)
+        ConcursoBot(base_config).executar()      # grava o marcador desta semana
+        self._hoje(mocker, SEGUNDA_SEGUINTE)
+        ConcursoBot(base_config).executar()
+
+        assert len(self._resumos(mock_deps)) == 2
+
+    def test_semana_sem_filtrados_nao_manda_nem_marca(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [])
+        self._hoje(mocker, SEGUNDA)
+
+        ConcursoBot(base_config).executar()
+        assert self._resumos(mock_deps) == []
+
+        # Sem marcador, o primeiro filtrado da mesma semana ainda sai.
+        mock_deps["db"].listar_filtrados.return_value = [FILTRADO_SANTA_LUZIA]
+        ConcursoBot(base_config).executar()
+        assert len(self._resumos(mock_deps)) == 1
+
+    def test_resumo_desligado_nao_consulta_o_banco(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA], resumo=None)
+
+        ConcursoBot(base_config).executar()
+
+        mock_deps["db"].listar_filtrados.assert_not_called()
+        assert self._resumos(mock_deps) == []
+
+    def test_dry_run_nao_manda_resumo_nem_marca(self, mock_deps, base_config, mocker):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA])
+        self._hoje(mocker, SEGUNDA)
+
+        ConcursoBot(dict(base_config, dry_run=True)).executar()
+        mock_deps["notifier"].notificar.assert_not_called()
+
+        # Sem marcador gravado no dry-run, a rodada real da mesma semana manda.
+        ConcursoBot(base_config).executar()
+        assert len(self._resumos(mock_deps)) == 1
+
+    def test_falha_no_resumo_nao_derruba_a_rodada(
+        self, mock_deps, base_config, mocker, caplog
+    ):
+        # Teto ilegivel vindo do banco faz o `montar` levantar.
+        linha_quebrada = dict(FILTRADO_SANTA_LUZIA, salario_teto="8.628,87")
+        self._montar(mock_deps, base_config, mocker, [linha_quebrada])
+
+        bot = ConcursoBot(base_config)
+        with caplog.at_level("ERROR"):
+            bot.executar()
+
+        assert bot.falhou is False
+        assert any("resumo" in r.getMessage().lower() for r in caplog.records
+                   if r.levelname == "ERROR")
+        # A varredura fez o trabalho dela: o item do Sul saiu.
+        assert len(mock_deps["notifier"].notificar_concurso.call_args_list) == 1
+
+    def test_envio_do_resumo_que_falha_nao_marca_a_rodada_e_tenta_de_novo(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA])
+        self._hoje(mocker, SEGUNDA)
+        # O Telegram recusa so o resumo; o resto da rodada entrega.
+        mock_deps["notifier"].notificar.side_effect = (
+            lambda msg: "Santa Luzia" not in msg
+        )
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+        assert bot.falhou is False
+
+        # Nao entregue, nao marca: a rodada seguinte da semana tenta de novo.
+        mock_deps["notifier"].notificar.side_effect = None
+        ConcursoBot(base_config).executar()
+        assert len(self._resumos(mock_deps)) == 2   # a recusada e a entregue
