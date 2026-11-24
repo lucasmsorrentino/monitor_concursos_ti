@@ -1,23 +1,23 @@
 # Mapa de trabalho — monitor-concursos
 
-> Gerado por `esteira.py mapa` em 2026-11-24 13:02. Não edite à mão: mude os tickets e gere de novo.
+> Gerado por `esteira.py mapa` em 2026-11-24 18:33. Não edite à mão: mude os tickets e gere de novo.
 
 ## Resumo
 
-- 12 tickets: 12 integrado
-- Caminho crítico restante (peso 0): T-001
-- Ondas: 5; paralelismo máximo: 8 tickets numa onda
+- 19 tickets: 7 backlog, 12 integrado
+- Caminho crítico restante (peso 6): T-015 → T-019
+- Ondas: 5; paralelismo máximo: 14 tickets numa onda
 - Validação: 0 erro(s), 2 aviso(s)
 
 ## Ondas — o que vem antes e o que roda junto
 
 Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependências dela estão integradas. ★ = caminho crítico (atraso aqui atrasa o fim).
 
-### Onda 0 — começa já (8 em paralelo)
+### Onda 0 — começa já (14 em paralelo)
 
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
-| T-001 ★ | P+ | glm-flash (high) | principal | integrado | Teto do concurso a partir do texto do PCI |
+| T-001 | P+ | glm-flash (high) | principal | integrado | Teto do concurso a partir do texto do PCI |
 | T-002 | M+ | glm (high) | principal | integrado | Esfera do orgao pelo nome |
 | T-003 | G- | opus (high) | principal | integrado | Elegibilidade: a decisao de silencio, pura |
 | T-004 | M+ | glm (high) | principal | integrado | Porta do PCI pelo servidor MCP |
@@ -25,12 +25,19 @@ Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependênc
 | T-006 | M- | glm | principal | integrado | Config por area: as oito chaves novas |
 | T-007 | M- | glm | principal | integrado | Texto do resumo semanal de filtrados |
 | T-008 | P+ | glm-flash (high) | principal | integrado | Script de diagnostico da producao |
+| T-013 | M- | glm | principal | backlog | Matar as nove mutacoes que sobreviveram na decisao de elegibilidade |
+| T-014 | M- | glm | principal | backlog | Matar as mutacoes sobreviventes na esfera e na porta do MCP |
+| T-015 ★ | M- | glm | principal | backlog | Estreitar as assercoes frouxas do loader, do bot e do resumo |
+| T-016 | P- | glm-flash | principal | backlog | A porta do MCP e o filtro no retrato do diagnostico |
+| T-017 | M- | glm | principal | backlog | Conferir que a rechave de fonte nao perdeu concurso |
+| T-018 | P- | glm-flash | principal | backlog | ADR do fuso: banco em UTC, log em hora local |
 
-### Onda 1 — depois de T-004, T-006 (1 em paralelo)
+### Onda 1 — depois de T-004, T-006, T-015 (2 em paralelo)
 
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
 | T-009 | M+ | glm (high) | principal | integrado | Porta do MCP ligada na rodada do bot |
+| T-019 ★ | M- | glm | principal | backlog | O concurso filtrado pelo MCP que o Gran acha depois |
 
 ### Onda 2 — depois de T-001, T-002, T-003, T-005, T-007, T-009 (1 em paralelo)
 
@@ -75,9 +82,16 @@ graph LR
     T006["T-006 · M- · Config por area: as oito chaves novas"]
     T007["T-007 · M- · Texto do resumo semanal de filtrados"]
     T008["T-008 · P+ · Script de diagnostico da producao"]
+    T013["T-013 · M- · Matar as nove mutacoes que sobreviveram "]
+    T014["T-014 · M- · Matar as mutacoes sobreviventes na esfer"]
+    T015["T-015 · M- · Estreitar as assercoes frouxas do loader"]
+    T016["T-016 · P- · A porta do MCP e o filtro no retrato do "]
+    T017["T-017 · M- · Conferir que a rechave de fonte nao perd"]
+    T018["T-018 · P- · ADR do fuso: banco em UTC, log em hora l"]
   end
   subgraph O1["Onda 1"]
     T009["T-009 · M+ · Porta do MCP ligada na rodada do bot"]
+    T019["T-019 · M- · O concurso filtrado pelo MCP que o Gran "]
   end
   subgraph O2["Onda 2"]
     T010["T-010 · G- · Filtro ativo na matriz de decisao e resu"]
@@ -98,8 +112,9 @@ graph LR
   T009 --> T010
   T010 --> T011
   T011 --> T012
+  T015 --> T019
   classDef integrado fill:#d1fae5,stroke:#059669
   class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011,T012 integrado
   classDef critico stroke-width:3px
-  class T001 critico
+  class T015,T019 critico
 ```
