@@ -2,13 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Production is down as of 22/10/2026: read `HANDOFF.md` first.** No scan has completed since 23/09 because the LLM credential is blocked (the z.ai key returns `1113` with no balance or plan). It also covers access to the notebook, the current LLM config, the ways to unblock it, and the open items (hourly heartbeat spam, a leaked Telegram token).
+> **Production state:** the notebook runs branch `fix/ia-sem-login-e-zai` (see `HANDOFF.md`, 22/10/2026). The MCP + eligibility wave is merged into local `main` and **pending deploy** — the runbook is `docs/DEPLOY-PCI-MCP.md`. Read `HANDOFF.md` first for the incident history (LLM credential, access, open items: leaked Telegram token).
 
 ## Project Overview
 
-Monitor de Concursos is a hybrid AI-first & deterministic web scraping system that monitors public competition postings across three complementary sources: **Gran Cursos Online** (blog), **PCI Concursos by cargo** (`/cargos/<slug>`), and **PCI Concursos Nacional** (`/concursos/nacional/`). It combines deterministic parsing for high-volume structured listings with LLM extraction (via LangChain, three selectable backends) for prose blocks and area classification — including a controlled-vocabulary contest `fase` — then sends relevant notifications via Telegram. Supports multi-area monitoring (`TI`, `EDUCACAO`, `SOCIOLOGIA_ARTES`, ...) with per-area Telegram chat routing.
+Monitor de Concursos is a hybrid AI-first & deterministic web scraping system that monitors public competition postings through **four doors**: **PCI Concursos via its official MCP server** (`PciMcpScraper`, the default PCI door), **Gran Cursos Online** (blog), and the two **PCI HTML reserve doors** — PCI by cargo (`/cargos/<slug>`) and PCI Concursos Nacional (`/concursos/nacional/`), kept in the repo but off by configuration ([ADR-0001](docs/adr/0001-mcp-como-unica-porta-do-pci.md)). It combines deterministic parsing for high-volume structured listings with LLM extraction (via LangChain, three selectable backends) for prose blocks and area classification — including a controlled-vocabulary contest `fase` — then applies a **per-area eligibility filter** ([ADR-0002](docs/adr/0002-elegibilidade-pelo-teto-do-concurso.md), specified in [SPEC-001](docs/specs/SPEC-001-pci-mcp-e-elegibilidade.md)) and sends relevant notifications via Telegram. Supports multi-area monitoring (`TI`, `EDUCACAO`, `SOCIOLOGIA_ARTES`, ...) with per-area Telegram chat routing.
 
-See `PLANO_EVOLUCAO_AGENTICA.md` (v2, 22/10/2026) for the planned evolution: Gran via the WordPress REST API (replaces the frozen curated articles, no Playwright), deep-dive cargo/salary/benefits extraction, and a fail-open regional salary eligibility rule rolled out in shadow mode first. `browser-use` self-healing selectors are deferred to the backlog with an explicit entry criterion.
+The normative documents of this phase are `docs/specs/SPEC-001-pci-mcp-e-elegibilidade.md` (MCP door, eligibility rules, weekly summary) and the ADRs in `docs/adr/`. `PLANO_EVOLUCAO_AGENTICA.md` is an old, non-normative plan: where it disagrees with the SPEC, the SPEC wins (its PCI/salary sections are superseded). Glossary terms (`porta`, `rodada`, `teto do concurso`, `elegibilidade`, ...) live in `GLOSSARIO.md`.
 
 ## Running
 
@@ -36,7 +36,7 @@ Ollama is only required if `LLM_MODEL` is a plain name like `llama3.1`. See "LLM
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                                    # full suite (295 tests)
+pytest                                    # full suite (539 tests)
 pytest tests/test_concurso_bot.py -v      # one file
 pytest -k "TestExecutarFlow"              # by name pattern
 pytest --cov=src --cov=config             # with coverage
@@ -46,35 +46,38 @@ All external dependencies are mocked — tests do not require Ollama, an API key
 
 ## Architecture
 
-**Pipeline flow**: `main.py` builds one `ConcursoBot` per target from `config/loader.py` → `MultiAreaRunner` → each `ConcursoBot` → **sources** (`GranScraper`, `PciScraper`, `PciNacionalScraper`) → `IntelligenceUnit` (Gran + new nacional items) → `DatabaseManager` → `TelegramNotifier`
+**Pipeline flow**: `main.py` builds one `ConcursoBot` per target from `config/loader.py` → `MultiAreaRunner` → each `ConcursoBot` → **doors** (`PciMcpScraper` for PCI targets, `GranScraper`, plus the reserve `PciScraper`/`PciNacionalScraper`) → eligibility (MCP items only) → `IntelligenceUnit` (Gran + new nacional items) → `DatabaseManager` → `TelegramNotifier`
 
-**Three sources, one decision path.** They differ only in how a candidate becomes a data dict:
+**Four doors, one decision path.** They differ only in how a candidate becomes a data dict:
 
-| | Gran | PCI by cargo | PCI nacional |
-| --- | --- | --- | --- |
-| URL | one blog page per area | `/cargos/<slug>` | `/concursos/nacional/` |
-| Page shape | prose in HTML | structured list | structured list |
-| Needs the LLM? | **yes**, one call per block | **no**, deterministic parse | **only for a NEW item**, to judge area fit |
-| Volume | ~45 blocks | 50–1000+ items | ~4–15 items |
-| Covers | large state/federal | municipal, autarquias, conselhos | **estatal federal** (Dataprev, Transpetro, Correios) |
+| | PCI MCP (`PciMcpScraper`) — **default PCI door** | Gran | PCI by cargo (reserve) | PCI nacional (reserve) |
+| --- | --- | --- | --- | --- |
+| URL | `POST https://mcp.pciconcursos.com.br/mcp` (JSON-RPC 2.0) | one blog page per area | `/cargos/<slug>` | `/concursos/nacional/` |
+| Shape | structured JSON (resp. may come as SSE) | prose in HTML | structured list | structured list |
+| Needs the LLM? | **no**, fully deterministic | **yes**, one call per block | **no**, deterministic parse | **only for a NEW item**, to judge area fit |
+| Volume | 1 call per area term (TI: 13 terms, ≤69 results each; server caps at 200) | ~45 blocks | 50–1000+ items | ~4–15 items |
+| Covers | everything the role search reaches — municipal, councils, estatais, nacional | large state/federal | municipal, autarquias, conselhos | **estatal federal** (Dataprev, Transpetro, Correios) |
+| Dedup key | MCP `id` (= `pci_id`, same news id as the HTML pages) | canonical `link` + `(area, nome)` | `pci_id` (`nXXXXXX`) + `link` | news `link` |
 
-The `professor` slug alone lists 1000+ concursos, which is why the cargo pages must stay deterministic — LLM at CLI latency would take hours. The nacional page is the opposite: a dozen items whose cargo column usually just says "Vários Cargos", so the LLM is the only way to tell whether it is this area's concurso, and it is affordable. Everything downstream of the data dict — decision matrix, dedup, buttons — is shared.
+The MCP door is why the Gran blog is the only LLM-fed door left: the server returns region (`uf`, `regiao` incl. `NACIONAL`), `cargos_total`, the exam salary ceiling (`vagas_salario`) and registration dates **already computed**, so the national list no longer needs the LLM either ([ADR-0001](docs/adr/0001-mcp-como-unica-porta-do-pci.md)). The two HTML PCI doors stay in the repo as a fallback, toggled per target by `pci_slugs` / `pci_nacional` — off in TI, on in the other areas. Everything downstream of the data dict — eligibility, decision matrix, dedup, buttons — is shared.
 
 **Why the third source exists (09/2026)**: the Dataprev concurso (1,823 vagas, 1,793 of them Analista de TI, inscriptions 06/07–06/08/2026) never reached the user. Post-mortem found it appeared in *neither* existing source — the Gran TI article was frozen (below) and six Hermes sweeps of the PCI cargo slugs inside the inscription window never listed it. `/concursos/nacional/` is where that class of concurso lives.
 
-1. **GranScraper** (`src/scrapers/gran_scraper.py`) slices page HTML into blocks — does NO data extraction. Default mode slices by `<h3>` tags; URLs containing `/cursos/carreira/` use a separate path that slices by `<h3>`/`<h4>` section headings plus `<li>` items and filters hardcoded section names (see `_CARREIRA_SECOES` / `_RUIDO_MARCADORES`).
-2. **PciScraper** (`src/scrapers/pci_scraper.py`) reads `https://www.pciconcursos.com.br/cargos/<slug>` for each slug in `pci_slugs`, parsing the `ul.link-d` + `ul.link-i` pairs into finished data dicts. The `nXXXXXX` in the anchor's CSS class is the PCI news id — stable across runs, stored as `pci_id`, and the strongest dedup key available. The cargo page never carries the registration deadline, so `enriquecer()` fetches the news page once **per new item only** and extracts the deadline by regex, scoped to the sentence mentioning "inscrições" (a news page also mentions isenção and prova dates; taking the max over the whole text would return the exam date).
-2b. **PciNacionalScraper** (`src/scrapers/pci_nacional_scraper.py`) reads `https://www.pciconcursos.com.br/concursos/nacional/`, one `div.ca` per concurso. Two differences from the cargo pages shape the design: there is **no `nXXXXXX`**, so `pci_id` is None and identity is the news `link` (the same canonical URL the cargo pages use, so the two doors dedup against each other); and the **deadline is in the listing** ("Inscrição até"), so fase and prazo are deterministic without opening the news. `_fase` derives from that window and only falls back to the title verb — the opposite precedence from `PciScraper`, because "Transpetro publica editais retificados" would score `edital_publicado` while the deadline on the same row says inscriptions are open. Per-target flag `pci_nacional`, default off. Shared date/fase helpers live in `src/scrapers/pci_comum.py`.
+1. **PciMcpScraper** (`src/scrapers/pci_mcp_scraper.py`) is the **default PCI door**: one `buscar_por_cargo` call per term in `pci_mcp_cargos` (no `uf` — the serverless search covers every state plus the nationals), union by `id`, item mapped into the same dict shape the other PCI doors produce plus `regiao`, `cargos_total`, `vagas_salario` (raw text) and `termos_origem`. `fase` comes from the server-computed dates, never from the title verb. A term returning a `message` field is "no results" (logged, no retry); a failing term is logged and the round continues with the others — all terms failing is a source failure that `saude_fontes` (name `pci_mcp`) catches. The rule set for this door is SPEC-001 §4.1; the contract is §3.1.
+2. **GranScraper** (`src/scrapers/gran_scraper.py`) slices page HTML into blocks — does NO data extraction. Default mode slices by `<h3>` tags; URLs containing `/cursos/carreira/` use a separate path that slices by `<h3>`/`<h4>` section headings plus `<li>` items and filters hardcoded section names (see `_CARREIRA_SECOES` / `_RUIDO_MARCADORES`).
+3. **PciScraper** (`src/scrapers/pci_scraper.py`, reserve) reads `https://www.pciconcursos.com.br/cargos/<slug>` for each slug in `pci_slugs`, parsing the `ul.link-d` + `ul.link-i` pairs into finished data dicts. The `nXXXXXX` in the anchor's CSS class is the PCI news id — stable across runs, stored as `pci_id`, and the strongest dedup key available. The cargo page never carries the registration deadline, so `enriquecer()` fetches the news page once **per new item only** and extracts the deadline by regex, scoped to the sentence mentioning "inscrições" (a news page also mentions isenção and prova dates; taking the max over the whole text would return the exam date).
+4. **PciNacionalScraper** (`src/scrapers/pci_nacional_scraper.py`, reserve) reads `https://www.pciconcursos.com.br/concursos/nacional/`, one `div.ca` per concurso. Two differences from the cargo pages shape the design: there is **no `nXXXXXX`**, so `pci_id` is None and identity is the news `link` (the same canonical URL the cargo pages use, so the two doors dedup against each other); and the **deadline is in the listing** ("Inscrição até"), so fase and prazo are deterministic without opening the news. `_fase` derives from that window and only falls back to the title verb — the opposite precedence from `PciScraper`, because "Transpetro publica editais retificados" would score `edital_publicado` while the deadline on the same row says inscriptions are open. Per-target flag `pci_nacional`, default off. Shared date/fase helpers live in `src/scrapers/pci_comum.py`.
 
-3. **ConcursoBot** (`src/core/bot.py`) orchestrates per-area: pending Telegram callbacks → per source, candidate → data dict → DB lookup → **fase-based decision matrix** (`_decidir_e_notificar`, no second LLM call) → notification. The keyword pre-filter (`_passa_filtro_palavras`) applies to Gran blocks and runs on **visible text**, not raw HTML — see "Key Design Decisions".
+5. **Eligibility** (`src/core/elegibilidade.py`, pure) decides, per area with `filtro_salarial: "ativo"`, whether an MCP item is notified at all: `decidir(Candidato, Politica) -> Decisao` with a closed set of nine outcomes (first match wins, SPEC-001 §4.2). `Candidato` is assembled by the bot from the item plus two classifiers — `salario.teto_de()` (`src/utils/salario.py`, largest BRL value in `vagas_salario`, with a R$ 500–80.000 sanity band) and `esfera.esfera_de()` (`src/utils/esfera.py`, federal/estadual/distrital/municipal/conselho_profissional). A filtered item is saved silently with `elegibilidade='filtrado'` + `motivo_filtro` and **never notifies**; if it later becomes eligible again (edital out, ceiling up, ⭐) it resurfaces as new, because the user never saw it. Only MCP items carry `regiao`, so only they are evaluated — Gran and reserve-door items keep today's behavior unchanged. With `resumo_filtrados: "semanal"`, `src/core/resumo_filtrados.py` builds the weekly filtered-list message (count per reason, ≤30 rows) with the week marker in `logs/.resumo_<area>_filtrados`.
+6. **ConcursoBot** (`src/core/bot.py`) orchestrates per-area: pending Telegram callbacks → per door, candidate → data dict → eligibility (MCP only) → DB lookup → **fase-based decision matrix** (`_decidir_e_notificar`, no second LLM call) → notification. The keyword pre-filter (`_passa_filtro_palavras`) applies to Gran blocks and runs on **visible text**, not raw HTML — see "Key Design Decisions".
    - The nacional source (`_varrer_nacional`) costs nothing in steady state: an item already in the DB is refreshed from the listing with no request and no LLM; an item judged off-area is remembered for 30 days in `data/pci_nacional_descartados.json` (keyed by area+link, re-judged if the deadline changes) so the same "not TI" is not re-derived daily. Only a genuinely new item opens the news page and spends one LLM call. The LLM decides **only area fit** — `link`, `fase` and `data_fim_inscricao` keep the listing's deterministic values, because letting the LLM pick the link is what duplicates rows.
    - End-of-cycle: a 🔑 *LLM without login* alert when the Claude CLI lost its credential (`IntelligenceUnit.falha_autenticacao`), else a 🚨 *degraded* alert when ≥20% of blocks were lost in extraction (`LIMITE_ERRO_EXTRACAO`), else a ⚠️ blind-scan alert when the scan produced no candidates at all, else heartbeat. Degraded is checked first: 10 blocks with 5 lost is loss, not blindness. Blind = zero raw blocks with no alternate source, OR zero candidates on a target WITHOUT `keywords_include`. Filtered targets on generic pages treat zero valid as a normal quiet day.
    - Every bot alert is rate-limited to **one per area per day** (`_alerta_uma_vez_por_dia`, marker in `logs/.alerta_<area>_<tipo>`): blind scan, degraded, crash, sick source — and the end-of-cycle heartbeat (type `heartbeat`) since 22/10/2026. The cron runs hourly and a failed run is retried, so any persistent cause would otherwise send 24 identical messages — which is exactly what the degraded alert did from 14/10 to 22/10/2026 before it was limited. The heartbeat is daily for the same reason: while any area fails, the hourly catch-up re-runs the healthy areas too, and they re-sent «✅ Varredura Concluída» 45–48×/day in the Educação/Soc-Artes chat (15–22/10/2026). The 🔑 login alert is limited **globally** (`por_area=False`, marker `logs/.alerta_global_<tipo>`): the credential belongs to the machine, and the Educação/Soc-Artes chats must not get copies of a terminal instruction. The dead-man's-switch in `run_daily.sh` has its own daily marker (`logs/.last_dead_man_alert`) for the same reason.
    - **Per-source diagnosis** (`_alertar_fontes_doentes`, backed by `src/utils/saude_fontes.py`) runs *after* `_mensagem_final` and only when the aggregate stayed quiet — the aggregate alert wins, so one problem never sends two messages. It flags a source that returned **nothing** (🕳️) or that has returned **identical content for more than `dias_fonte_parada` days** (🧊, default 21). Neither sets `bot.falhou`: a frozen or dead source is not fixed by retrying, and marking failure would make the hourly catch-up burn LLM on the other sources all day. State lives in `data/saude_fontes.json`, keyed `<area>::<fonte>`; the digest is built from **visible text** (Gran) or ids/links (PCI) and is order-insensitive, so a reshuffled page does not read as an update.
    - `bot.falhou` is set by any failure. `MultiAreaRunner.executar()` returns False if any area failed, `main.py` exits 1, and `run_daily.sh` then does NOT write the success marker — so the next hourly tick retries.
-4. **IntelligenceUnit** (`src/intelligence/langchain_unit.py`) runs the extraction chain over the backend selected by `_detect_backend(model_name)`: HTML block → `{ignorar, nome, status, link, data_fim_inscricao, data_referencia, fase}`. The system prompt receives `area_context` + include/exclude keywords so the LLM rejects off-area blocks. `fase` is one of 6 literals (see "Fase vocabulary"); `data_referencia` is the most relevant event date (ISO; month/year → first day; null when no date). Both are sanitized post-parse (`sanitizar_fase`, `_sanitizar_data`). Retries on failure (`LLM_RETRIES`, `LLM_RETRY_DELAY_S`), and surfaces JSON wrapped in markdown fences via `_parse_json_response`. On final failure it returns `{"ignorar": True, "erro": True}` — the `erro` flag is what lets the bot tell a *lost* edital from an irrelevant block.
-5. **MultiAreaRunner** (`src/core/multi_area_runner.py`) runs the bots sequentially each cycle and aggregates failure.
-6. **Scheduling is external.** `main.py` does NOT have an internal loop. On Linux, cron runs `scripts/run_daily.sh` **hourly**; the daily marker + `flock` make every tick after the first success a no-op. Hourly is deliberate — see "Key Design Decisions".
+7. **IntelligenceUnit** (`src/intelligence/langchain_unit.py`) runs the extraction chain over the backend selected by `_detect_backend(model_name)`: HTML block → `{ignorar, nome, status, link, data_fim_inscricao, data_referencia, fase}`. The system prompt receives `area_context` + include/exclude keywords so the LLM rejects off-area blocks. `fase` is one of 6 literals (see "Fase vocabulary"); `data_referencia` is the most relevant event date (ISO; month/year → first day; null when no date). Both are sanitized post-parse (`sanitizar_fase`, `_sanitizar_data`). Retries on failure (`LLM_RETRIES`, `LLM_RETRY_DELAY_S`), and surfaces JSON wrapped in markdown fences via `_parse_json_response`. On final failure it returns `{"ignorar": True, "erro": True}` — the `erro` flag is what lets the bot tell a *lost* edital from an irrelevant block. **The IntelligenceUnit never sees PCI data**: MCP and PCI HTML items arrive fully parsed and deterministic; the LLM is paid only on Gran prose and genuinely new nacional items.
+8. **MultiAreaRunner** (`src/core/multi_area_runner.py`) runs the bots sequentially each cycle and aggregates failure.
+9. **Scheduling is external.** `main.py` does NOT have an internal loop. On Linux, cron runs `scripts/run_daily.sh` **hourly**; the daily marker + `flock` make every tick after the first success a no-op. Hourly is deliberate — see "Key Design Decisions".
 
 ## Fase vocabulary (`src/utils/fases.py`)
 
@@ -124,12 +127,19 @@ Config is via a dotenv file. **It does NOT live in the repo folder** — the rep
 - **Multi-area** (recommended): `MONITOR_TARGETS_JSON` — JSON array of area configs with `area`, `url`, `chat_ids`, `keywords_include`, `keywords_exclude`, `pci_slugs`, `pci_primeira_carga`. **Must be on a single line** — python-dotenv does not support multiline values, so pretty-printing the JSON will silently break loading and fall through to legacy mode.
 - **Legacy single-area**: `URL_ALVO` + `TELEGRAM_CHAT_ID` + `KEYWORDS_INCLUDE` + `KEYWORDS_EXCLUDE` (+ `PCI_SLUGS`, `PCI_PRIMEIRA_CARGA`). Used as fallback when `MONITOR_TARGETS_JSON` is missing or fails to parse.
 
-**PCI fields** (per target):
+**PCI fields** (per target) — the full per-area key table with defaults is SPEC-001 §3.6; production values for the TI area live in the deploy runbook, `docs/DEPLOY-PCI-MCP.md`:
 
-- `pci_slugs` — cargo slugs to fetch. Empty/absent disables PCI for that area. Live values as of 2026-08-08: TI 8 slugs (60 órgãos), EDUCACAO 5 (220), SOCIOLOGIA_ARTES 4 (56).
-- `pci_nacional` — `true` turns on the `/concursos/nacional/` source for that target. **Default off.** Live value as of 2026-09-09: TI only. Turning it on for another area costs one LLM call per new item on that page (~4–15 items today), once.
+- `pci_mcp` — `true` turns on the MCP door for that target. **Default off.** Requires `pci_mcp_cargos`: a door on with no terms would be a dead source, so the loader logs an error and delivers `pci_mcp` off — fill `pci_mcp_cargos` to actually turn it on.
+- `pci_mcp_cargos` — `buscar_por_cargo` terms for the MCP door (list or CSV, order preserved). TI runs 13 terms today (see `.env.example`).
+- `filtro_salarial` — `desligado` (default) or `ativo`. Turns the area's eligibility filter on. An invalid value falls back to `desligado` — config failure must land on the most conservative mode, never the most aggressive one. Areas with the filter off behave exactly as before.
+- `corte_fora_sul` — the ceiling floor demanded outside the South (TI: `10000`). `0` disables nothing by itself: it is only read when `filtro_salarial` is `ativo`.
+- `resumo_filtrados` — `nunca` (default) or `semanal`: the weekly filtered-list message.
+- `pci_slugs` — cargo slugs for the reserve cargo door. Empty/absent disables that door for the area. Live values as of 2026-08-08: TI 8 slugs (60 órgãos), EDUCACAO 5 (220), SOCIOLOGIA_ARTES 4 (56). **TI runs with this key removed/empty since the MCP wave** (ADR-0001).
+- `pci_nacional` — `true` turns on the `/concursos/nacional/` reserve door. **Default off.** Turning it on costs one LLM call per new item on that page (~4–15 items today), once.
 - `dias_fonte_parada` — days of identical content before a source is reported frozen (default 21, see `src/utils/saude_fontes.py`).
 - `pci_primeira_carga` — what to do the FIRST time PCI runs in an area, when dozens or hundreds of editais arrive at once. `individual` (default, one card each), `resumo_uf` (one message per state), `silencioso` (seed the DB only). Detected from the DB (`contar_por_fonte('pci') == 0`), not from a flag file. From the second run on, always the normal one-card-per-novelty flow. Invalid values fall back to `individual` with a warning — a typo must never turn into silence.
+
+Rule of thumb: **eligibility keys are TI-only.** The other areas keep `pci_slugs`/`pci_nacional` and never get any of the new keys — a per-area filter outside TI is a product decision, not a config accident.
 
 Model selection: `LLM_MODEL` takes precedence over `OLLAMA_MODEL` (main.py uses `os.getenv("LLM_MODEL") or os.getenv("OLLAMA_MODEL", "llama3.1")`). Routing rules in the "LLM backends" section above. Timeout/retry vars are `LLM_TIMEOUT_S` / `LLM_RETRIES` / `LLM_RETRY_DELAY_S`; the old `OLLAMA_*` names still work as aliases (the backend in production is `claude -p`, so the Ollama naming was misleading).
 
@@ -137,7 +147,7 @@ Config loading logic is in `config/loader.py`.
 
 ## Database
 
-SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, not relative to cwd). Table `editais` (schema v5):
+SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, not relative to cwd). Table `editais` (schema v6):
 
 | Column | Type | Notes |
 | --- | --- | --- |
@@ -150,9 +160,11 @@ SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, no
 | `status_hash` | TEXT NULL | sha1[:16] of `status_fingerprint(status)` — legacy dedup, superseded by `fase` |
 | `fase` | TEXT NULL | Controlled vocabulary (see "Fase vocabulary") — the change-detection key. NULL = pre-v4 row awaiting silent backfill |
 | `estado_usuario` | TEXT DEFAULT `'ativo'` | `ativo` \| `ignorado` \| `seguindo` — controlled by Telegram inline buttons |
-| `fonte` | TEXT NULL | v5. `gran` \| `pci` \| `pci_nacional`. Pre-v5 rows backfilled to `gran` (the only source that existed). First-load detection counts `pci` only |
-| `pci_id` | TEXT NULL | v5. PCI news id, the strongest dedup key. Indexed on `(area, pci_id)`. Always NULL for `pci_nacional` — that page does not carry the id, so those rows dedup by `link` |
+| `fonte` | TEXT NULL | v5. `gran` \| `pci` \| `pci_nacional` \| `pci_mcp` (MCP items, v6 wave). Pre-v5 rows backfilled to `gran` (the only source that existed). First-load detection counts `pci` only |
+| `pci_id` | TEXT NULL | v5. PCI news id, the strongest dedup key. Indexed on `(area, pci_id)`. Always NULL for `pci_nacional` — that page does not carry the id, so those rows dedup by `link`. MCP items carry it from the server `id` (the same news id), so dedup crosses the door switch without data migration |
 | `ultima_atualizacao` | TIMESTAMP | Auto-updated on every upsert |
+
+**v6 columns** (the eligibility context, additive with no backfill — SPEC-001 §3.5): `uf`, `regiao`, `esfera`, `cargos_total`, `salario_teto`, `elegibilidade` (`filtrado` \| `elegivel`) and `motivo_filtro`. A pre-v6 row has `elegibilidade` NULL and **counts as eligible**: it was already notified, so it is neither re-notified nor erased. They are written empty (NULL) for items from doors that don't carry `regiao`. `listar_filtrados(desde)` returns the area's `filtrado` rows for the weekly summary.
 
 **Identity resolution** (`buscar_registro`, strongest first) — one order shared by lookup and upsert:
 
@@ -163,11 +175,13 @@ SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, no
 
 When a name collision turns out to be the same órgão, `_fundir` merges the rows instead of leaving both. The user's `estado_usuario` wins by priority (`seguindo` > `ignorado` > `ativo`) from either row — an automatic merge must never discard a manual ⭐.
 
-Auto-migrates v1 (PK `nome`) → v2 (PK `(area, nome)`) → v3 (`id` autoincrement) → v4 (adds `fase`) → v5 (adds `fonte`, `pci_id` and `(area, pci_id)` index) on startup; legacy v1 rows are tagged with area `TI`. `atualizar_concurso` uses `COALESCE(?, fase)` so updates without a fase never erase a stored one. Connection opened with `check_same_thread=False`. Manager in `src/database/manager.py`.
+Auto-migrates v1 (PK `nome`) → v2 (PK `(area, nome)`) → v3 (`id` autoincrement) → v4 (adds `fase`) → v5 (adds `fonte`, `pci_id` and `(area, pci_id)` index) → v6 (adds the seven eligibility columns, `ALTER TABLE ... ADD COLUMN` guarded by `PRAGMA table_info` — additive and idempotent, never `DROP`) on startup; legacy v1 rows are tagged with area `TI`. `atualizar_concurso` uses `COALESCE(?, fase)` so updates without a fase never erase a stored one. Connection opened with `check_same_thread=False`. Manager in `src/database/manager.py`.
 
 `atualizar_concurso` does explicit UPDATE-if-exists (by `pci_id` / `link` if specific, else by `(area, nome)` / `mesma_entidade`) before INSERT — this preserves `id` between runs, which is required for the Telegram callback buttons to stay valid.
 
 ## Decision matrix (`ConcursoBot._decidir_e_notificar`)
+
+The eligibility filter runs **before** this matrix and only for MCP items; a `filtrado` item never reaches the matrix and never notifies.
 
 A contest is **inativo** when its deadline passed (`data_fim_inscricao` in the past) OR it is a **dead listing**: no known inscription window (`data_fim` None) AND the most relevant event date (`data_referencia`) is in the past (e.g. "provas previstas para maio de 2025" still on the page in 2026). A legit "previsto" with no date at all is NOT inativo.
 
@@ -199,6 +213,8 @@ The processor is single-run (no daemon) — clicks are applied at the next sched
 
 ## Key Design Decisions
 
+- **Eligibility and `estado_usuario` are different owners.** `elegibilidade` is the **bot's** decision (notified or silently filtered, with a `motivo_filtro` on the row); `estado_usuario` is the **user's** (the ⭐/❌ Telegram buttons). They live in separate columns and never overwrite each other. The only bridge is one-directional: a ⭐ (`seguindo`) feeds the eligibility rule 0, so a starred concurso arrives even when the filter would silence it. Nothing the bot decides may ever change `estado_usuario`.
+- **PCI data never goes through the LLM.** The MCP door and the PCI HTML doors are deterministic end to end: the server already returns region, ceiling, cargo count and dates, so sending PCI rows to the model would cost hours per round for zero information gain (measured — the old national door did exactly this). The LLM reads only Gran prose and genuinely new nacional items (reserve door).
 - **AI-first extraction**: LLM reads raw HTML semantically, making the system resilient to website layout changes — the scraper intentionally does no field extraction.
 - **Structured fase over free text**: change detection compares a closed, ordered vocabulary extracted at classification time — never the free-text status, which the LLM rewords every scan. Only advances count; regressions are absorbed (`fase_mais_avancada`). This replaced both the hash comparison and the analysis chain as the decision mechanism.
 - **Dead-listing filter**: `data_referencia` distinguishes stale page entries (past event, no inscription window) from genuine upcoming "previsto" contests.
