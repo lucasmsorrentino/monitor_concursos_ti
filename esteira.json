@@ -45,7 +45,7 @@
       "env": {
         "OPENCODE_CONFIG": "{skill}/modelos/opencode-esteira.json"
       },
-      "comando": "opencode run --standalone --archived -m zai-coding-plan/glm-5.3{variant_sufixo} \"{instrucao}\" < /dev/null",
+      "comando": "opencode run --standalone --archived -m zai-coding-plan/glm-5.4{variant_sufixo} \"{instrucao}\" < /dev/null",
       "esforcos": [
         "high"
       ],
