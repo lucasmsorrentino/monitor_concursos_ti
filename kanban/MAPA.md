@@ -1,11 +1,11 @@
 # Mapa de trabalho — monitor-concursos
 
-> Gerado por `esteira.py mapa` em 2026-11-24 11:34. Não edite à mão: mude os tickets e gere de novo.
+> Gerado por `esteira.py mapa` em 2026-11-24 13:02. Não edite à mão: mude os tickets e gere de novo.
 
 ## Resumo
 
-- 12 tickets: 1 pronto, 11 integrado
-- Caminho crítico restante (peso 1): T-001 → T-010 → T-011 → T-012
+- 12 tickets: 12 integrado
+- Caminho crítico restante (peso 0): T-001
 - Ondas: 5; paralelismo máximo: 8 tickets numa onda
 - Validação: 0 erro(s), 2 aviso(s)
 
@@ -36,27 +36,23 @@ Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependênc
 
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
-| T-010 ★ | G- | opus (high) | principal | integrado | Filtro ativo na matriz de decisao e resumo semanal |
+| T-010 | G- | opus (high) | principal | integrado | Filtro ativo na matriz de decisao e resumo semanal |
 
 ### Onda 3 — depois de T-010 (1 em paralelo)
 
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
-| T-011 ★ | P+ | glm-flash (high) | principal | integrado | Docs: README, CLAUDE.md e roteiro de deploy |
+| T-011 | P+ | glm-flash (high) | principal | integrado | Docs: README, CLAUDE.md e roteiro de deploy |
 
 ### Onda 4 — depois de T-011 (1 em paralelo)
 
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
-| T-012 ★ | P- | glm-flash | principal | pronto | Deploy no notebook de producao |
+| T-012 | P- | glm-flash | principal | integrado | Deploy no notebook de producao |
 
 ## Conflitos de arquivo
 
 Nenhum: tickets paralelos não tocam os mesmos arquivos.
-
-## Recursos
-
-- **notebook** (do dono): T-012 — só sai com a linha «Recurso notebook: feito» no ticket
 
 ## Gargalos (quem mais destrava)
 
@@ -103,7 +99,7 @@ graph LR
   T010 --> T011
   T011 --> T012
   classDef integrado fill:#d1fae5,stroke:#059669
-  class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011 integrado
+  class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011,T012 integrado
   classDef critico stroke-width:3px
-  class T001,T010,T011,T012 critico
+  class T001 critico
 ```

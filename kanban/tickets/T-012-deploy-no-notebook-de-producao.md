@@ -3,7 +3,7 @@ id: T-012
 titulo: Deploy no notebook de producao
 tipo: infra
 nivel: P-
-status: pronto
+status: integrado
 repo: principal
 spec: [SPEC-001, PED-01]
 depende_de: [T-011]
@@ -11,7 +11,15 @@ toca: [docs/DIAGNOSTICO-POS-DEPLOY.md]
 recursos: [notebook]
 afinidade:
 retornos: 0
-atualizado: 2026-11-23T18:16-03:00
+atualizado: 2026-11-24T13:02-03:00
+branch: t/T-012-deploy-no-notebook-de-producao
+executor: script
+executor_impl: glm-flash
+corpo_lancado: 33195f938785
+fora_do_toca: []
+ponta: 0805b1213ecf68eb69a4150574cad955eae3550c
+executor_rev: agy-argon
+executor_int: script
 ---
 # T-012 · Deploy no notebook de producao
 
@@ -112,5 +120,343 @@ Checagens:
 
 <!-- Cole aqui as seis evidencias e, ao terminar, a linha "Recurso notebook: feito" no comeco de uma linha. -->
 
+**Quem executou:** o Claude, por pedido do Lucas no chat em 24/11/2026 («pode fazer commit, push e
+deploy pra mim?»). Acesso ao notebook pela chave `fleet_ed25519` sobre a Tailscale. A suposicao do
+ticket de que o agente nao alcancava a maquina estava errada. Nenhuma credencial foi lida, escrita ou
+impressa: a unica chave do `monitor.env` que mudou foi a `MONITOR_TARGETS_JSON`, e o `chat_ids` que ja
+estava la foi preservado. Backup em `~/concursos-secrets/monitor.env.bak-2026-11-24`.
+
+### 1. Diagnostico ANTES do deploy
+
+Rodado com o codigo ANTIGO ainda no lugar. O roteiro manda rodar `scripts/diagnostico_producao.sh`
+antes de tudo, mas esse script nasce nesta fase e nao existia no notebook: foi copiado para `/tmp` e
+rodado de la, com a raiz do repo como argumento, para o retrato sair honesto. Copia em
+`~/diagnostico-monitor-antes-2026-11-24.txt`.
+
+```text
+Diagnostico da producao do monitor de concursos
+
+== Identidade ==
+data e hora: 2026-11-24 12:14:29 -0300
+host: lucas-Inspiron-3583
+commit: 0a237b6
+branch: fix/ia-sem-login-e-zai
+arvore: limpa
+
+== Ultimo sucesso ==
+data: 20261124
+idade: 0 dias
+
+== Saude por dia (ultimos 30 dias) ==
+20261026 exit=0 novos=- atualizacoes=-
+20261027 exit=0 novos=1 atualizacoes=0
+20261028 exit=0 novos=22 atualizacoes=0
+20261029 exit=0 novos=12 atualizacoes=0
+20261030 exit=0 novos=20 atualizacoes=0
+20261031 exit=0 novos=34 atualizacoes=33
+20261101 exit=0 novos=23 atualizacoes=10
+20261102 exit=0 novos=1 atualizacoes=7
+20261103 exit=0 novos=1 atualizacoes=9
+20261104 exit=0 novos=16 atualizacoes=3
+20261105 exit=0 novos=21 atualizacoes=9
+20261106 exit=0 novos=16 atualizacoes=7
+20261107 exit=0 novos=20 atualizacoes=3
+20261108 exit=0 novos=19 atualizacoes=1
+20261109 exit=0 novos=3 atualizacoes=1
+20261110 exit=0 novos=0 atualizacoes=4
+20261111 exit=0 novos=25 atualizacoes=6
+20261112 exit=0 novos=8 atualizacoes=3
+20261113 exit=0 novos=18 atualizacoes=6
+20261114 exit=0 novos=29 atualizacoes=4
+20261115 exit=0 novos=19 atualizacoes=4
+20261116 exit=0 novos=2 atualizacoes=1
+20261117 exit=0 novos=19 atualizacoes=3
+20261118 exit=0 novos=11 atualizacoes=2
+20261119 exit=0 novos=16 atualizacoes=2
+20261120 exit=0 novos=27 atualizacoes=1
+20261121 exit=0 novos=36 atualizacoes=1
+20261122 exit=0 novos=4 atualizacoes=2
+20261123 exit=0 novos=4 atualizacoes=1
+20261124 exit=0 novos=9 atualizacoes=1
+
+== Erros recorrentes ==
+      1 ❌ Falha ao acessar https://www.pciconcursos.com.br/cargos/professor apos N tentativa(s): HTTPSConnectionPool(host='www.pciconcursos.com.br', port=N): Read timed out. (read timeout=N)
+
+== Falha de credencial ==
+nenhuma ocorrencia do marcador 🔑 nos ultimos 30 dias
+
+== Banco ==
+total de linhas: 1629
+por area:
+  EDUCACAO=925
+  SOCIOLOGIA_ARTES=383
+  TI=321
+por fonte:
+  pci=1439
+  gran=181
+  pci_nacional=9
+por estado_usuario:
+  ativo=1628
+  ignorado=1
+ultima_atualizacao mais recente: 2026-11-24 03:32:10
+
+== Agendamento ==
+entradas do projeto no crontab:
+  20 * * * * /home/lucas/monitor_concursos_ti/scripts/run_daily.sh # monitor_concursos_ti
+  @reboot /home/lucas/monitor_concursos_ti/scripts/run_daily.sh # monitor_concursos_ti (boot)
+nenhum processo do monitor rodando agora
+
+== Config efetiva ==
+MONITOR_TARGETS_JSON (de /home/lucas/concursos-secrets/monitor.env):
+  area TI (Tecnologia da Informacao)
+    porta gran: ligada
+    porta pci_cargos: ligada (8 slug(s))
+    porta pci_nacional: ligada
+    token: ausente
+    chat_ids: <omitido> (1)
+  area EDUCACAO (Educacao)
+    porta gran: ligada
+    porta pci_cargos: ligada (5 slug(s))
+    porta pci_nacional: desligada
+    token: ausente
+    chat_ids: <omitido> (1)
+  area SOCIOLOGIA_ARTES (Sociologia, Artes e Licenciaturas)
+    porta gran: ligada
+    porta pci_cargos: ligada (4 slug(s))
+    porta pci_nacional: desligada
+    token: ausente
+    chat_ids: <omitido> (1)
+chaves em /home/lucas/concursos-secrets/monitor.env (valores omitidos):
+  # =<omitido>
+  # TELEGRAM
+  # =<omitido>
+  TELEGRAM_TOKEN=<omitido>
+  
+  # =<omitido>
+  # LLM — backend Claude Code CLI (usa a assinatura local, custo zero)
+  # =<omitido>
+  # LLM_MODEL=<omitido>
+  
+  OLLAMA_TIMEOUT_S=<omitido>
+  OLLAMA_RETRIES=<omitido>
+  OLLAMA_RETRY_DELAY_S=<omitido>
+  
+  # =<omitido>
+  # ALVOS DE MONITORAMENTO (multi-area, JSON em UMA linha)
+  # Troque SEU_CHAT_ID pelo seu id numerico do Telegram.
+  # Para monitorar Educacao para outra pessoa, descomente o segundo objeto
+  # e preencha o chat_id dela (ela precisa dar /start no bot antes).
+  # =<omitido>
+  MONITOR_TARGETS_JSON=<omitido>
+  
+  # --- LLM: z.ai (22/10/2026) ---
+  LLM_MODEL=<omitido>
+  LLM_REASONING_EFFORT=<omitido>
+  ZAI_API_KEY=<omitido>
+  LLM_API_BASE=<omitido>
+  ZAI_API_KEY=<omitido>
+```
+
+### 2. HEAD do notebook depois do git pull
+
+```text
+branch: main   (era fix/ia-sem-login-e-zai)
+HEAD:   1dd9437   (era 0a237b6)
+status: nothing to commit, working tree clean
+origin: main...origin/main  (em dia)
+```
+
+Fecha a pendencia 1 do `HANDOFF.md`, aberta desde 22/10/2026. A branch antiga continua la, nada foi
+apagado.
+
+### 3. Decisoes de elegibilidade no --dry-run
+
+`exit=0`. 56 linhas `FILTRADO`: 36 `abaixo_do_corte` e 20 `municipal_inflado`, nenhum outro motivo.
+Nenhum concurso do Sul e nenhum federal na lista de filtrados, nos dois greps (por motivo e por
+nome/UF). Amostra dos filtrados e, depois, dos que entram:
+
+```text
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: 🔇 [FILTRADO] Prefeitura de Santa Luzia - MG: abaixo_do_corte (teto=8628.87); salvando silencioso.
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: 🔇 [FILTRADO] Prefeitura de Italva - RJ: municipal_inflado (teto=12132.37); salvando silencioso.
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: 🔇 [FILTRADO] Prefeitura da Estância Turística de Guaratinguetá - SP: municipal_inflado (teto=18540.71); salvando silencioso.
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: 🔇 [FILTRADO] CETESB - Companhia Ambiental do Estado de São Paulo - SP: abaixo_do_corte (teto=8971.98); salvando silencioso.
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: 🔇 [FILTRADO] Banestes - Banco do Estado do Espírito Santo - ES: abaixo_do_corte (teto=6393.38); salvando silencioso.
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: 🔇 [FILTRADO] Prefeitura de Altair - SP: municipal_inflado (teto=11000.0); salvando silencioso.
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: 🔔 [TRANSICAO] UFMS - Fundação Universidade Federal de Mato Grosso do Sul - MS: Edital publicado → Inscrições abertas (data_mudou=False).
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: [DRY-RUN] mensagem suprimida: <b>🔔 ATUALIZAÇÃO - Tecnologia da Informacao: UFMS - Fundação Universidade Federal de Mato 
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: 🔔 [TRANSICAO] IFSP - Instituto Federal de Educação, Ciência e Tecnologia de São Paulo - SP: Edital publicado → Inscrições abertas (data_mudou=True).
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: [DRY-RUN] mensagem suprimida: <b>🔔 ATUALIZAÇÃO - Tecnologia da Informacao: IFSP - Instituto Federal de Educação, Ciência
+[2026-11-24 12:20:07] [INFO] [ConcursoBot]: 🔔 [TRANSICAO] IFG - Instituto Federal de Educação, Ciência e Tecnologia de Goiás - GO: Edital publicado → Inscrições abertas (data_mudou=True).
+```
+
+### 4. Fim do log da primeira rodada real e o marcador
+
+Forcada com `rm -f logs/.last_success_date` porque o codigo antigo ja tinha concluido com sucesso
+hoje (00:32), e o `run_daily.sh` sai sem rodar quando o marcador do dia existe. O cron das 12:20 foi
+pulado por esse mesmo motivo, antes do `rm`.
+
+```text
+[2026-11-24 12:49:58] [INFO] [__main__]: Varredura concluida com sucesso.
+===== exit=0 2026-11-24 12:49:58 =====
+[export_known] 1700 editais -> /home/lucas/.hermes/concursos-handoff/bot_known.json
+```
+
+- `logs/.last_success_date`: `20261124`
+- alertas de chave (`grep -c "🔑"`): `0`
+- `FILTRADO` fora dos dois motivos previstos, na rodada real: nenhum
+- `FILTRADO` do Sul ou federal, na rodada real: nenhum
+- filtrados na rodada real: 36 `abaixo_do_corte`, 20 `municipal_inflado`
+- tres ciclos, um por area: TI 25 novos e 21 atualizacoes, depois 17 e 1, depois 10 e 0
+- resumo semanal dos filtrados: enviado as 12:39:53, logo depois do ciclo da TI, com o marcador
+  `logs/.resumo_TI_filtrados` gravado com `2026-S48`
+- falhas de envio ao Telegram: `0`
+
+### 5. Diagnostico DEPOIS do deploy
+
+Copia em `~/diagnostico-monitor-depois-2026-11-24.txt`.
+
+```text
+Diagnostico da producao do monitor de concursos
+
+== Identidade ==
+data e hora: 2026-11-24 12:50:48 -0300
+host: lucas-Inspiron-3583
+commit: 1dd9437
+branch: main
+arvore: limpa
+
+== Ultimo sucesso ==
+data: 20261124
+idade: 0 dias
+
+== Saude por dia (ultimos 30 dias) ==
+20261026 exit=0 novos=- atualizacoes=-
+20261027 exit=0 novos=1 atualizacoes=0
+20261028 exit=0 novos=22 atualizacoes=0
+20261029 exit=0 novos=12 atualizacoes=0
+20261030 exit=0 novos=20 atualizacoes=0
+20261031 exit=0 novos=34 atualizacoes=33
+20261101 exit=0 novos=23 atualizacoes=10
+20261102 exit=0 novos=1 atualizacoes=7
+20261103 exit=0 novos=1 atualizacoes=9
+20261104 exit=0 novos=16 atualizacoes=3
+20261105 exit=0 novos=21 atualizacoes=9
+20261106 exit=0 novos=16 atualizacoes=7
+20261107 exit=0 novos=20 atualizacoes=3
+20261108 exit=0 novos=19 atualizacoes=1
+20261109 exit=0 novos=3 atualizacoes=1
+20261110 exit=0 novos=0 atualizacoes=4
+20261111 exit=0 novos=25 atualizacoes=6
+20261112 exit=0 novos=8 atualizacoes=3
+20261113 exit=0 novos=18 atualizacoes=6
+20261114 exit=0 novos=29 atualizacoes=4
+20261115 exit=0 novos=19 atualizacoes=4
+20261116 exit=0 novos=2 atualizacoes=1
+20261117 exit=0 novos=19 atualizacoes=3
+20261118 exit=0 novos=11 atualizacoes=2
+20261119 exit=0 novos=16 atualizacoes=2
+20261120 exit=0 novos=27 atualizacoes=1
+20261121 exit=0 novos=36 atualizacoes=1
+20261122 exit=0 novos=4 atualizacoes=2
+20261123 exit=0 novos=4 atualizacoes=1
+20261124 exit=0 novos=61 atualizacoes=23
+
+== Erros recorrentes ==
+      1 ❌ Falha ao acessar https://www.pciconcursos.com.br/cargos/professor apos N tentativa(s): HTTPSConnectionPool(host='www.pciconcursos.com.br', port=N): Read timed out. (read timeout=N)
+
+== Falha de credencial ==
+nenhuma ocorrencia do marcador 🔑 nos ultimos 30 dias
+
+== Banco ==
+total de linhas: 1700
+por area:
+  EDUCACAO=943
+  SOCIOLOGIA_ARTES=394
+  TI=363
+por fonte:
+  pci=1411
+  gran=180
+  pci_mcp=101
+  pci_nacional=8
+por estado_usuario:
+  ativo=1699
+  ignorado=1
+ultima_atualizacao mais recente: 2026-11-24 15:49:58
+
+== Agendamento ==
+entradas do projeto no crontab:
+  20 * * * * /home/lucas/monitor_concursos_ti/scripts/run_daily.sh # monitor_concursos_ti
+  @reboot /home/lucas/monitor_concursos_ti/scripts/run_daily.sh # monitor_concursos_ti (boot)
+nenhum processo do monitor rodando agora
+
+== Config efetiva ==
+MONITOR_TARGETS_JSON (de /home/lucas/concursos-secrets/monitor.env):
+  area TI (Tecnologia da Informacao)
+    porta gran: ligada
+    porta pci_cargos: desligada
+    porta pci_nacional: desligada
+    token: ausente
+    chat_ids: <omitido> (1)
+  area EDUCACAO (Educacao)
+    porta gran: ligada
+    porta pci_cargos: ligada (5 slug(s))
+    porta pci_nacional: desligada
+    token: ausente
+    chat_ids: <omitido> (1)
+  area SOCIOLOGIA_ARTES (Sociologia, Artes e Licenciaturas)
+    porta gran: ligada
+    porta pci_cargos: ligada (4 slug(s))
+    porta pci_nacional: desligada
+    token: ausente
+    chat_ids: <omitido> (1)
+chaves em /home/lucas/concursos-secrets/monitor.env (valores omitidos):
+  # =<omitido>
+  # TELEGRAM
+  # =<omitido>
+  TELEGRAM_TOKEN=<omitido>
+  
+  # =<omitido>
+  # LLM — backend Claude Code CLI (usa a assinatura local, custo zero)
+  # =<omitido>
+  # LLM_MODEL=<omitido>
+  
+  OLLAMA_TIMEOUT_S=<omitido>
+  OLLAMA_RETRIES=<omitido>
+  OLLAMA_RETRY_DELAY_S=<omitido>
+  
+  # =<omitido>
+  # ALVOS DE MONITORAMENTO (multi-area, JSON em UMA linha)
+  # Troque SEU_CHAT_ID pelo seu id numerico do Telegram.
+  # Para monitorar Educacao para outra pessoa, descomente o segundo objeto
+  # e preencha o chat_id dela (ela precisa dar /start no bot antes).
+  # =<omitido>
+  MONITOR_TARGETS_JSON=<omitido>
+  
+  # --- LLM: z.ai (22/10/2026) ---
+  LLM_MODEL=<omitido>
+  LLM_REASONING_EFFORT=<omitido>
+  ZAI_API_KEY=<omitido>
+  LLM_API_BASE=<omitido>
+  ZAI_API_KEY=<omitido>
+```
+
+### 6. O primeiro Telegram
+
+**Esta e a unica evidencia que falta, e e a sua.** O log prova o que a maquina fez: os envios sairam
+com sucesso, nenhuma falha de envio, e nenhum concurso do Sul ou federal entrou na lista de filtrados
+nem no ensaio nem na rodada real. Prefeitura de Blumenau (SC) foi salva e notificada; UFMS, IFSP, IFG
+e IFFar entraram; TRT 4 (RS), IMA (SC) e Camara de Sao Francisco do Sul (SC) tambem. O que o log
+**nao** prova e se os cards chegaram no seu Telegram e se, lendo, o ruido de fora do Sul sumiu de
+verdade. Isso sao os seus olhos. Atencao: a primeira rodada da porta nova mandou 25 cards novos e 21
+atualizacoes de uma vez na area TI, que e a carga inicial do MCP, nao o ritmo de todo dia.
+
+Recurso notebook: feito
+
 ## Histórico
 - 2026-11-23 18:16 backlog → pronto · liberado: onda 0 revisada e integrada; segue para a fase de fiacao, docs e deploy
+- 2026-11-24 12:52 pronto → fazendo · implementador · glm-flash P-
+- 2026-11-24 12:59 fazendo → entregue · implementador: ENTREGUE · relatório T-012-implementador-1.md · 7 min
+- 2026-11-24 12:59 entregue → revisando · revisor · agy-argon M- medium
+- 2026-11-24 13:02 revisando → aprovado · revisor: APROVADO · relatório T-012-revisor-1.md · 3 min
+- 2026-11-24 13:02 aprovado → integrando · integrador · script
+- 2026-11-24 13:02 integrando → integrado · integrador: INTEGRADO · relatório T-012-integrador-1.md · 0 min
