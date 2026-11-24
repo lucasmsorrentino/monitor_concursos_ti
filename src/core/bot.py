@@ -17,10 +17,12 @@ import html
 import logging
 import os
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from bs4 import BeautifulSoup
 
+from src.core import resumo_filtrados
+from src.core.elegibilidade import Candidato, Decisao, Politica, decidir
 from src.database.manager import DatabaseManager
 from src.intelligence.langchain_unit import IntelligenceUnit
 from src.notifiers.telegram import TelegramNotifier
@@ -30,6 +32,7 @@ from src.scrapers.pci_mcp_scraper import PciMcpScraper
 from src.scrapers.pci_nacional_scraper import PciNacionalScraper
 from src.scrapers.pci_scraper import PciScraper
 from src.utils import memoria_json, saude_fontes
+from src.utils.esfera import esfera_de
 from src.utils.fases import (
     sanitizar_fase,
     fase_avancou,
@@ -37,7 +40,8 @@ from src.utils.fases import (
     label as fase_label,
 )
 from src.utils.logger import LOG_DIR
-from src.utils.text import status_fingerprint
+from src.utils.salario import teto_de
+from src.utils.text import extrair_uf, status_fingerprint
 
 # Acima desta fracao de blocos perdidos na extracao, a varredura da area deixa
 # de reportar "concluida" e passa a alertar. Perder 1 bloco em 45 e ruido de
@@ -123,6 +127,12 @@ class ConcursoBot:
             config.get('dias_fonte_parada') or saude_fontes.DIAS_PARADA_PADRAO
         )
         self.modo_primeira_carga = config.get('pci_primeira_carga', CARGA_INDIVIDUAL)
+        # Filtro salarial da area (SPEC-001, secao 3.6). Imutavel e vindo da
+        # config: monta uma vez aqui, nao a cada item.
+        self.politica = self._politica_de(config)
+        # `resumo_filtrados` (SPEC-001, secao 4.4): "semanal" liga o resumo do
+        # que o filtro silenciou; qualquer outro valor e "nunca".
+        self.resumo_semanal = config.get('resumo_filtrados') == 'semanal'
 
         # Setado quando qualquer etapa da varredura falha. O MultiAreaRunner
         # agrega e o main.py devolve exit != 0, para o run_daily.sh nao gravar o
@@ -163,7 +173,13 @@ class ConcursoBot:
                ``IntelligenceUnit``; o PCI devolve dados ja estruturados.
             3. Matriz de decisao por concurso — ver ``_decidir_e_notificar``.
             4. Mensagem final: alerta se a varredura ficou cega ou se muitos
-               blocos se perderam na extracao; caso contrario heartbeat.
+               blocos se perderam na extracao; caso contrario heartbeat. A
+               cegueira por falta de materia-prima (0 blocos do Gran) so vale
+               quando nem a pagina de cargo nem a porta do MCP estao ligadas.
+            5. Aviso por fonte doente, quando o agregado ficou quieto.
+            6. Com ``resumo_filtrados == "semanal"``, o resumo do que o filtro
+               salarial silenciou nos ultimos 7 dias, uma vez por semana ISO
+               — ver ``_enviar_resumo_semanal``.
         """
         self.logger.info(f"🔍 Iniciando captura de novos editais para area [{self.area_name}]...")
 
@@ -288,6 +304,7 @@ class ConcursoBot:
                 total_blocos_gran, validos, erros_extracao, novos_cont, atualizados_cont
             )
             self._alertar_fontes_doentes(diagnosticos, silenciar=alertou_agregado)
+            self._enviar_resumo_semanal()
             self.logger.info("🏁 Ciclo finalizado.")
 
         except Exception as e:
@@ -301,6 +318,31 @@ class ConcursoBot:
                 f"A varredura foi interrompida por um erro: {html.escape(str(e)[:300])}\n\n"
                 f"<i>O bot segue tentando de hora em hora; este aviso não se repete hoje.</i>"
             )
+
+    @staticmethod
+    def _politica_de(config: dict) -> Politica:
+        """Monta a ``Politica`` do filtro salarial a partir da config do alvo.
+
+        O ``config/loader.py`` ja normaliza e valida as chaves; aqui so se cai
+        no padrao da ``Politica`` quando a chave nao veio (alvo montado a mao).
+        Lista vazia explicita em ``ufs_sem_corte``/``esferas_sem_corte`` e
+        respeitada, como no loader.
+        """
+        padrao = Politica()
+
+        def valor(chave: str, valor_padrao):
+            bruto = config.get(chave)
+            return valor_padrao if bruto is None else bruto
+
+        return Politica(
+            modo=valor('filtro_salarial', padrao.modo),
+            corte_fora_sul=float(valor('corte_fora_sul', padrao.corte_fora_sul)),
+            ufs_sem_corte=tuple(valor('ufs_sem_corte', padrao.ufs_sem_corte)),
+            esferas_sem_corte=tuple(valor('esferas_sem_corte', padrao.esferas_sem_corte)),
+            cargos_total_inflado=int(
+                valor('cargos_total_inflado', padrao.cargos_total_inflado)
+            ),
+        )
 
     def _preparar_primeira_carga(self) -> bool:
         """Liga o modo de coleta quando o PCI nunca rodou nesta area.
@@ -641,9 +683,14 @@ class ConcursoBot:
         # Varredura cega = nao entregou NADA, nem valido nem perdido, e isso nao
         # se explica pela configuracao do alvo:
         # - 0 blocos brutos e nenhuma fonte alternativa: site fora, bloqueio ou layout mudou.
+        #   Fonte alternativa e a pagina de cargo OU a porta do MCP: com a porta do
+        #   MCP como unica porta do PCI, `pci_slugs` sai e o Gran vazio num dia
+        #   qualquer nao pode virar cegueira (a saude por fonte pega o Gran parado).
         # - 0 candidatos SEM keywords_include: pagina dedicada que sempre lista dezenas.
         # - 0 candidatos COM keywords_include: dia quieto e o caso NORMAL (heartbeat).
-        sem_materia_prima = total_blocos == 0 and not self.pci_scraper
+        sem_materia_prima = (
+            total_blocos == 0 and not self.pci_scraper and not self.mcp_scraper
+        )
         varredura_cega = sem_materia_prima or (base == 0 and not self.keywords_include)
 
         if varredura_cega:
@@ -747,6 +794,76 @@ class ConcursoBot:
         except OSError as e:
             self.logger.warning(f"Nao consegui gravar o marcador de alerta {tipo!r}: {e}")
 
+    def _enviar_resumo_semanal(self) -> None:
+        """Manda, uma vez por semana por area, o que o filtro salarial silenciou.
+
+        O controle de "uma vez por semana" e um marcador em ``LOG_DIR``, ao
+        lado dos de ``_alerta_uma_vez_por_dia``, com a chave da semana ISO: a
+        primeira rodada da semana manda e as outras nao, caia o cron no dia que
+        cair. Semana sem filtrado nao manda nada e nao grava o marcador, para
+        o primeiro filtrado da semana ainda sair. Em dry-run nada sai e nada
+        se grava.
+
+        O resumo e informativo; a varredura e o trabalho. Falha aqui (banco,
+        montagem ou Telegram) e logada e nao marca ``falhou``: o catch-up
+        horario nao deve repetir a rodada inteira por causa dele. Envio
+        recusado tambem nao grava o marcador, e a rodada seguinte tenta de novo.
+        """
+        if not self.resumo_semanal:
+            return
+        if self.dry_run:
+            self.logger.info("[DRY-RUN] resumo semanal de filtrados suprimido.")
+            return
+
+        try:
+            semana = resumo_filtrados.marcador_da_semana(date.today())
+            marcador = os.path.join(LOG_DIR, f".resumo_{self.area_slug}_filtrados")
+            try:
+                if os.path.exists(marcador):
+                    with open(marcador, encoding="utf-8") as f:
+                        if f.read().strip() == semana:
+                            self.logger.info(
+                                f"🔁 Resumo de filtrados de [{self.area_name}] ja "
+                                f"enviado na semana {semana}; nao repete."
+                            )
+                            return
+            except OSError:
+                pass  # marcador ilegivel nunca pode impedir o resumo
+
+            # `ultima_atualizacao` e CURRENT_TIMESTAMP do SQLite: UTC, no
+            # formato AAAA-MM-DD HH:MM:SS. O corte sai no mesmo fuso e formato.
+            desde = (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            texto = resumo_filtrados.montar(
+                self.db.listar_filtrados(desde), self.area_name
+            )
+            if not texto:
+                self.logger.info(
+                    f"🔇 [{self.area_name}] nada filtrado nos ultimos 7 dias; sem resumo."
+                )
+                return
+
+            if not self.notifier.notificar(texto):
+                self.logger.warning(
+                    f"Resumo de filtrados de [{self.area_name}] nao foi entregue; "
+                    f"a proxima rodada tenta de novo."
+                )
+                return
+
+            try:
+                os.makedirs(LOG_DIR, exist_ok=True)
+                with open(marcador, "w", encoding="utf-8") as f:
+                    f.write(semana)
+            except OSError as e:
+                self.logger.warning(f"Nao consegui gravar o marcador do resumo semanal: {e}")
+        except Exception as e:
+            self.logger.error(
+                f"❌ [{self.area_name}] falha no resumo semanal de filtrados: {e}. "
+                f"A varredura nao e afetada.",
+                exc_info=True,
+            )
+
     def _notificar(self, mensagem: str, id_interno: int | None = None) -> None:
         """Envia (ou apenas registra, em dry-run) uma mensagem no Telegram."""
         if self.dry_run:
@@ -773,10 +890,26 @@ class ConcursoBot:
         a cada extracao (fonte dos antigos falsos positivos). So avanco de fase
         ou mudanca de data geram notificacao; reescrita e regressao de fase nao.
 
+        Filtro salarial (SPEC-001, secoes 4.2 e 4.3): so o item de porta que
+        carrega `regiao` (hoje, a do MCP) e avaliado por
+        `elegibilidade.decidir`, com a `Politica` da area. Item do Gran, da
+        pagina de cargo ou da lista nacional segue a matriz sem avaliacao, sem
+        selo e sem gravar `elegibilidade`. Item avaliado grava as sete colunas
+        do v6 (`uf`, `regiao`, `esfera`, `cargos_total`, `salario_teto`,
+        `elegibilidade`, `motivo_filtro`) em toda gravacao. Com
+        `filtro_salarial` desligado a decisao e sempre `filtro_desligado` e
+        nada muda para o usuario.
+
         Matriz:
-            - estado 'ignorado' → skip total (nem atualiza DB)
-            - registro None + inativo → salva silencioso
-            - registro None + ativo → notifica NOVO + salva
+            - estado 'ignorado' → skip total (nem atualiza DB, nem avalia)
+            - item avaliado e filtrado → salva silencioso com
+              `elegibilidade='filtrado'` e o motivo; nunca notifica, nem para
+              linha que antes entrava (nada se apaga nem se renotifica)
+            - item avaliado que entra → `elegibilidade='elegivel'` e segue:
+            - registro None (ou linha avaliada que estava 'filtrado', que o
+              usuario nunca viu) + inativo → salva silencioso
+            - idem + ativo → notifica NOVO + salva; o selo da decisao
+              (`⚠️ salario nao verificado`) entra como linha do card
             - registro legado (fase NULL) → backfill silencioso da fase
             - sem avanco de fase e sem mudanca de data → refresh silencioso
             - transicao real (fase avancou e/ou data mudou):
@@ -799,6 +932,9 @@ class ConcursoBot:
         nome_esc = html.escape(nome_raw)
         status_esc = html.escape(status_raw)
         hash_novo = status_fingerprint(status_raw)
+        # As sete colunas do v6. Ficam vazias para item que nao e avaliado:
+        # `None` no `atualizar_concurso` preserva o que ja esta gravado.
+        colunas_v6: dict = {}
 
         def salvar(fase_para_gravar):
             """Persiste este edital. Em dry-run nao escreve nada.
@@ -816,6 +952,7 @@ class ConcursoBot:
                 fase=fase_para_gravar,
                 fonte=fonte,
                 pci_id=pci_id,
+                **colunas_v6,
             )
 
         registro = self.db.buscar_registro(
@@ -825,6 +962,34 @@ class ConcursoBot:
         if registro and registro.get('estado_usuario') == 'ignorado':
             self.logger.debug(f"🚫 [IGNORADO] {nome_raw} marcado pelo usuario; skip.")
             return "skip"
+
+        # --- Elegibilidade (filtro salarial) ---
+        # Depois do `ignorado` (que nem toca o banco) e antes de qualquer
+        # decisao de novo, inativo ou transicao.
+        avaliacao = self._avaliar_elegibilidade(dados, nome_raw, registro)
+        decisao = None
+        if avaliacao is not None:
+            candidato, decisao = avaliacao
+            colunas_v6.update(
+                uf=candidato.uf,
+                regiao=candidato.regiao,
+                esfera=candidato.esfera,
+                cargos_total=candidato.cargos_total,
+                salario_teto=candidato.teto,
+                elegibilidade="elegivel" if decisao.entra else "filtrado",
+                motivo_filtro=decisao.motivo,
+            )
+            if not decisao.entra:
+                # Novo ou ja conhecido, filtrado nao notifica: so grava a
+                # decisao. Linha que entrava e passa a filtrada nao se apaga
+                # nem se renotifica; a fase vista nao regride.
+                self.logger.info(
+                    f"🔇 [FILTRADO] {nome_raw}: {decisao.motivo} "
+                    f"(teto={candidato.teto}); salvando silencioso."
+                )
+                fase_antiga = registro.get('fase') if registro else None
+                salvar(fase_mais_avancada(fase_antiga, fase_nova))
+                return "skip"
 
         prazo_encerrado = self._prazo_encerrado(data_fim)
         # Listagem morta: sem janela de inscricao conhecida E o ultimo evento citado
@@ -836,7 +1001,14 @@ class ConcursoBot:
         inativo = prazo_encerrado or listagem_morta
 
         # --- Caso A: inedito ---
-        if registro is None:
+        # Linha gravada como `filtrado` existe no banco, mas o usuario nunca a
+        # viu: se agora entra, sai como NOVO, nao como atualizacao. So vale
+        # para item avaliado: o nao avaliado nao reescreve a elegibilidade, e
+        # a linha continuaria `filtrado` e sairia como NOVO a cada rodada.
+        inedito = registro is None or (
+            decisao is not None and registro.get('elegibilidade') == 'filtrado'
+        )
+        if inedito:
             if inativo:
                 motivo = "inscricao encerrada" if prazo_encerrado else "evento ja passou (listagem antiga)"
                 self.logger.info(
@@ -866,6 +1038,7 @@ class ConcursoBot:
                 f"📝 <b>Status:</b> {status_esc}\n"
                 + (f"📊 <b>Fase:</b> {fase_label(fase_nova)}\n" if fase_nova else "")
                 + (f"📅 <b>Inscrições até:</b> {html.escape(data_fim)}\n" if data_fim else "")
+                + (f"{html.escape(decisao.selo)}\n" if decisao and decisao.selo else "")
                 + f"\n🔗 <a href='{link}'>Clique aqui para ver os detalhes</a>"
             )
             self._notificar(msg, id_interno=id_interno)
@@ -927,6 +1100,32 @@ class ConcursoBot:
         self._notificar(msg, id_interno=id_interno)
         self.logger.info(f"✅ Banco de dados atualizado para {nome_raw}.")
         return "atualizado"
+
+    def _avaliar_elegibilidade(
+        self, dados: dict, nome: str, registro: dict | None
+    ) -> tuple[Candidato, Decisao] | None:
+        """Monta o ``Candidato`` do item e decide com a ``Politica`` da area.
+
+        So item de porta que carrega ``regiao`` e avaliado (hoje, a do MCP):
+        o blog do Gran, a pagina de cargo e a lista nacional nao trazem
+        ``regiao``, ``cargos_total`` nem o teto, e avalia-los poria o selo de
+        "nao verificado" em todo card deles. Para esses devolve ``None`` e o
+        item segue a matriz como sempre seguiu.
+
+        A UF vem do campo ``uf`` do item, ou do sufixo do nome quando o item
+        nao traz. A estrela do usuario (``seguindo``) vem do registro no banco.
+        """
+        if "regiao" not in dados:
+            return None
+        candidato = Candidato(
+            uf=dados.get("uf") or extrair_uf(nome),
+            regiao=dados.get("regiao"),
+            esfera=esfera_de(nome),
+            teto=teto_de(dados.get("vagas_salario")),
+            cargos_total=dados.get("cargos_total"),
+            seguindo=bool(registro) and registro.get("estado_usuario") == "seguindo",
+        )
+        return candidato, decidir(candidato, self.politica)
 
     @staticmethod
     def _prazo_encerrado(data_fim_iso: str | None) -> bool:

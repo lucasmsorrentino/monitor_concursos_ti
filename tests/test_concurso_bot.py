@@ -1322,6 +1322,27 @@ class TestFonteMcp:
         nacional.capturar_concursos.assert_called_once()     # a fonte seguinte seguiu
         assert bot.falhou is True                            # ...mas conta como falha
 
+    def test_gran_vazio_com_mcp_trazendo_item_nao_e_cegueira(
+        self, mock_deps, base_config, mocker
+    ):
+        """Gran com 0 blocos, pagina de cargo desligada e a porta do MCP com item.
+
+        E o deploy da porta do MCP como unica porta do PCI: `pci_slugs` sai,
+        e um dia em que o blog do Gran nao devolve nada nao e varredura cega
+        enquanto o MCP trouxe materia-prima.
+        """
+        self._montar(mock_deps, base_config, mocker, [self._item(1)])
+        base_config["keywords_include"] = ["ti"]
+        mock_deps["db"].buscar_registro.return_value = None
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+
+        assert bot.pci_scraper is None
+        assert bot.falhou is False
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert not any("Atenção" in m for m in mensagens)
+
     def test_mcp_e_gran_na_mesma_rodada_somam_contadores(
         self, mock_deps, base_config, mocker
     ):
@@ -1489,3 +1510,483 @@ class TestAlertaPorFonte:
 
         mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
         assert sum(1 for m in mensagens if "Fonte sem retorno" in m) == 1
+
+
+# ---------------------------------------------------------------------------
+# Filtro salarial na matriz de decisao (SPEC-001, secoes 4.2 e 4.3)
+# ---------------------------------------------------------------------------
+
+SELO = "salario nao verificado"   # texto do selo, SPEC-001 secao 4.2
+
+
+def _item_mcp(nome, uf, regiao, vagas_salario, cargos_total, pci_id="1", **extra):
+    """Item da porta do MCP no formato da SPEC-001, secao 3.1, escrito a mao.
+
+    Os valores dos testes abaixo vem de concursos reais das fixtures em
+    tests/fixtures/pci_mcp/ (orgao, UF, regiao, teto, cargos_total).
+    """
+    base = {
+        "ignorar": False,
+        "nome": nome,
+        "status": f"{nome} abre concurso",
+        "link": f"https://www.pciconcursos.com.br/noticias/concurso-{pci_id}",
+        "fase": "inscricoes_abertas",
+        "data_fim_inscricao": _amanha(),
+        "data_referencia": None,
+        "pci_id": pci_id,
+        "uf": uf,
+        "cargos": ["ANALISTA DE SISTEMAS"],
+        "fonte": "pci_mcp",
+        "regiao": regiao,
+        "cargos_total": cargos_total,
+        "vagas_salario": vagas_salario,
+        "termos_origem": ["analista de sistemas"],
+    }
+    base.update(extra)
+    return base
+
+
+# Vereditos decididos a mao pela tabela da SPEC-001 secao 4.2, com corte 10000.
+SANTA_LUZIA_MG = dict(   # municipal, MG, teto < corte -> regra 5, abaixo_do_corte
+    nome="Prefeitura de Santa Luzia - MG", uf="MG", regiao="SUDESTE",
+    vagas_salario="454 vagas até R$ 8.628,87", cargos_total=72, pci_id="295546",
+)
+GUARATINGUETA_SP = dict(  # municipal, SP, teto > corte, 86 cargos -> regra 6
+    nome="Prefeitura da Estância Turística de Guaratinguetá - SP", uf="SP",
+    regiao="SUDESTE", vagas_salario="107 vagas até R$ 18.540,71",
+    cargos_total=86, pci_id="296373",
+)
+LUIZ_ALVES_SC = dict(     # SC -> regra 3, sul
+    nome="Prefeitura de Luiz Alves - SC", uf="SC", regiao="SUL",
+    vagas_salario="10 vagas até R$ 8.889,30", cargos_total=56, pci_id="296100",
+)
+UFMS_MS = dict(           # federal -> regra 4
+    nome="UFMS - Fundação Universidade Federal de Mato Grosso do Sul - MS",
+    uf="MS", regiao="CENTRO-OESTE", vagas_salario="154 vagas até R$ 5.215,39",
+    cargos_total=49, pci_id="296303",
+)
+SEM_LOCAL = dict(         # uf e regiao nulas -> regra 2, nao_verificado, com selo
+    nome="Concurso Nacional Unificado", uf=None, regiao=None,
+    vagas_salario="900 vagas até R$ 9.000,00", cargos_total=40, pci_id="296999",
+)
+TJMG = dict(              # estadual, MG, teto > corte, poucos cargos -> regra 8
+    nome="Tribunal de Justiça de Minas Gerais - MG", uf="MG", regiao="SUDESTE",
+    vagas_salario="30 vagas até R$ 15.000,00", cargos_total=3, pci_id="296500",
+)
+
+
+class TestFiltroSalarial:
+    """O filtro salarial ligado na matriz de decisao, pela rodada inteira.
+
+    O erro aqui e silencio: um concurso que devia chegar e nao chega nao
+    quebra nada. Cada regra de borda tem teste proprio.
+    """
+
+    def _montar(self, mock_deps, base_config, mocker, itens, filtro="ativo"):
+        mcp_cls = mocker.patch("src.core.bot.PciMcpScraper")
+        mcp = mcp_cls.return_value
+        mcp.url = URL_SERVIDOR
+        mcp.capturar_concursos.return_value = itens
+
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["notifier"].notificar.return_value = True
+        mock_deps["notifier"].notificar_concurso.return_value = True
+
+        base_config["pci_mcp"] = True
+        base_config["pci_mcp_cargos"] = ["analista de sistemas"]
+        if filtro is not None:
+            base_config["filtro_salarial"] = filtro
+            base_config["corte_fora_sul"] = 10000.0
+            base_config["cargos_total_inflado"] = 10
+        return mcp
+
+    @staticmethod
+    def _cards(mock_deps):
+        return [c.args[1] for c in mock_deps["notifier"].notificar_concurso.call_args_list]
+
+    @staticmethod
+    def _gravacao(mock_deps):
+        """Os argumentos nomeados da ultima gravacao no banco."""
+        return mock_deps["db"].atualizar_concurso.call_args.kwargs
+
+    def test_filtrado_nao_notifica_e_salva_em_silencio(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**SANTA_LUZIA_MG)])
+
+        ConcursoBot(base_config).executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        gravado = self._gravacao(mock_deps)
+        assert gravado["elegibilidade"] == "filtrado"
+        assert gravado["motivo_filtro"] == "abaixo_do_corte"
+        # As sete colunas do v6 vao junto.
+        assert gravado["uf"] == "MG"
+        assert gravado["regiao"] == "SUDESTE"
+        assert gravado["esfera"] == "municipal"
+        assert gravado["cargos_total"] == 72
+        assert gravado["salario_teto"] == 8628.87
+        # Contador de novos fecha em 0: a rodada termina no heartbeat de
+        # "nenhuma alteracao", que so sai quando novos e atualizados sao 0.
+        # (A outra mensagem possivel e o aviso de fonte do Gran vazio.)
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert any("não encontrei nenhuma alteração" in m for m in mensagens)
+
+    def test_municipal_inflado_nao_notifica(self, mock_deps, base_config, mocker):
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**GUARATINGUETA_SP)])
+
+        ConcursoBot(base_config).executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        gravado = self._gravacao(mock_deps)
+        assert gravado["elegibilidade"] == "filtrado"
+        assert gravado["motivo_filtro"] == "municipal_inflado"
+        assert gravado["salario_teto"] == 18540.71
+        assert gravado["cargos_total"] == 86
+
+    def test_do_sul_notifica_mesmo_com_teto_baixo(self, mock_deps, base_config, mocker):
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**LUIZ_ALVES_SC)])
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 1 and "NOVO CONCURSO" in cards[0]
+        gravado = self._gravacao(mock_deps)
+        assert gravado["elegibilidade"] == "elegivel"
+        assert gravado["motivo_filtro"] == "sul"
+        assert gravado["uf"] == "SC"
+        assert gravado["regiao"] == "SUL"
+        assert gravado["esfera"] == "municipal"
+        assert gravado["cargos_total"] == 56
+        assert gravado["salario_teto"] == 8889.30
+
+    def test_federal_notifica_mesmo_abaixo_do_corte(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**UFMS_MS)])
+
+        ConcursoBot(base_config).executar()
+
+        assert len(self._cards(mock_deps)) == 1
+        gravado = self._gravacao(mock_deps)
+        assert gravado["elegibilidade"] == "elegivel"
+        assert gravado["motivo_filtro"] == "federal"
+        assert gravado["esfera"] == "federal"
+
+    def test_estrelado_notifica_mesmo_filtravel(self, mock_deps, base_config, mocker):
+        # A fase avancou: com a estrela, transicao real sempre chega.
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**SANTA_LUZIA_MG)])
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 7, "estado_usuario": "seguindo", "fase": "edital_publicado",
+            "data_fim_inscricao": _amanha(), "elegibilidade": "elegivel",
+        }
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 1
+        gravado = self._gravacao(mock_deps)
+        assert gravado["elegibilidade"] == "elegivel"
+        assert gravado["motivo_filtro"] == "seguindo"
+
+    def test_ignorado_continua_saindo_antes_do_filtro(
+        self, mock_deps, base_config, mocker
+    ):
+        # Item filtravel: se o filtro rodasse antes do `ignorado`, ele gravaria
+        # `filtrado` no banco de um concurso que o usuario descartou.
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**SANTA_LUZIA_MG)])
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 7, "estado_usuario": "ignorado", "fase": "edital_publicado",
+            "data_fim_inscricao": _amanha(), "elegibilidade": None,
+        }
+
+        ConcursoBot(base_config).executar()
+
+        mock_deps["db"].atualizar_concurso.assert_not_called()
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+
+    def test_item_do_gran_nao_e_avaliado(self, mock_deps, base_config, mocker):
+        # Avaliado, este item cairia em `sem_evidencia` (MG, sem teto) e levaria selo.
+        self._montar(mock_deps, base_config, mocker, [])
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "Prefeitura de Santa Luzia - MG",
+            "status": "edital publicado", "link": "https://example.com/santa-luzia",
+            "data_fim_inscricao": _amanha(), "data_referencia": None,
+            "fase": "inscricoes_abertas",
+        }
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 1 and "NOVO CONCURSO" in cards[0]
+        assert SELO not in cards[0] and "⚠️" not in cards[0]
+        gravado = self._gravacao(mock_deps)
+        for coluna in ("uf", "regiao", "esfera", "cargos_total", "salario_teto",
+                       "elegibilidade", "motivo_filtro"):
+            assert gravado.get(coluna) is None, coluna
+
+    def test_item_da_pagina_de_cargo_nao_e_avaliado(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [])
+        pci_cls = mocker.patch("src.core.bot.PciScraper")
+        pci_cls.return_value.capturar_concursos.return_value = [{
+            "ignorar": False, "nome": "Prefeitura de Santa Luzia - MG",
+            "status": "Concurso aberto", "link": "https://www.pciconcursos.com.br/noticias/x",
+            "fase": "inscricoes_abertas", "data_fim_inscricao": _amanha(),
+            "data_referencia": None, "pci_id": "295546", "uf": "MG",
+            "cargos": ["ANALISTA DE SISTEMAS"], "fonte": "pci",
+        }]
+        base_config["pci_slugs"] = ["analista-de-sistemas"]
+        mock_deps["db"].contar_por_fonte.return_value = 5   # nao e primeira carga
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 1 and "⚠️" not in cards[0]
+        gravado = self._gravacao(mock_deps)
+        assert gravado.get("elegibilidade") is None
+        assert gravado.get("motivo_filtro") is None
+
+    def test_filtrado_que_passa_a_entrar_sai_como_novo(
+        self, mock_deps, base_config, mocker
+    ):
+        # Mesma fase e mesma data: sem a regra, seria refresh silencioso.
+        item = _item_mcp(**LUIZ_ALVES_SC)
+        self._montar(mock_deps, base_config, mocker, [item])
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 7, "estado_usuario": "ativo", "fase": "inscricoes_abertas",
+            "data_fim_inscricao": item["data_fim_inscricao"],
+            "elegibilidade": "filtrado", "motivo_filtro": "abaixo_do_corte",
+        }
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 1
+        assert "NOVO CONCURSO" in cards[0]
+        assert "ATUALIZAÇÃO" not in cards[0]
+        assert self._gravacao(mock_deps)["elegibilidade"] == "elegivel"
+
+    def test_elegivel_que_passa_a_filtrado_nao_renotifica(
+        self, mock_deps, base_config, mocker
+    ):
+        # A fase avancou: sem o filtro, sairia uma ATUALIZACAO.
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**SANTA_LUZIA_MG)])
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 7, "estado_usuario": "ativo", "fase": "edital_publicado",
+            "data_fim_inscricao": None, "elegibilidade": "elegivel",
+            "motivo_filtro": "acima_do_corte",
+        }
+
+        ConcursoBot(base_config).executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        gravado = self._gravacao(mock_deps)
+        assert gravado["elegibilidade"] == "filtrado"
+        assert gravado["motivo_filtro"] == "abaixo_do_corte"
+
+    def test_selo_aparece_no_card(self, mock_deps, base_config, mocker):
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**SEM_LOCAL)])
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 1
+        assert "⚠️ " + SELO in cards[0]
+        assert self._gravacao(mock_deps)["motivo_filtro"] == "nao_verificado"
+
+    def test_sem_selo_nao_poe_linha_extra(self, mock_deps, base_config, mocker):
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**TJMG)])
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 1
+        assert "⚠️" not in cards[0]
+        assert self._gravacao(mock_deps)["motivo_filtro"] == "acima_do_corte"
+
+    def test_uf_sai_do_nome_quando_o_item_nao_traz(
+        self, mock_deps, base_config, mocker
+    ):
+        # Sem uf no campo e sem regiao, o sufixo "- SC" do nome decide: Sul.
+        item = _item_mcp(**dict(LUIZ_ALVES_SC, uf=None, regiao=None))
+        self._montar(mock_deps, base_config, mocker, [item])
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 1 and "⚠️" not in cards[0]
+        gravado = self._gravacao(mock_deps)
+        assert gravado["motivo_filtro"] == "sul"
+        assert gravado["uf"] == "SC"
+
+    def test_area_com_filtro_desligado_nao_filtra_nada(
+        self, mock_deps, base_config, mocker
+    ):
+        itens = [_item_mcp(**SANTA_LUZIA_MG), _item_mcp(**GUARATINGUETA_SP),
+                 _item_mcp(**SEM_LOCAL)]
+        self._montar(mock_deps, base_config, mocker, itens, filtro=None)
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 3
+        assert all("NOVO CONCURSO" in c for c in cards)
+        assert not any("⚠️" in c for c in cards)
+        gravacoes = [c.kwargs for c in mock_deps["db"].atualizar_concurso.call_args_list]
+        assert all(g["elegibilidade"] == "elegivel" for g in gravacoes)
+        assert all(g["motivo_filtro"] == "filtro_desligado" for g in gravacoes)
+
+
+# ---------------------------------------------------------------------------
+# Resumo semanal dos filtrados (SPEC-001, secao 4.4)
+# ---------------------------------------------------------------------------
+
+# Linha como `listar_filtrados` devolve (SPEC-001, secao 3.5).
+FILTRADO_SANTA_LUZIA = {
+    "nome": "Prefeitura de Santa Luzia - MG", "uf": "MG",
+    "salario_teto": 8628.87, "motivo_filtro": "abaixo_do_corte",
+    "link": "https://www.pciconcursos.com.br/noticias/concurso-295546",
+}
+
+SEGUNDA = date(2026, 11, 23)        # semana ISO 2026-S48
+SEXTA = date(2026, 11, 27)          # mesma semana
+SEGUNDA_SEGUINTE = date(2026, 11, 30)  # semana ISO 2026-S49
+
+
+class TestResumoSemanal:
+    """Uma vez por semana por area, o que o filtro silenciou vira uma mensagem."""
+
+    @staticmethod
+    def _hoje(mocker, dia: date) -> None:
+        """Dubla o relogio do bot: `date.today()` passa a devolver `dia`."""
+        class _Data(date):
+            @classmethod
+            def today(cls):
+                return cls(dia.year, dia.month, dia.day)
+
+        mocker.patch("src.core.bot.date", _Data)
+
+    def _montar(self, mock_deps, base_config, mocker, filtrados, resumo="semanal"):
+        """Rodada saudavel: Gran vazio e a porta do MCP com um item do Sul."""
+        mcp_cls = mocker.patch("src.core.bot.PciMcpScraper")
+        mcp = mcp_cls.return_value
+        mcp.url = URL_SERVIDOR
+        mcp.capturar_concursos.return_value = [_item_mcp(**LUIZ_ALVES_SC)]
+
+        mock_deps["scraper"].capturar_concursos.return_value = []
+        mock_deps["notifier"].notificar.return_value = True
+        mock_deps["notifier"].notificar_concurso.return_value = True
+        mock_deps["db"].listar_filtrados.return_value = filtrados
+
+        base_config["pci_mcp"] = True
+        base_config["pci_mcp_cargos"] = ["analista de sistemas"]
+        if resumo is not None:
+            base_config["resumo_filtrados"] = resumo
+
+    @staticmethod
+    def _resumos(mock_deps):
+        return [
+            c.args[0] for c in mock_deps["notifier"].notificar.call_args_list
+            if "Santa Luzia" in c.args[0]
+        ]
+
+    def test_resumo_semanal_sai_uma_vez_na_semana(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA])
+
+        self._hoje(mocker, SEGUNDA)
+        ConcursoBot(base_config).executar()
+        ConcursoBot(base_config).executar()      # mesmo dia
+        self._hoje(mocker, SEXTA)
+        ConcursoBot(base_config).executar()      # outro dia, mesma semana
+
+        resumos = self._resumos(mock_deps)
+        assert len(resumos) == 1
+        assert "abaixo do corte" in resumos[0]
+
+    def test_resumo_semanal_volta_na_semana_seguinte(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA])
+
+        self._hoje(mocker, SEGUNDA)
+        ConcursoBot(base_config).executar()      # grava o marcador desta semana
+        self._hoje(mocker, SEGUNDA_SEGUINTE)
+        ConcursoBot(base_config).executar()
+
+        assert len(self._resumos(mock_deps)) == 2
+
+    def test_semana_sem_filtrados_nao_manda_nem_marca(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [])
+        self._hoje(mocker, SEGUNDA)
+
+        ConcursoBot(base_config).executar()
+        assert self._resumos(mock_deps) == []
+
+        # Sem marcador, o primeiro filtrado da mesma semana ainda sai.
+        mock_deps["db"].listar_filtrados.return_value = [FILTRADO_SANTA_LUZIA]
+        ConcursoBot(base_config).executar()
+        assert len(self._resumos(mock_deps)) == 1
+
+    def test_resumo_desligado_nao_consulta_o_banco(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA], resumo=None)
+
+        ConcursoBot(base_config).executar()
+
+        mock_deps["db"].listar_filtrados.assert_not_called()
+        assert self._resumos(mock_deps) == []
+
+    def test_dry_run_nao_manda_resumo_nem_marca(self, mock_deps, base_config, mocker):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA])
+        self._hoje(mocker, SEGUNDA)
+
+        ConcursoBot(dict(base_config, dry_run=True)).executar()
+        mock_deps["notifier"].notificar.assert_not_called()
+
+        # Sem marcador gravado no dry-run, a rodada real da mesma semana manda.
+        ConcursoBot(base_config).executar()
+        assert len(self._resumos(mock_deps)) == 1
+
+    def test_falha_no_resumo_nao_derruba_a_rodada(
+        self, mock_deps, base_config, mocker, caplog
+    ):
+        # Teto ilegivel vindo do banco faz o `montar` levantar.
+        linha_quebrada = dict(FILTRADO_SANTA_LUZIA, salario_teto="8.628,87")
+        self._montar(mock_deps, base_config, mocker, [linha_quebrada])
+
+        bot = ConcursoBot(base_config)
+        with caplog.at_level("ERROR"):
+            bot.executar()
+
+        assert bot.falhou is False
+        assert any("resumo" in r.getMessage().lower() for r in caplog.records
+                   if r.levelname == "ERROR")
+        # A varredura fez o trabalho dela: o item do Sul saiu.
+        assert len(mock_deps["notifier"].notificar_concurso.call_args_list) == 1
+
+    def test_envio_do_resumo_que_falha_nao_marca_a_rodada_e_tenta_de_novo(
+        self, mock_deps, base_config, mocker
+    ):
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA])
+        self._hoje(mocker, SEGUNDA)
+        # O Telegram recusa so o resumo; o resto da rodada entrega.
+        mock_deps["notifier"].notificar.side_effect = (
+            lambda msg: "Santa Luzia" not in msg
+        )
+
+        bot = ConcursoBot(base_config)
+        bot.executar()
+        assert bot.falhou is False
+
+        # Nao entregue, nao marca: a rodada seguinte da semana tenta de novo.
+        mock_deps["notifier"].notificar.side_effect = None
+        ConcursoBot(base_config).executar()
+        assert len(self._resumos(mock_deps)) == 2   # a recusada e a entregue
