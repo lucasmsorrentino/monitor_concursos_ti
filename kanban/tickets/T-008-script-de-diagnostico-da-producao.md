@@ -3,7 +3,7 @@ id: T-008
 titulo: Script de diagnostico da producao
 tipo: codigo
 nivel: P+
-status: entregue
+status: integrado
 repo: principal
 spec: [SPEC-001, PED-01]
 depende_de: []
@@ -11,13 +11,15 @@ toca: [scripts/diagnostico_producao.sh, docs/DIAGNOSTICO.md]
 recursos: []
 afinidade:
 retornos: 0
-atualizado: 2026-11-23T12:10-03:00
+atualizado: 2026-11-23T18:16-03:00
 branch: t/T-008-script-de-diagnostico-da-producao
-executor: glm-flash
+executor: script
 executor_impl: glm-flash
-corpo_lancado: 843c14c3bc21
+corpo_lancado: c06a9f4268e0
 fora_do_toca: [tests/test_diagnostico_producao.py]
 ponta: 33af9861d224de7e81a09572dff77db67ea7ad36
+executor_rev: agy-argon
+executor_int: script
 ---
 # T-008 · Script de diagnostico da producao
 
@@ -131,3 +133,7 @@ Testes que nascem vermelhos em `tests/test_diagnostico_producao.py`:
 - 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
 - 2026-11-23 11:38 pronto → fazendo · implementador · glm-flash P+ high
 - 2026-11-23 12:10 fazendo → entregue · implementador: ENTREGUE · relatório T-008-implementador-1.md · 33 min · fora do toca: 1 arquivo(s)
+- 2026-11-23 18:09 entregue → revisando · revisor · agy-argon M- medium
+- 2026-11-23 18:15 revisando → aprovado · revisor: APROVADO · relatório T-008-revisor-1.md · 6 min
+- 2026-11-23 18:15 aprovado → integrando · integrador · script
+- 2026-11-23 18:16 integrando → integrado · integrador: INTEGRADO · relatório T-008-integrador-1.md · 1 min

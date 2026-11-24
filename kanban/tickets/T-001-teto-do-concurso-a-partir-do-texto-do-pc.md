@@ -3,7 +3,7 @@ id: T-001
 titulo: Teto do concurso a partir do texto do PCI
 tipo: codigo
 nivel: P+
-status: entregue
+status: integrado
 repo: principal
 spec: [SPEC-001, R-01]
 depende_de: []
@@ -11,13 +11,15 @@ toca: [src/utils/salario.py, tests/test_salario.py]
 recursos: []
 afinidade:
 retornos: 0
-atualizado: 2026-11-23T11:24-03:00
+atualizado: 2026-11-23T18:03-03:00
 branch: t/T-001-teto-do-concurso-a-partir-do-texto-do-pc
-executor: glm-flash
+executor: script
 executor_impl: glm-flash
 corpo_lancado: e9d01fc9f303
 fora_do_toca: []
 ponta: 5462e73fa87fa8536af68ff91d3c6759a6f34ae1
+executor_rev: agy-argon
+executor_int: script
 ---
 # T-001 · Teto do concurso a partir do texto do PCI
 
@@ -94,3 +96,7 @@ Testes que nascem vermelhos em `tests/test_salario.py`:
 - 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
 - 2026-11-23 11:16 pronto → fazendo · implementador · glm-flash P+ high
 - 2026-11-23 11:24 fazendo → entregue · implementador: ENTREGUE · relatório T-001-implementador-1.md · 9 min
+- 2026-11-23 18:00 entregue → revisando · revisor · agy-argon M- medium
+- 2026-11-23 18:03 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-001-revisor-1.md · 4 min
+- 2026-11-23 18:03 aprovado → integrando · integrador · script
+- 2026-11-23 18:03 integrando → integrado · integrador: INTEGRADO · relatório T-001-integrador-1.md · 0 min

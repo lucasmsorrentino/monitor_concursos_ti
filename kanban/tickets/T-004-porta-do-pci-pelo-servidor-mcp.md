@@ -3,7 +3,7 @@ id: T-004
 titulo: Porta do PCI pelo servidor MCP
 tipo: codigo
 nivel: M+
-status: entregue
+status: integrado
 repo: principal
 spec: [SPEC-001, R-03]
 depende_de: []
@@ -11,13 +11,15 @@ toca: [src/scrapers/pci_mcp_scraper.py, tests/test_pci_mcp_scraper.py]
 recursos: []
 afinidade:
 retornos: 0
-atualizado: 2026-11-23T11:28-03:00
+atualizado: 2026-11-23T17:53-03:00
 branch: t/T-004-porta-do-pci-pelo-servidor-mcp
-executor: glm
+executor: script
 executor_impl: glm
 corpo_lancado: 7bfbac42eb14
 fora_do_toca: []
 ponta: b4307bc4011edbd865e70851f127afa7673975ce
+executor_rev: agy-argon
+executor_int: script
 ---
 # T-004 · Porta do PCI pelo servidor MCP
 
@@ -155,3 +157,7 @@ Testes que nascem vermelhos em `tests/test_pci_mcp_scraper.py`:
 - 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
 - 2026-11-23 11:16 pronto → fazendo · implementador · glm M+ high
 - 2026-11-23 11:28 fazendo → entregue · implementador: ENTREGUE · relatório T-004-implementador-1.md · 12 min
+- 2026-11-23 17:37 entregue → revisando · revisor · agy-argon M+ high
+- 2026-11-23 17:45 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-004-revisor-1.md · 9 min
+- 2026-11-23 17:53 aprovado → integrando · integrador · script
+- 2026-11-23 17:53 integrando → integrado · integrador: INTEGRADO · relatório T-004-integrador-1.md · 0 min

@@ -1,0 +1,64 @@
+{
+  "principal": {
+    "f603aac330d0d8a2c58435e045e28ca0e01801e2": {
+      "quando": "2026-11-23T17:53-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "314 passed in 22.38s",
+      "lint": "não configurado"
+    },
+    "69eb8a09a1e711a723818cd3cd28fbf0e12bc846": {
+      "quando": "2026-11-23T18:00-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "330 passed in 22.48s",
+      "lint": "não configurado"
+    },
+    "8b4c3eedb07b350e300cac38ab01c52053ea6216": {
+      "quando": "2026-11-23T18:00-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "344 passed in 22.66s",
+      "lint": "não configurado"
+    },
+    "2a2a314372eeb5847e76553dbd8788d4462e770f": {
+      "quando": "2026-11-23T18:03-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "354 passed in 23.64s",
+      "lint": "não configurado"
+    },
+    "4e5868528dc11c63e8a28b3e4f922352f8f2d01a": {
+      "quando": "2026-11-23T18:10-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "371 passed in 24.11s",
+      "lint": "não configurado"
+    },
+    "8ec3be4a00c9a55bae9016e144de25bc386842d9": {
+      "quando": "2026-11-23T18:16-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "383 passed in 48.24s",
+      "lint": "não configurado"
+    },
+    "20834f1c0ec23ef7927934a018f6eb0a5e4fc418": {
+      "quando": "2026-11-23T18:18-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "456 passed in 51.27s",
+      "lint": "não configurado"
+    },
+    "83784488279b4ddf7f92add3e3fbbf093966f3b6": {
+      "quando": "2026-11-23T18:44-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "466 passed in 49.58s",
+      "lint": "não configurado"
+    },
+    "9c12e9e83694431ab9150acd84788e628c24c7da": {
+      "quando": "2026-11-23T20:00-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "517 passed in 53.35s",
+      "lint": "não configurado"
+    },
+    "3a335fc38f6fe4c334a92a7e26417a99c5157037": {
+      "quando": "2026-11-24T11:13-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "539 passed in 41.46s",
+      "lint": "não configurado"
+    }
+  }
+}

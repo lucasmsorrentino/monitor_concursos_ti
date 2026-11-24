@@ -3,7 +3,7 @@ id: T-005
 titulo: Schema v6 e listar_filtrados no banco
 tipo: codigo
 nivel: M+
-status: entregue
+status: integrado
 repo: principal
 spec: [SPEC-001, R-10]
 depende_de: []
@@ -11,13 +11,15 @@ toca: [src/database/manager.py, tests/test_database_manager.py]
 recursos: []
 afinidade:
 retornos: 0
-atualizado: 2026-11-23T11:51-03:00
+atualizado: 2026-11-23T18:00-03:00
 branch: t/T-005-schema-v6-e-listar-filtrados-no-banco
-executor: glm
+executor: script
 executor_impl: glm
 corpo_lancado: f9d4d69520b4
 fora_do_toca: []
 ponta: e6b399e670da0b534e566034ba4788422fa1ef8d
+executor_rev: agy-argon
+executor_int: script
 ---
 # T-005 · Schema v6 e listar_filtrados no banco
 
@@ -132,3 +134,7 @@ Testes que nascem vermelhos em `tests/test_database_manager.py`:
 - 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
 - 2026-11-23 11:25 pronto → fazendo · implementador · glm M+ high
 - 2026-11-23 11:51 fazendo → entregue · implementador: ENTREGUE · relatório T-005-implementador-1.md · 27 min
+- 2026-11-23 17:53 entregue → revisando · revisor · agy-argon M+ high
+- 2026-11-23 18:00 revisando → aprovado · revisor: APROVADO · relatório T-005-revisor-1.md · 7 min
+- 2026-11-23 18:00 aprovado → integrando · integrador · script
+- 2026-11-23 18:00 integrando → integrado · integrador: INTEGRADO · relatório T-005-integrador-1.md · 0 min

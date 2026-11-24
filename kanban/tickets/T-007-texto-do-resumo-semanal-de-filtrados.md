@@ -3,7 +3,7 @@ id: T-007
 titulo: Texto do resumo semanal de filtrados
 tipo: codigo
 nivel: M-
-status: entregue
+status: integrado
 repo: principal
 spec: [SPEC-001, R-20]
 depende_de: []
@@ -11,13 +11,15 @@ toca: [src/core/resumo_filtrados.py, tests/test_resumo_filtrados.py]
 recursos: []
 afinidade:
 retornos: 0
-atualizado: 2026-11-23T11:38-03:00
+atualizado: 2026-11-23T18:10-03:00
 branch: t/T-007-texto-do-resumo-semanal-de-filtrados
-executor: glm
+executor: script
 executor_impl: glm
 corpo_lancado: 5349b45cba28
 fora_do_toca: []
 ponta: 8314869b481c9bac06ed5439cf066dfa05af69ae
+executor_rev: agy-argon
+executor_int: script
 ---
 # T-007 · Texto do resumo semanal de filtrados
 
@@ -121,3 +123,7 @@ Testes que nascem vermelhos em `tests/test_resumo_filtrados.py`:
 - 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
 - 2026-11-23 11:28 pronto → fazendo · implementador · glm M-
 - 2026-11-23 11:38 fazendo → entregue · implementador: ENTREGUE · relatório T-007-implementador-1.md · 10 min
+- 2026-11-23 18:03 entregue → revisando · revisor · agy-argon M+ high
+- 2026-11-23 18:10 revisando → aprovado · revisor: APROVADO · relatório T-007-revisor-1.md · 7 min
+- 2026-11-23 18:10 aprovado → integrando · integrador · script
+- 2026-11-23 18:10 integrando → integrado · integrador: INTEGRADO · relatório T-007-integrador-1.md · 0 min

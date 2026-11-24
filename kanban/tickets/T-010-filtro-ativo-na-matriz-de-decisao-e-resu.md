@@ -3,7 +3,7 @@ id: T-010
 titulo: Filtro ativo na matriz de decisao e resumo semanal
 tipo: codigo
 nivel: G-
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-001, PED-03, PED-04, R-11]
 depende_de: [T-001, T-002, T-003, T-005, T-007, T-009]
@@ -11,6 +11,16 @@ toca: [src/core/bot.py, tests/test_concurso_bot.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-24T11:13-03:00
+branch: t/T-010-filtro-ativo-na-matriz-de-decisao-e-resu
+executor: script
+executor_impl: opus
+corpo_lancado: 0894669ca4c3
+sessao: 0ae82e73-05df-4e9a-8857-63051b2597db
+fora_do_toca: []
+ponta: e59387e04e9f9eb476ed048f42c6afb98458d73b
+executor_rev: agy-neon
+executor_int: script
 ---
 # T-010 · Filtro ativo na matriz de decisao e resumo semanal
 
@@ -163,3 +173,16 @@ Testes que nascem vermelhos em `tests/test_concurso_bot.py`:
 - **Porta de mao unica: nao.** Este ticket nao apaga nem transforma dado: ele acrescenta decisao em coluna
   nova. O que ele muda e o que o Lucas **recebe**, e e por isso que o resumo semanal entra junto, no mesmo
   ticket: o silencio nasce auditavel.
+
+**Decisão do arquiteto (2026-11-23 18:44):** Ressalva do revisor do T-009, a corrigir aqui porque o arquivo e o mesmo: em src/core/bot.py, `sem_materia_prima = total_blocos == 0 and not self.pci_scraper` nao olha o self.mcp_scraper. No deploy da ADR-0001 o pci_slugs sai, entao o pci_scraper fica None; se o Gran devolver 0 blocos naquela rodada, a cegueira e marcada mesmo com a porta do MCP trazendo itens. Isso e alarme sem causa, o padrao que a SPEC-002 secao 1 descreve, e vai disparar na primeira rodada de producao. Inclua o self.mcp_scraper na condicao e escreva o teste que falha sem a correcao: Gran com 0 blocos, pci_scraper desligado, porta do MCP com item, e a rodada nao marca cegueira.
+
+**Decisão do arquiteto (2026-11-24 11:12):** OK do Lucas: 2026-11-24 (autorizado no chat: «Dou o OK»)
+
+## Histórico
+- 2026-11-23 18:16 backlog → pronto · liberado: onda 0 revisada e integrada; segue para a fase de fiacao, docs e deploy
+- 2026-11-23 20:01 pronto → fazendo · implementador · opus G- high
+- 2026-11-23 20:18 fazendo → entregue · implementador: ENTREGUE · relatório T-010-implementador-1.md · 18 min
+- 2026-11-23 20:18 entregue → revisando · revisor · agy-neon G- high
+- 2026-11-23 20:26 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-010-revisor-1.md · 9 min
+- 2026-11-24 11:12 aprovado → integrando · integrador · script
+- 2026-11-24 11:13 integrando → integrado · integrador: INTEGRADO · relatório T-010-integrador-1.md · 1 min

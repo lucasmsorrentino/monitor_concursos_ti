@@ -3,21 +3,23 @@ id: T-002
 titulo: Esfera do orgao pelo nome
 tipo: codigo
 nivel: M+
-status: entregue
+status: integrado
 repo: principal
 spec: [SPEC-001, R-05]
 depende_de: []
 toca: [src/utils/esfera.py, tests/test_esfera.py]
 recursos: []
 afinidade:
-retornos: 0
-atualizado: 2026-11-23T11:26-03:00
+retornos: 1
+atualizado: 2026-11-23T18:18-03:00
 branch: t/T-002-esfera-do-orgao-pelo-nome
-executor: glm
+executor: script
 executor_impl: glm
 corpo_lancado: 001ef14f1685
 fora_do_toca: []
-ponta: 420f3160da3c26f99d5c9ac6dccc8b7bcea35337
+ponta: 906faf26e5d5ef6815ee3afc2981f0abdc5f58e1
+executor_rev: agy-neon
+executor_int: script
 ---
 # T-002 · Esfera do orgao pelo nome
 
@@ -121,3 +123,11 @@ Testes que nascem vermelhos em `tests/test_esfera.py`:
 - 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
 - 2026-11-23 11:16 pronto → fazendo · implementador · glm M+ high
 - 2026-11-23 11:26 fazendo → entregue · implementador: ENTREGUE · relatório T-002-implementador-1.md · 11 min
+- 2026-11-23 17:37 entregue → revisando · revisor · agy-argon M+ high
+- 2026-11-23 17:46 revisando → pronto · revisor: REPROVADO · relatório T-002-revisor-1.md · 9 min
+- 2026-11-23 17:53 pronto → fazendo · implementador · glm M+ high
+- 2026-11-23 18:09 fazendo → entregue · implementador: ENTREGUE · relatório T-002-implementador-2.md · 16 min
+- 2026-11-23 18:10 entregue → revisando · revisor · agy-neon M+ high
+- 2026-11-23 18:17 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-002-revisor-2.md · 8 min
+- 2026-11-23 18:17 aprovado → integrando · integrador · script
+- 2026-11-23 18:18 integrando → integrado · integrador: INTEGRADO · relatório T-002-integrador-1.md · 1 min

@@ -3,7 +3,7 @@ id: T-011
 titulo: Docs: README, CLAUDE.md e roteiro de deploy
 tipo: docs
 nivel: P+
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-001]
 depende_de: [T-010]
@@ -11,6 +11,15 @@ toca: [README.md, CLAUDE.md, CLASS_DIAGRAM.md, docs/DEPLOY-PCI-MCP.md]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-24T11:34-03:00
+branch: t/T-011-docs-readme-claude-md-e-roteiro-de-deplo
+executor: script
+executor_impl: glm-flash
+corpo_lancado: c463c14c2850
+fora_do_toca: []
+ponta: abd1e55de223024c8427c8744506ff57017772dd
+executor_rev: agy-argon
+executor_int: script
 ---
 # T-011 · Docs: README, CLAUDE.md e roteiro de deploy
 
@@ -126,3 +135,12 @@ Checagens que o aceite cobra, cada uma com o comando que prova:
   23/11/2026, mas o `origin/main` continua em `1eb1a1f`. Sem o push, o `git pull` no notebook nao traz nada.
 - Confira o `README.md` antes de reescrever: ele e longo e bilingue. Alterar as duas versoes de forma
   inconsistente e pior do que assumir uma so.
+
+## Histórico
+- 2026-11-23 18:16 backlog → pronto · liberado: onda 0 revisada e integrada; segue para a fase de fiacao, docs e deploy
+- 2026-11-24 11:13 pronto → fazendo · implementador · glm-flash P+ high
+- 2026-11-24 11:31 fazendo → entregue · implementador: ENTREGUE · relatório T-011-implementador-1.md · 18 min
+- 2026-11-24 11:31 entregue → revisando · revisor · agy-argon M- medium
+- 2026-11-24 11:34 revisando → aprovado · revisor: APROVADO · relatório T-011-revisor-1.md · 4 min
+- 2026-11-24 11:34 aprovado → integrando · integrador · script
+- 2026-11-24 11:34 integrando → integrado · integrador: INTEGRADO · relatório T-011-integrador-1.md · 0 min

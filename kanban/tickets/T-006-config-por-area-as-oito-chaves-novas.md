@@ -3,7 +3,7 @@ id: T-006
 titulo: Config por area: as oito chaves novas
 tipo: codigo
 nivel: M-
-status: entregue
+status: integrado
 repo: principal
 spec: [SPEC-001, R-14]
 depende_de: []
@@ -11,13 +11,15 @@ toca: [config/loader.py, tests/test_config_loader.py, .env.example]
 recursos: []
 afinidade:
 retornos: 0
-atualizado: 2026-11-23T11:38-03:00
+atualizado: 2026-11-23T18:00-03:00
 branch: t/T-006-config-por-area-as-oito-chaves-novas
-executor: glm
+executor: script
 executor_impl: glm
 corpo_lancado: f946d813ec5d
 fora_do_toca: []
 ponta: d9c08a233239bb81ad083b6ddd1f2affdff9faae
+executor_rev: agy-argon
+executor_int: script
 ---
 # T-006 · Config por area: as oito chaves novas
 
@@ -128,3 +130,7 @@ Testes que nascem vermelhos em `tests/test_config_loader.py`:
 - 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
 - 2026-11-23 11:26 pronto → fazendo · implementador · glm M-
 - 2026-11-23 11:38 fazendo → entregue · implementador: ENTREGUE · relatório T-006-implementador-1.md · 13 min
+- 2026-11-23 17:53 entregue → revisando · revisor · agy-argon M+ high
+- 2026-11-23 17:59 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-006-revisor-1.md · 7 min
+- 2026-11-23 17:59 aprovado → integrando · integrador · script
+- 2026-11-23 18:00 integrando → integrado · integrador: INTEGRADO · relatório T-006-integrador-1.md · 0 min

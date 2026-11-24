@@ -3,7 +3,7 @@ id: T-003
 titulo: Elegibilidade: a decisao de silencio, pura
 tipo: codigo
 nivel: G-
-status: entregue
+status: integrado
 repo: principal
 spec: [SPEC-001, R-02]
 depende_de: []
@@ -11,14 +11,17 @@ toca: [src/core/elegibilidade.py, tests/test_elegibilidade.py]
 recursos: []
 afinidade:
 retornos: 0
-atualizado: 2026-11-23T11:21-03:00
+atualizado: 2026-11-23T20:00-03:00
 branch: t/T-003-elegibilidade-a-decisao-de-silencio-pura
-executor: opus
+executor: script
 executor_impl: opus
 corpo_lancado: 9ccf8ce6d27b
 sessao: 9eb18560-77a2-4f90-afb5-e14907be9838
 fora_do_toca: []
 ponta: e2bcc9244f294db8c777ccbe90d23891e26f9e29
+executor_rev: agy-neon
+motivo: codex barrado pela permissao do Claude Code; volta para a fila de revisao
+executor_int: script
 ---
 # T-003 · Elegibilidade: a decisao de silencio, pura
 
@@ -132,7 +135,15 @@ Testes que nascem vermelhos em `tests/test_elegibilidade.py`:
 - Use `tuple` nos campos de colecao da `Politica`, como a spec declara: `dataclass(frozen=True)` com `list`
   nao e hashavel e convida a mutacao acidental.
 
+**Decisão do arquiteto (2026-11-23 19:59):** OK do Lucas: 2026-11-23 (autorizado no chat: «Pode integrar»)
+
 ## Histórico
 - 2026-11-23 11:16 backlog → pronto · liberado: OK do Lucas em 23/11/2026
 - 2026-11-23 11:16 pronto → fazendo · implementador · opus G- high
 - 2026-11-23 11:21 fazendo → entregue · implementador: ENTREGUE · relatório T-003-implementador-1.md · 5 min
+- 2026-11-23 17:37 entregue → revisando · revisor · codex G- high
+- 2026-11-23 17:38 revisando → entregue · manual: codex barrado pela permissao do Claude Code; volta para a fila de revisao
+- 2026-11-23 18:00 entregue → revisando · revisor · agy-neon G- high
+- 2026-11-23 18:08 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-003-revisor-1.md · 9 min
+- 2026-11-23 19:59 aprovado → integrando · integrador · script
+- 2026-11-23 20:00 integrando → integrado · integrador: INTEGRADO · relatório T-003-integrador-1.md · 1 min

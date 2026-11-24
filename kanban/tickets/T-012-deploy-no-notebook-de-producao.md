@@ -3,7 +3,7 @@ id: T-012
 titulo: Deploy no notebook de producao
 tipo: infra
 nivel: P-
-status: backlog
+status: pronto
 repo: principal
 spec: [SPEC-001, PED-01]
 depende_de: [T-011]
@@ -11,6 +11,7 @@ toca: [docs/DIAGNOSTICO-POS-DEPLOY.md]
 recursos: [notebook]
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T18:16-03:00
 ---
 # T-012 · Deploy no notebook de producao
 
@@ -110,3 +111,6 @@ Checagens:
 ## Notas do Lucas
 
 <!-- Cole aqui as seis evidencias e, ao terminar, a linha "Recurso notebook: feito" no comeco de uma linha. -->
+
+## Histórico
+- 2026-11-23 18:16 backlog → pronto · liberado: onda 0 revisada e integrada; segue para a fase de fiacao, docs e deploy

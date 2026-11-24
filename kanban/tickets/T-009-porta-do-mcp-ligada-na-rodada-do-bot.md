@@ -3,7 +3,7 @@ id: T-009
 titulo: Porta do MCP ligada na rodada do bot
 tipo: codigo
 nivel: M+
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-001, PED-02, R-07]
 depende_de: [T-004, T-006]
@@ -11,6 +11,15 @@ toca: [src/core/bot.py, tests/test_concurso_bot.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-23T18:44-03:00
+branch: t/T-009-porta-do-mcp-ligada-na-rodada-do-bot
+executor: script
+executor_impl: glm
+corpo_lancado: a0445ee124bf
+fora_do_toca: []
+ponta: 03c9b7bffbd97c49e926bf5c36af08cd3a7cd31d
+executor_rev: agy-argon
+executor_int: script
 ---
 # T-009 · Porta do MCP ligada na rodada do bot
 
@@ -111,3 +120,12 @@ Testes que nascem vermelhos em `tests/test_concurso_bot.py`:
 - Nao mova a ordem das fontes existentes nem renumere as que ja estao la nos comentarios: a nova entra no
   meio, entre a pagina de cargo e a lista nacional, porque e a lista nacional que consome o conjunto de links.
   O aceite cobra essa posicao, e o teste do conjunto de vistos e o que a prova.
+
+## Histórico
+- 2026-11-23 18:16 backlog → pronto · liberado: onda 0 revisada e integrada; segue para a fase de fiacao, docs e deploy
+- 2026-11-23 18:16 pronto → fazendo · implementador · glm M+ high
+- 2026-11-23 18:34 fazendo → entregue · implementador: ENTREGUE · relatório T-009-implementador-1.md · 19 min
+- 2026-11-23 18:34 entregue → revisando · revisor · agy-argon M+ high
+- 2026-11-23 18:43 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-009-revisor-1.md · 9 min
+- 2026-11-23 18:43 aprovado → integrando · integrador · script
+- 2026-11-23 18:44 integrando → integrado · integrador: INTEGRADO · relatório T-009-integrador-1.md · 1 min
