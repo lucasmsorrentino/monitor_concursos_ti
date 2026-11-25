@@ -6,7 +6,7 @@ nivel: M-
 status: backlog
 repo: principal
 spec: [SPEC-001, R-12, R-15]
-depende_de: [T-015]
+depende_de: [T-015, T-024]
 toca: [src/core/bot.py, tests/test_concurso_bot.py]
 recursos: []
 afinidade:

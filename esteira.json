@@ -1,5 +1,5 @@
 {
-  "_nota": "Configuração da esteira. O script mescla este arquivo do projeto sobre o padrão da skill (modelos/esteira.json); 'repos' substitui inteiro. Regra de modelo do Lucas (07/11/2026): Claude só como Opus 5.5 e só em trabalho complexo (G); a única exceção é reaproveitar o cache de uma sessão Opus quente (seção 'cache').",
+  "_nota": "Configuração da esteira. O script mescla este arquivo do projeto sobre o padrão da skill (modelos/esteira.json); 'repos' substitui inteiro. Regra de modelo do Lucas (07/11/2026): Claude só como Opus 5.5 e só em trabalho complexo (G); as exceções são reaproveitar o cache de uma sessão Opus quente (seção 'cache') e, desde 24/11/2026, o Haiku e o Sonnet como a primeira reserva do P e do M (seção 'reservas').",
   "versao": 1,
   "projeto": "monitor-concursos",
   "kanban": "kanban",
@@ -14,7 +14,7 @@
     "notebook": {
       "humano": true,
       "passos": "docs/DEPLOY-PCI-MCP.md",
-      "_nota": "Notebook Linux de producao (lucas-inspiron-3583, Tailscale 100.98.50.59). Só o Lucas alcanca: o segredo vive em ~/concursos-secrets/monitor.env, fora do repo."
+      "_nota": "Notebook Linux de producao (lucas-inspiron-3583, Tailscale 100.98.50.59). Alcancavel por SSH do desktop (chave fleet_ed25519, pela Tailscale), o que se provou em 24/11 e 25/11/2026; a nota anterior dizia que so o Lucas alcancava, e estava errada. O agente da esteira continua sem tocar producao: quem roda e o dono, ou a sessao que ele pedir. O segredo vive em ~/concursos-secrets/monitor.env, fora do repo, e chave quem grava e o Lucas."
     }
   },
   "repos": {
@@ -37,6 +37,20 @@
       "provedor": "claude",
       "comando": "claude -p {consulta} --model claude-opus-5-5 --effort {effort} --permission-mode auto --session-id {sessao} \"{instrucao}\"",
       "retomar": "claude -p --resume {sessao} {add_dir} {consulta} --model claude-opus-5-5 --effort {effort} --permission-mode auto \"{instrucao}\"",
+      "consulta": "--add-dir \"{pasta}\"",
+      "familia": "anthropic"
+    },
+    "sonnet": {
+      "provedor": "claude",
+      "comando": "claude -p {consulta} --model claude-sonnet-5-5 --effort {effort} --permission-mode auto --session-id {sessao} \"{instrucao}\"",
+      "retomar": "claude -p --resume {sessao} {add_dir} {consulta} --model claude-sonnet-5-5 --effort {effort} --permission-mode auto \"{instrucao}\"",
+      "consulta": "--add-dir \"{pasta}\"",
+      "familia": "anthropic"
+    },
+    "haiku": {
+      "provedor": "claude",
+      "comando": "claude -p {consulta} --model claude-haiku-5-5 --effort {effort} --permission-mode auto --session-id {sessao} \"{instrucao}\"",
+      "retomar": "claude -p --resume {sessao} {add_dir} {consulta} --model claude-haiku-5-5 --effort {effort} --permission-mode auto \"{instrucao}\"",
       "consulta": "--add-dir \"{pasta}\"",
       "familia": "anthropic"
     },
@@ -142,13 +156,15 @@
     }
   },
   "reservas": {
-    "_nota": "O proximos usa a primeira reserva com vaga quando o provedor do nível está lotado; o lancar também aceita --executor quando a cota acabou. G não tem reserva: espera a cota do Opus. Decisão do Lucas (08/11/2026): Antigravity só com modelos do Google (Gemini) e Codex (ChatGPT) sem sandbox, porque no sandbox do Windows ele não comita, não escreve no cache do uv e não tem rede. Decisão do Lucas (24/11/2026): do Google, só o Neon (M) e o Hydrogen (P); do Codex, o Sol nas complexas (revisor de G), o Terra nas intermediárias (M) e o Luna nas simples (P); o OpenCode Go só com o GLM-5.3 (em promoção) e só como a última reserva do P e do M; sem Qwen nem DeepSeek. O Terra e o Luna da 6.2 não existiam na conta em 24/11: ficam o gpt-6.1-terra e o gpt-6-luna.",
+    "_nota": "O proximos usa a primeira reserva com vaga quando o provedor do nível está lotado; o lancar também aceita --executor quando a cota acabou. G não tem reserva: espera a cota do Opus. Decisão do Lucas (08/11/2026): Antigravity só com modelos do Google (Gemini) e Codex (ChatGPT) sem sandbox, porque no sandbox do Windows ele não comita, não escreve no cache do uv e não tem rede. Decisão do Lucas (24/11/2026): do Google, só o Neon (M) e o Hydrogen (P); do Codex, o Sol nas complexas (revisor de G), o Terra nas intermediárias (M) e o Luna nas simples (P); o OpenCode Go só com o GLM-5.3 (em promoção) e só como a última reserva do P e do M; sem Qwen nem DeepSeek. O Terra e o Luna da 6.2 não existiam na conta em 24/11: ficam o gpt-6.1-terra e o gpt-6-luna. Decisão do Lucas (24/11/2026), como no app desde 12/11: o Haiku e o Sonnet são a primeira reserva do P e do M. Dividem com o Opus o limite `claude`, então dois tickets de reserva no Claude seguram o G até um deles sair.",
     "P": [
+      "haiku",
       "agy-hydrogen",
       "codex-luna",
       "glm-go"
     ],
     "M": [
+      "sonnet",
       "agy-neon",
       "codex-terra",
       "glm-go"
