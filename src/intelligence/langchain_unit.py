@@ -53,6 +53,40 @@ def _e_falha_de_credencial(exc: Exception) -> bool:
     return any(marca in texto for marca in _MARCAS_SEM_CREDENCIAL)
 
 
+# Cota esgotada: alem da classe `RateLimitError`, o texto que a denuncia quando
+# o erro chega embrulhado em outra excecao.
+_MARCAS_DE_COTA = ("ratelimiterror", "limit exhausted")
+
+# "reset at 2026-11-26 08:11:28", com ou sem fuso. Exige data E hora: so a data
+# nao diz quando a cota volta.
+_PADRAO_RESET = re.compile(
+    r"resets?\s+at\s*:?\s*"
+    r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)",
+    re.IGNORECASE,
+)
+
+
+def _instante_de_volta_da_cota(exc: Exception) -> datetime | None:
+    """Quando a cota volta, se o erro for de cota e trouxer um instante legivel.
+
+    Sao duas evidencias exigidas: ser erro de cota (so "reset at" tambem aparece
+    em queda de conexao) e o instante. Faltando qualquer uma, devolve ``None`` e
+    o erro segue com retry, porque ali tentar de novo ainda pode resolver. O
+    fuso nao e inferido: sai o que a mensagem disser. Nunca levanta excecao.
+    """
+    texto = str(exc)
+    e_de_cota = any(cls.__name__ == "RateLimitError" for cls in type(exc).__mro__) or any(
+        marca in texto.lower() for marca in _MARCAS_DE_COTA
+    )
+    achado = _PADRAO_RESET.search(texto) if e_de_cota else None
+    if not achado:
+        return None
+    try:
+        return datetime.fromisoformat(achado.group(1))
+    except ValueError:
+        return None
+
+
 class IntelligenceUnit:
     """Unidade de inteligência que orquestra extração e análise via LLM.
 
@@ -375,7 +409,7 @@ class IntelligenceUnit:
         (somando as tres areas), de hora em hora — 6.840 processos `claude` por
         dia, todos fadados a falhar.
         """
-        if self.falha_autenticacao:
+        if self.falha_autenticacao or self.cota_volta_em:
             return {"ignorar": True, "erro": True}
 
         total_tentativas = self.retries + 1
@@ -397,6 +431,13 @@ class IntelligenceUnit:
                     self.logger.error(
                         f"🔑 {e}. Pulando as demais chamadas desta rodada: retry nao "
                         f"conserta credencial."
+                    )
+                    return {"ignorar": True, "erro": True}
+                self.cota_volta_em = _instante_de_volta_da_cota(e)
+                if self.cota_volta_em:
+                    self.logger.error(
+                        f"⏳ {e}. Pulando as demais chamadas desta rodada: retry nao "
+                        f"muda a resposta antes da cota voltar."
                     )
                     return {"ignorar": True, "erro": True}
                 self.logger.warning(
