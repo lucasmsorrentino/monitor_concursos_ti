@@ -659,6 +659,36 @@ class ConcursoBot:
             )
             return True
 
+        # Cota esgotada, pela mesma razao: nomear a causa. Nao e credencial (o
+        # conserto e esperar, nao relogar), entao tem texto e chave proprios; e
+        # global porque a cota tambem e uma so para as tres areas.
+        volta = self.ai.cota_volta_em
+        if volta:
+            self.falhou = True
+            self.logger.error(
+                f"⏳ [{self.area_name}] cota da LLM esgotada, volta em {volta}; "
+                f"{erros} item(ns) ficaram sem leitura."
+            )
+            fuso = (
+                f"UTC{volta:%z}" if volta.tzinfo
+                else "horário como o provedor informou, sem fuso declarado"
+            )
+            self._alerta_uma_vez_por_dia(
+                "llm_sem_cota",
+                f"⏳ <b>Cota da IA esgotada no monitor de concursos</b>\n\n"
+                f"A cota do provedor de IA volta em "
+                f"<b>{volta:%d/%m/%Y} às {volta:%H:%M:%S}</b> ({fuso}). "
+                f"Até lá, o que depende de IA (blog do Gran e lista nacional do PCI) "
+                f"fica sem leitura em todas as áreas; só em {self.area_name} foram "
+                f"<b>{erros}</b> publicações nesta varredura. O PCI via MCP e por cargo "
+                f"segue normal, porque não usa IA.\n\n"
+                f"<i>Não há o que consertar: é esperar a cota voltar. O que ainda estiver "
+                f"publicado entra na primeira varredura depois disso. Este aviso não se "
+                f"repete hoje.</i>",
+                por_area=False,
+            )
+            return True
+
         # Degradado e checado ANTES de cegueira: 10 blocos dos quais 5 se
         # perderam na LLM nao e cegueira, e perda. Sao diagnosticos diferentes
         # e o alerta precisa dizer qual dos dois foi.
