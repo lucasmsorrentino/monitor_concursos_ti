@@ -621,8 +621,8 @@ class ConcursoBot:
 
         Returns:
             bool: ``True`` se enviou um alerta sobre a varredura inteira
-            (degradada ou cega). Quem chama usa isso para nao empilhar o aviso
-            por fonte em cima do mesmo problema.
+            (LLM sem credencial ou sem cota, degradada ou cega). Quem chama usa
+            isso para nao empilhar o aviso por fonte em cima do mesmo problema.
         """
         # Erro de extracao acima do limite invalida o resultado do dia, mesmo
         # que alguns editais tenham passado. Antes isso saia como sucesso.
@@ -655,6 +655,36 @@ class ConcursoBot:
                 f"Conserto: {self.ai.instrucao_login}.\n\n"
                 f"<i>O que ainda estiver publicado entra na primeira varredura depois "
                 f"do conserto. Este aviso não se repete hoje.</i>",
+                por_area=False,
+            )
+            return True
+
+        # Cota esgotada, pela mesma razao: nomear a causa. Nao e credencial (o
+        # conserto e esperar, nao relogar), entao tem texto e chave proprios; e
+        # global porque a cota tambem e uma so para as tres areas.
+        volta = self.ai.cota_volta_em
+        if volta:
+            self.falhou = True
+            self.logger.error(
+                f"⏳ [{self.area_name}] cota da LLM esgotada, volta em {volta}; "
+                f"{erros} item(ns) ficaram sem leitura."
+            )
+            fuso = (
+                f"UTC{volta:%z}" if volta.tzinfo
+                else "horário como o provedor informou, sem fuso declarado"
+            )
+            self._alerta_uma_vez_por_dia(
+                "llm_sem_cota",
+                f"⏳ <b>Cota da IA esgotada no monitor de concursos</b>\n\n"
+                f"A cota do provedor de IA volta em "
+                f"<b>{volta:%d/%m/%Y} às {volta:%H:%M:%S}</b> ({fuso}). "
+                f"Até lá, o que depende de IA (blog do Gran e lista nacional do PCI) "
+                f"fica sem leitura em todas as áreas; só em {self.area_name} foram "
+                f"<b>{erros}</b> publicações nesta varredura. O PCI via MCP e por cargo "
+                f"segue normal, porque não usa IA.\n\n"
+                f"<i>Não há o que consertar: é esperar a cota voltar. O que ainda estiver "
+                f"publicado entra na primeira varredura depois disso. Este aviso não se "
+                f"repete hoje.</i>",
                 por_area=False,
             )
             return True
