@@ -1,6 +1,6 @@
 """Persistencia SQLite para o monitor de concursos.
 
-Schema v6 (atual):
+Schema v7 (atual):
     editais(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         area TEXT NOT NULL,
@@ -20,9 +20,10 @@ Schema v6 (atual):
         salario_teto REAL,             -- teto do concurso, o maior salario do edital (v6)
         elegibilidade TEXT,            -- decisao do bot: 'filtrado' | 'elegivel' | NULL = pre-v6 (v6)
         motivo_filtro TEXT,            -- motivo do corte, conjunto fechado (v6)
-        ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(area, nome)
+        ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+    UNIQUE INDEX idx_editais_identidade ON editais(area, nome, COALESCE(pci_id, ''))
+    INDEX idx_editais_pci ON editais(area, pci_id)
 
 Historico de migracoes:
     v1: PK em `nome` apenas (modo single-area).
@@ -41,14 +42,27 @@ Historico de migracoes:
         `elegibilidade` e `motivo_filtro`. Aditiva e SEM backfill: linha
         anterior ao v6 fica com `elegibilidade` NULL e conta como elegivel —
         ja foi notificada, nao se renotifica, nao se reavalia e nao se apaga.
+    v7: a unicidade sai do UNIQUE(area, nome) de tabela para o indice unico
+        (area, nome, COALESCE(pci_id, '')), para que dois editais do mesmo
+        orgao na mesma area coexistam. Unica migracao que recria a tabela
+        (decisao do dono, ADR-0005): uma transacao, todas as colunas copiadas
+        com o `id`, `sqlite_sequence` preservado, nenhuma linha apagada,
+        fundida ou dividida. O COALESCE mantem barrado o nome repetido entre
+        linhas sem `pci_id` (Gran e portas de HTML).
 
-Ordem de identidade (do mais forte pro mais fraco):
+Ordem de identidade (do mais forte pro mais fraco, ADR-0005):
     1. `pci_id` — id da noticia no PCI, estavel entre rodadas.
     2. link especifico (diferente da URL-indice do scraper).
     3. `(area, nome)` COLLATE NOCASE.
     4. `mesma_entidade` sobre os tokens do nome — e o unico passo que cruza
        fontes, porque Gran e PCI escrevem o mesmo orgao de formas diferentes
        ("Prefeitura de Ponta Grossa - PR" x "Concurso Prefeitura Ponta Grossa").
+
+A chave canonica que discorda vence o nome: item com `pci_id` so casa nos
+passos 2 a 4 com linha SEM `pci_id` (e a rechaveia); linha com outro `pci_id`
+e outro edital, ainda que do mesmo orgao e com o mesmo nome. Item sem
+`pci_id` segue a ordem acima sem restricao. Escrita que, mesmo assim, bate na
+unicidade e logada como `COLISAO DE IDENTIDADE`, nunca engolida.
 
 Preservar o `id` importa: ele vai no `callback_data` dos botoes do Telegram,
 entao trocar de id invalida os botoes de mensagens ja enviadas.
