@@ -110,3 +110,5 @@ isso. O backup do arquivo do banco e passo de producao, nao deste ticket.
 
 **Nao reescreva o `_buscar_por_entidade`.** Ele existe para o mesmo orgao escrito de formas diferentes entre
 o Gran e o PCI, e continua necessario. O que muda e so que um `pci_id` discordante passa a bloquea-lo.
+
+**Decisão do arquiteto (2026-11-25 15:21):** Decisao do dono, 25/11/2026, no chat: «Recria a tabela». O caminho e o indice unico por expressao (area, nome, COALESCE(pci_id, '')), substituindo o UNIQUE(area, nome) de tabela, pelo procedimento documentado do SQLite: criar a nova, copiar, trocar os nomes, dentro de uma transacao. O _migrate_to_v3 do proprio arquivo e o molde. A excecao a regra «nunca recriar tabela com dado dentro» foi aberta por escrito no kanban/REGRAS.md, com escopo: vale para a unicidade da tabela editais, neste ticket, e nada mais. O que esta decidido e o CAMINHO. O gate de integracao (a linha «OK do Lucas:») segue em aberto de proposito: migracao de schema sobre 1.700 linhas de producao e porta de mao unica, e o dono olha o diff antes de ela entrar.

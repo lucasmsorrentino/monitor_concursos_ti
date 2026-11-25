@@ -174,9 +174,14 @@ custa exatamente uma varredura, nao um dia.
 - **R-96** O freio e por dia e por `id`, nao por area: ele existe para a classe inteira de defeito, nao so
   para a causa de 25/11.
 
-## 4. Decisoes em aberto para o dono
+## 4. Decisoes do dono
 
-1. **Como abrir a unicidade (R-83).** Recomendacao: **indice unico por expressao**,
+> A primeira foi decidida em 25/11/2026; as outras tres seguem em aberto.
+
+1. **Como abrir a unicidade (R-83) — DECIDIDA em 25/11/2026: recriar a tabela.** O dono respondeu
+   «Recria a tabela» no chat, e a excecao a regra de migracao aditiva foi aberta por escrito no
+   `kanban/REGRAS.md`, com escopo de um caso. O raciocinio que sustentou a recomendacao fica como
+   registro. Recomendacao, agora confirmada: **indice unico por expressao**,
    `(area, nome, COALESCE(pci_id, ''))`, substituindo o `UNIQUE(area, nome)` de tabela. O `COALESCE` existe
    para nao perder a dedupe das linhas sem `pci_id`: em SQLite, `NULL` nao colide com `NULL` numa chave
    unica, e sem ele duas linhas do Gran com o mesmo nome passariam a ser aceitas. O SQLite de producao e

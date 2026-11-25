@@ -21,6 +21,9 @@
   no modo mais conservador, nunca no mais agressivo.
 - **Migracao de schema e aditiva e idempotente**, dentro de `_ensure_schema` (`ALTER TABLE ... ADD COLUMN`
   guardado por `PRAGMA table_info`). Nunca `DROP`, nunca recriar tabela com dado dentro.
+  **Excecao do dono, 25/11/2026, um caso so:** a unicidade da tabela `editais` troca de forma e isso
+  exige recriar a tabela; autorizado na SPEC-003 secao 4, dentro de transacao e com backup antes.
+  Qualquer outra recriacao segue proibida.
 - Nao toque, sem o ticket pedir: `kanban/`, `.env`, `logs/`, `data/concursos.db`, `scripts/install_schedule.*`.
 - Commits do ciclo TDD, nesta ordem e separados: `test:` (vermelho), depois `feat:`/`fix:` (verde), depois
   `docs:`. Uma fatia por par.
