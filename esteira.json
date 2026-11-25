@@ -7,7 +7,7 @@
   "specs": [
     "docs/specs/"
   ],
-  "_nota_consulta": "Pastas de material de consulta (relativas à raiz do projeto ou absolutas). Quando preenchida, o prompt de todos os papéis ganha a linha «Material de consulta (só leitura)» com os caminhos absolutos, e o marcador {consulta} do comando do executor vira o fragmento `consulta` dele, repetido por pasta ({pasta} é o caminho absoluto). Só pasta que existe vira argumento: arquivo solto fica só no prompt, e entrada que não existe vira aviso no validar. O argumento dá à CLI acesso à pasta; o «só leitura» é instrução do prompt, não uma trava. No padrão: Claude e Antigravity com --add-dir, Qwen com --include-directories. O Codex roda sem sandbox e não precisa. O OpenCode não recebe: a config da skill (modelos/opencode-esteira.json) nega às ferramentas de arquivo o que está fora do worktree (o shell lê). O projeto que precisa aponta OPENCODE_CONFIG, no env do executor, para um arquivo próprio que libere as pastas; o formato das permissões muda entre versões do OpenCode, então confira na documentação da versão instalada.",
+  "_nota_consulta": "Pastas de material de consulta (relativas à raiz do projeto ou absolutas). Quando preenchida, o prompt de todos os papéis ganha a linha «Material de consulta (só leitura)» com os caminhos absolutos, e o marcador {consulta} do comando do executor vira o fragmento `consulta` dele, repetido por pasta ({pasta} é o caminho absoluto). Só pasta que existe vira argumento: arquivo solto fica só no prompt, e entrada que não existe vira aviso no validar. O argumento dá à CLI acesso à pasta; o «só leitura» é instrução do prompt, não uma trava. No padrão: Claude e Antigravity com --add-dir. O Codex roda sem sandbox e não precisa. O OpenCode não recebe: a config da skill (modelos/opencode-esteira.json) nega às ferramentas de arquivo o que está fora do worktree (o shell lê). O projeto que precisa aponta OPENCODE_CONFIG, no env do executor, para um arquivo próprio que libere as pastas; o formato das permissões muda entre versões do OpenCode, então confira na documentação da versão instalada.",
   "consulta": [],
   "_nota_recursos": "O que não é arquivo e os tickets disputam: GPU, emulador, aparelho, Colab. O ticket declara `recursos: [gpu]`. Recurso comum: só `vagas` tickets (padrão 1) o usam ao mesmo tempo, contando os que estão em fazendo e revisando; `condicao` (opcional) é um comando que precisa sair com 0 para o recurso valer, conferido no proximos e no lancar (teto de 30 s). Recurso do dono (`humano: true`): o ticket espera em pronto até o corpo trazer uma linha que começa por «Recurso <nome>: feito» (citada no meio de uma frase, não vale); `passos` (opcional) é o caminho da lista do que o dono faz. Exemplo: {\"gpu\": {\"vagas\": 1, \"condicao\": \"nvidia-smi\"}, \"colab\": {\"humano\": true, \"passos\": \"docs/COLAB.md\"}}",
   "recursos": {
@@ -62,28 +62,16 @@
       ],
       "familia": "zai"
     },
-    "deepseek-flash": {
-      "provedor": "opencode",
+    "glm-go": {
+      "provedor": "opencode-go",
       "env": {
         "OPENCODE_CONFIG": "{skill}/modelos/opencode-esteira.json"
       },
-      "comando": "opencode run --standalone --archived -m opencode-go/deepseek-v4.1-flash{variant_sufixo} \"{instrucao}\" < /dev/null",
+      "comando": "opencode run --standalone --archived -m opencode-go/glm-5.3{variant_sufixo} \"{instrucao}\" < /dev/null",
       "esforcos": [
         "high"
       ],
-      "familia": "deepseek"
-    },
-    "qwen-max": {
-      "provedor": "qwen",
-      "comando": "qwen {consulta} -m qwen3.8-max --yolo \"{instrucao}\"",
-      "consulta": "--include-directories \"{pasta}\"",
-      "familia": "qwen"
-    },
-    "qwen-flash": {
-      "provedor": "qwen",
-      "comando": "qwen {consulta} -m qwen3.8-flash --yolo \"{instrucao}\"",
-      "consulta": "--include-directories \"{pasta}\"",
-      "familia": "qwen"
+      "familia": "zai"
     },
     "agy-hydrogen": {
       "provedor": "antigravity",
@@ -109,32 +97,16 @@
       ],
       "familia": "google"
     },
-    "agy-flash": {
-      "provedor": "antigravity",
-      "esforco_padrao": "medium",
-      "comando": "agy -p \"{instrucao}\" --mode accept-edits --model gemini-3.8-flash-{variant_valor} --settings \"{skill}/modelos/agy-esteira.json\" --add-dir \"{git_dir}\" {consulta}",
-      "consulta": "--add-dir \"{pasta}\"",
-      "esforcos": [
-        "medium",
-        "high"
-      ],
-      "familia": "google"
-    },
-    "agy-argon": {
-      "provedor": "antigravity",
-      "esforco_padrao": "medium",
-      "comando": "agy -p \"{instrucao}\" --mode accept-edits --model gemini-4-argon-{variant_valor} --settings \"{skill}/modelos/agy-esteira.json\" --add-dir \"{git_dir}\" {consulta}",
-      "consulta": "--add-dir \"{pasta}\"",
-      "esforcos": [
-        "medium",
-        "high"
-      ],
-      "familia": "google"
-    },
     "codex": {
       "provedor": "codex",
       "esforco_padrao": "medium",
-      "comando": "codex exec -s danger-full-access -c approval_policy='\"never\"' -m gpt-6.1-sol -c model_reasoning_effort='\"{variant_valor}\"' --color never \"{instrucao}\" < /dev/null",
+      "comando": "codex exec -s danger-full-access -c approval_policy='\"never\"' -m gpt-6.2-sol -c model_reasoning_effort='\"{variant_valor}\"' --color never \"{instrucao}\" < /dev/null",
+      "familia": "openai"
+    },
+    "codex-terra": {
+      "provedor": "codex",
+      "esforco_padrao": "medium",
+      "comando": "codex exec -s danger-full-access -c approval_policy='\"never\"' -m gpt-6.1-terra -c model_reasoning_effort='\"{variant_valor}\"' --color never \"{instrucao}\" < /dev/null",
       "familia": "openai"
     },
     "codex-luna": {
@@ -170,17 +142,16 @@
     }
   },
   "reservas": {
-    "_nota": "O proximos usa a primeira reserva com vaga quando o provedor do nível está lotado; o lancar também aceita --executor quando a cota acabou. G não tem reserva: espera a cota do Opus. Decisão do Lucas (08/11/2026): Antigravity só com modelos do Google (Gemini) e Codex (ChatGPT) sem sandbox, porque no sandbox do Windows ele não comita, não escreve no cache do uv e não tem rede.",
+    "_nota": "O proximos usa a primeira reserva com vaga quando o provedor do nível está lotado; o lancar também aceita --executor quando a cota acabou. G não tem reserva: espera a cota do Opus. Decisão do Lucas (08/11/2026): Antigravity só com modelos do Google (Gemini) e Codex (ChatGPT) sem sandbox, porque no sandbox do Windows ele não comita, não escreve no cache do uv e não tem rede. Decisão do Lucas (24/11/2026): do Google, só o Neon (M) e o Hydrogen (P); do Codex, o Sol nas complexas (revisor de G), o Terra nas intermediárias (M) e o Luna nas simples (P); o OpenCode Go só com o GLM-5.3 (em promoção) e só como a última reserva do P e do M; sem Qwen nem DeepSeek. O Terra e o Luna da 6.2 não existiam na conta em 24/11: ficam o gpt-6.1-terra e o gpt-6-luna.",
     "P": [
       "agy-hydrogen",
       "codex-luna",
-      "deepseek-flash",
-      "qwen-flash"
+      "glm-go"
     ],
     "M": [
       "agy-neon",
-      "codex",
-      "qwen-max"
+      "codex-terra",
+      "glm-go"
     ],
     "G": []
   },
@@ -201,24 +172,21 @@
       "candidatos": {
         "M-": [
           "glm",
-          "codex",
-          "agy-argon",
+          "codex-terra",
           "agy-neon"
         ],
         "M+": [
           "glm",
-          "codex",
-          "agy-argon",
+          "codex-terra",
           "agy-neon"
         ],
         "G-": [
           "opus",
           "codex",
-          "agy-neon",
-          "agy-argon"
+          "agy-neon"
         ]
       },
-      "_nota": "Decisão do Lucas (08/11/2026): o revisor é de família diferente da do implementador (Anthropic, Z.ai, OpenAI, Google), no nível do revisor (um degrau acima). O proximos percorre os candidatos em ordem até achar vaga; sem outra família disponível, volta à lista inteira. Decisão do Lucas (23/11/2026): o `agy-argon` entra como revisor. Nos níveis M ele vem antes do `agy-neon`, que fica para G−, a revisão mais pesada; os dois são do provedor `antigravity`, então a ordem escolhe o modelo e não abre vaga nova."
+      "_nota": "Decisão do Lucas (08/11/2026): o revisor é de família diferente da do implementador (Anthropic, Z.ai, OpenAI, Google), no nível do revisor (um degrau acima). O proximos percorre os candidatos em ordem até achar vaga; sem outra família disponível, volta à lista inteira. Decisão do Lucas (24/11/2026): do Codex, o Terra revisa em M− e M+ e o Sol (`codex`) em G−; do Google, só o Neon. O Argon, revisor desde 23/11, saiu."
     },
     "integrador": {
       "nivel": "M-",
@@ -230,6 +198,7 @@
   "limites": {
     "claude": 2,
     "opencode": 3,
+    "opencode-go": 1,
     "codex": 2,
     "antigravity": 2,
     "integracoes_por_repo": 1
@@ -273,7 +242,7 @@
       "M-"
     ]
   },
-  "_nota_antigravity": "Antigravity (agy 1.5, desde 19/11/2026): só modelos do Google. Reservas e revisor no Gemini 4: Hydrogen (o rápido) em P, Neon (o padrão do Antigravity desde 18/11) em M e na revisão; o Argon e o 3.8 Flash continuam definidos para os projetos que os citam. `--mode accept-edits` é obrigatório: sem `--mode`, o `agy -p` roda no modo auto (desde a 1.5.7), que tenta cada comando primeiro no sandbox do Windows, onde ele falha por acesso (lock do git, python.exe, cache do Flutter) ou trava (o laço do tempfile do pytest); o agente então pede para sair do sandbox e os monitores do agy disparam. Fora do auto, os comandos passam pela regra `command(*)` de modelos/agy-esteira.json, que também desliga o sandbox (`enableTerminalSandbox`) caso o settings.json do usuário o ligue. O validar e o doutor avisam o executor do Antigravity sem `--mode` ou com `--mode auto`.",
+  "_nota_antigravity": "Antigravity (agy 1.5, desde 19/11/2026): só modelos do Google. Desde 24/11/2026, por decisão do Lucas, só dois modelos: o Hydrogen (o rápido) nas simples (P) e o Neon (o padrão do Antigravity desde 18/11) nas mais complexas (M e revisão). O Argon e o 3.8 Flash saíram. `--mode accept-edits` é obrigatório: sem `--mode`, o `agy -p` roda no modo auto (desde a 1.5.7), que tenta cada comando primeiro no sandbox do Windows, onde ele falha por acesso (lock do git, python.exe, cache do Flutter) ou trava (o laço do tempfile do pytest); o agente então pede para sair do sandbox e os monitores do agy disparam. Fora do auto, os comandos passam pela regra `command(*)` de modelos/agy-esteira.json, que também desliga o sandbox (`enableTerminalSandbox`) caso o settings.json do usuário o ligue. O validar e o doutor avisam o executor do Antigravity sem `--mode` ou com `--mode auto`.",
   "_nota_opencode": "OpenCode 2.x (desde 08/11/2026): o esforço vai no modelo (`#high`, placeholder {variant_sufixo}); --standalone sobe um servidor privado, o único jeito de o OPENCODE_CONFIG valer (sem ele, o CLI usa o serviço do app desktop); --archived tira a sessão da lista do app. A config da esteira (modelos/opencode-esteira.json) nega caminhos fora do worktree às ferramentas de arquivo (o shell não é coberto) e nega a busca na web: na 2.2.6 ela pede uma resposta que a execução headless não dá e derruba o exit code, mesmo com allow e --auto. O webfetch fica liberado. Para OpenCode 1.x, use `-m modelo {variant}`.",
   "aprovacao_humana": {
     "letras": [
