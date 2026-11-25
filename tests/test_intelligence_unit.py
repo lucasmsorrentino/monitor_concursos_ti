@@ -5,6 +5,7 @@ substituir os construtores de backend antes de instanciar o IntelligenceUnit
 e para simular respostas do chain.
 """
 import json
+from datetime import datetime
 
 import pytest
 
@@ -221,6 +222,97 @@ class TestFalhaDeLogin:
 
         assert ollama_unit.chain_extracao.invoke.call_count == 2   # retries=1
         assert ollama_unit.falha_autenticacao is None
+
+
+# Mensagem real do provedor, copiada do log de producao de 25/11/2026.
+_COTA_COM_RESET = (
+    "litellm.RateLimitError: RateLimitError: ZaiException - Weekly/Monthly Limit "
+    "Exhausted. Your limit will reset at 2026-11-26 08:11:28"
+)
+
+
+class RateLimitError(Exception):
+    """Mesmo nome de classe do LiteLLM/OpenAI SDK, sem importar nenhum dos dois."""
+
+
+class TestCotaEsgotada:
+    """Cota com hora de volta nao muda de resposta antes dela: retry so gasta tempo."""
+
+    @pytest.fixture
+    def unit(self, mocker):
+        """Com os 2 retries de producao, ou seja, tres tentativas por bloco."""
+        mocker.patch.object(IntelligenceUnit, "_create_ollama", return_value=mocker.MagicMock())
+        unit = IntelligenceUnit(model_name="llama3.1", retries=2, retry_delay_s=0)
+        unit.chain_extracao = mocker.MagicMock()
+        return unit
+
+    def test_cota_esgotada_com_reset_nao_tenta_tres_vezes(self, unit):
+        unit.chain_extracao.invoke.side_effect = RateLimitError(_COTA_COM_RESET)
+
+        result = unit.extrair_dados("<h3>x</h3>")
+
+        # Continua contando como erro: o bloco ficou sem leitura.
+        assert result == {"ignorar": True, "erro": True}
+        assert unit.chain_extracao.invoke.call_count == 1
+
+    def test_cota_esgotada_curto_circuita_as_chamadas_seguintes_da_rodada(self, unit):
+        unit.chain_extracao.invoke.side_effect = RateLimitError(_COTA_COM_RESET)
+
+        resultados = [unit.extrair_dados("<h3>x</h3>") for _ in range(5)]
+
+        assert resultados == [{"ignorar": True, "erro": True}] * 5
+        assert unit.chain_extracao.invoke.call_count == 1
+
+    def test_cota_esgotada_expoe_o_instante_de_reset(self, unit):
+        unit.chain_extracao.invoke.side_effect = RateLimitError(_COTA_COM_RESET)
+
+        unit.extrair_dados("<h3>x</h3>")
+
+        # Sem fuso: o provedor nao declara, e quem usa o valor decide.
+        assert unit.cota_volta_em == datetime(2026, 11, 26, 8, 11, 28)
+        # Cota nao e credencial: o conserto e esperar, nao relogar.
+        assert unit.falha_autenticacao is None
+
+    def test_cota_reconhecida_pela_classe_do_erro(self, unit):
+        """O texto do provedor pode mudar; a classe do SDK continua dizendo o que e."""
+        unit.chain_extracao.invoke.side_effect = RateLimitError(
+            "Usage quota reached. Your limit will reset at 2026-11-26 08:11:28"
+        )
+
+        unit.extrair_dados("<h3>x</h3>")
+
+        assert unit.chain_extracao.invoke.call_count == 1
+        assert unit.cota_volta_em == datetime(2026, 11, 26, 8, 11, 28)
+
+    @pytest.mark.parametrize(
+        "mensagem",
+        [
+            "ZaiException - Rate limit reached for requests",
+            "ZaiException - Weekly/Monthly Limit Exhausted. Your limit will reset at soon",
+            "ZaiException - Limit Exhausted. Your limit will reset at 2026-13-45 99:99:99",
+            "ZaiException - Limit Exhausted. Your limit will reset at 2026-11-26",
+        ],
+        ids=["sem_instante", "instante_em_prosa", "data_impossivel", "so_a_data"],
+    )
+    def test_cota_sem_instante_de_reset_mantem_as_tres_tentativas(self, unit, mensagem):
+        unit.chain_extracao.invoke.side_effect = RateLimitError(mensagem)
+
+        result = unit.extrair_dados("<h3>x</h3>")
+
+        assert result == {"ignorar": True, "erro": True}
+        assert unit.chain_extracao.invoke.call_count == 3
+        assert unit.cota_volta_em is None
+
+    def test_reset_de_conexao_com_hora_nao_passa_por_cota(self, unit):
+        """"reset at <hora>" sozinho nao prova cota: queda de rede se resolve com retry."""
+        unit.chain_extracao.invoke.side_effect = ConnectionError(
+            "Connection reset at 2026-11-26 08:11:28"
+        )
+
+        unit.extrair_dados("<h3>x</h3>")
+
+        assert unit.chain_extracao.invoke.call_count == 3
+        assert unit.cota_volta_em is None
 
 
 class TestBackendLiteLLM:
