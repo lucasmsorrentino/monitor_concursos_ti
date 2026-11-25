@@ -145,7 +145,11 @@ custa exatamente uma varredura, nao um dia.
 - **R-85** A migracao **nao divide** linha que ja colidiu. O reparo das linhas colididas e separado (3.3),
   porque exige julgamento sobre qual dado pertence a qual edital.
 - **R-86** Colisao de identidade que o codigo nao consiga resolver nunca vira silencio: entra no log como erro
-  nomeado e no alerta do dia, pela regra de fail-open do projeto.
+  nomeado, pela regra de fail-open do projeto.
+- **R-97** A mesma colisao chega ao **alerta do dia**, uma vez por dia como os outros alertas. Requisito
+  separado do R-86 por decisao do dono em 25/11/2026 (secao 4, item 5): o log e o banco, o alerta e o bot, e o
+  ticket da migracao nao carrega o `src/core/bot.py`. Enquanto o R-97 nao integrar, a colisao fica registrada
+  no log e nao chega ao Telegram: isso e divida declarada, com prazo de uma onda, nao requisito abandonado.
 
 ### 3.2. Cota da LLM
 
@@ -176,7 +180,7 @@ custa exatamente uma varredura, nao um dia.
 
 ## 4. Decisoes do dono
 
-> A primeira foi decidida em 25/11/2026; as outras tres seguem em aberto.
+> A primeira e a quinta foram decididas em 25/11/2026; as outras tres seguem em aberto.
 
 1. **Como abrir a unicidade (R-83) — DECIDIDA em 25/11/2026: recriar a tabela.** O dono respondeu
    «Recria a tabela» no chat, e a excecao a regra de migracao aditiva foi aberta por escrito no
@@ -198,6 +202,13 @@ custa exatamente uma varredura, nao um dia.
    passa de uma notificacao por dia; tres da folga para avanco de fase e mudanca de prazo no mesmo dia.
 4. **Se o freio entra nesta fase.** Ele e rede de seguranca, nao conserto: sem ele, a fase ainda resolve o
    PED-07. E o primeiro candidato a corte se o dono quiser a fase menor.
+5. **Onde entra o alerta do dia da colisao (R-86/R-97) — DECIDIDA em 25/11/2026: ticket separado.** O
+   revisor do T-020 apontou, com razao, que a spec pedia log **e** alerta e o ticket entregava so o log, e
+   devolveu a decisao de escopo. O dono respondeu «Ticket separado» no chat. O requisito foi partido em R-86
+   (log, no banco, no T-020) e R-97 (alerta do dia, no bot, no T-026). Razao registrada: o diff do T-020 e o
+   que o dono le pessoalmente antes de uma migracao irreversivel sobre ~1.700 linhas, e inflar esse diff com
+   o `src/core/bot.py` — o arquivo mais disputado da fase, que o T-019 e o T-024 tambem querem — encareceria
+   a unica revisao humana que a fase tem. A alternativa era ampliar o T-020, que o revisor recomendava.
 
 ## 5. Fora de escopo
 

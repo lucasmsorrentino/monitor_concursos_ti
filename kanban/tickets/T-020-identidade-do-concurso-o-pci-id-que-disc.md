@@ -3,15 +3,15 @@ id: T-020
 titulo: Identidade do concurso: o pci_id que discorda vence o nome
 tipo: codigo
 nivel: G-
-status: bloqueado
+status: pronto
 repo: principal
 spec: [SPEC-003, R-80, R-81, R-82, R-83, R-84, R-85, R-86]
 depende_de: []
-toca: [src/database/manager.py, tests/test_database_manager.py, docs/adr/0005-identidade-do-concurso.md]
+toca: [src/database/manager.py, tests/test_database_manager.py, docs/adr/0005-identidade-do-concurso.md, CLAUDE.md]
 recursos: []
 afinidade:
 retornos: 0
-atualizado: 2026-11-25T17:15-03:00
+atualizado: 2026-11-25T18:31-03:00
 branch: t/T-020-identidade-do-concurso-o-pci-id-que-disc
 executor: codex
 executor_impl: opus
@@ -20,7 +20,7 @@ sessao: 32da4d18-7b91-4540-a447-23376e479efe
 fora_do_toca: []
 ponta: 17537ba8e91e9c9f07beeed3a512472fb6184c68
 executor_rev: codex
-motivo: Resumo: A suíte passou com 569 testes na base e 582 na ponta. O vermelho do commit de testes foi reproduzido. A SPEC-003 exige alerta do dia para o R-86, mas o ticket limita a entrega ao log. O aceite
+motivo: arquiteto julgou o BLOQUEADO: tres achados confirmados viram 2a rodada; o alerta do R-86 saiu para o T-026 por decisao do dono
 ---
 # T-020 · Identidade do concurso: o pci_id que discorda vence o nome
 
@@ -146,9 +146,12 @@ ACHADO 4, o alerta do dia do R-86: e decisao de escopo, do dono, nao do arquitet
 
 O gate de integracao (a linha «OK do Lucas:») segue em aberto, como desde o inicio.
 
+**Decisão do arquiteto (2026-11-25 18:31):** ACHADO 4 decidido, 25/11/2026: o dono respondeu «Ticket separado». O alerta do dia saiu deste ticket e virou o T-026, com o requisito partido em R-86 (log, aqui) e R-97 (alerta, la), registrado na SPEC-003 secao 4 item 5. Portanto: NAO toque em src/core/bot.py nesta rodada. O log nomeado que voce ja entregou e exatamente o escopo do R-86 e esta aceito. A segunda rodada e so os tres achados confirmados da nota anterior, mais os tres itens menores. O parecer completo do revisor esta em kanban/relatorios/T-020-revisor-1.md, no repo: leia antes de comecar, ele tem os numeros das linhas e os cenarios exatos que ele reproduziu. O CLAUDE.md entrou no toca deste ticket.
+
 ## Histórico
 - 2026-11-25 16:48 backlog → pronto · liberado: Lucas liberou no chat em 25/11/2026
 - 2026-11-25 16:49 pronto → fazendo · implementador · opus G- high
 - 2026-11-25 17:05 fazendo → entregue · implementador: ENTREGUE · relatório T-020-implementador-1.md · 17 min
 - 2026-11-25 17:05 entregue → revisando · revisor · codex G- high
 - 2026-11-25 17:15 revisando → bloqueado · revisor: BLOQUEADO · relatório T-020-revisor-1.md · 11 min
+- 2026-11-25 18:31 bloqueado → pronto · manual: arquiteto julgou o BLOQUEADO: tres achados confirmados viram 2a rodada; o alerta do R-86 saiu para o T-026 por decisao do dono
