@@ -172,11 +172,13 @@
       "candidatos": {
         "M-": [
           "glm",
+          "glm-go",
           "codex-terra",
           "agy-neon"
         ],
         "M+": [
           "glm",
+          "glm-go",
           "codex-terra",
           "agy-neon"
         ],
@@ -186,7 +188,7 @@
           "agy-neon"
         ]
       },
-      "_nota": "Decisão do Lucas (08/11/2026): o revisor é de família diferente da do implementador (Anthropic, Z.ai, OpenAI, Google), no nível do revisor (um degrau acima). O proximos percorre os candidatos em ordem até achar vaga; sem outra família disponível, volta à lista inteira. Decisão do Lucas (24/11/2026): do Codex, o Terra revisa em M− e M+ e o Sol (`codex`) em G−; do Google, só o Neon. O Argon, revisor desde 23/11, saiu."
+      "_nota": "Decisão do Lucas (08/11/2026): o revisor é de família diferente da do implementador (Anthropic, Z.ai, OpenAI, Google), no nível do revisor (um degrau acima). O proximos percorre os candidatos em ordem até achar vaga; sem outra família disponível, volta à lista inteira. Decisão do Lucas (24/11/2026): do Codex, o Terra revisa em M− e M+ e o Sol (`codex`) em G−; do Google, só o Neon. O Argon, revisor desde 23/11, saiu. Plumbing (24/11/2026): o `glm-go` entra como 2a porta da familia zai em M- e M+, porque o plano z.ai do `glm` esgotou a cota semanal e sem ele a regra do revisor de outra familia cai na lista inteira e o Gemini revisaria o Gemini. Mesma familia, outra cobranca: nao e decisao nova."
     },
     "integrador": {
       "nivel": "M-",

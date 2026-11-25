@@ -257,3 +257,82 @@ def test_config_efetiva_mostra_areas_e_omite_segredo_do_json(tmp_path):
     assert "111222333" not in saida
     assert "token: <omitido>" in saida
     assert "chat_ids: <omitido> (1)" in saida
+
+
+def test_config_mostra_a_porta_do_mcp_ligada_com_a_contagem_de_termos(tmp_path):
+    _criar_logs(tmp_path)
+    monitor_env = tmp_path / "monitor.env"
+    monitor_env.write_text(
+        'MONITOR_TARGETS_JSON=\'[{"area": "TI", "url": "https://exemplo.blog",'
+        ' "pci_mcp": true, "pci_mcp_cargos": ["analista de sistemas", "desenvolvedor", "ti"],'
+        ' "filtro_salarial": "ativo", "corte_fora_sul": 10000, "resumo_filtrados": "semanal"}]\'\n',
+        encoding="utf-8",
+    )
+    codigo, saida = _rodar(tmp_path, env_extra={"MONITOR_ENV_FILE": _caminho_bash(monitor_env)})
+    assert codigo == 0
+    assert "porta pci_mcp: ligada (3 termo(s))" in saida
+
+
+def test_config_mostra_o_filtro_salarial_com_corte_e_resumo(tmp_path):
+    _criar_logs(tmp_path)
+    monitor_env = tmp_path / "monitor.env"
+    monitor_env.write_text(
+        'MONITOR_TARGETS_JSON=\'[{"area": "TI", "url": "https://exemplo.blog",'
+        ' "pci_mcp": true, "pci_mcp_cargos": ["analista de sistemas"],'
+        ' "filtro_salarial": "ativo", "corte_fora_sul": 10000, "resumo_filtrados": "semanal"}]\'\n',
+        encoding="utf-8",
+    )
+    codigo, saida = _rodar(tmp_path, env_extra={"MONITOR_ENV_FILE": _caminho_bash(monitor_env)})
+    assert codigo == 0
+    assert "filtro_salarial: ativo" in saida
+    assert "corte_fora_sul: 10000" in saida
+    assert "resumo_filtrados: semanal" in saida
+
+
+def test_area_sem_as_chaves_novas_mostra_os_padroes_da_spec(tmp_path):
+    _criar_logs(tmp_path)
+    monitor_env = tmp_path / "monitor.env"
+    monitor_env.write_text(
+        'MONITOR_TARGETS_JSON=\'[{"area": "EDUCACAO", "url": "https://exemplo.blog/edu"}]\'\n',
+        encoding="utf-8",
+    )
+    codigo, saida = _rodar(tmp_path, env_extra={"MONITOR_ENV_FILE": _caminho_bash(monitor_env)})
+    assert codigo == 0
+    assert "porta pci_mcp: desligada" in saida
+    assert "filtro_salarial: desligado" in saida
+    assert "corte_fora_sul: 0" in saida
+    assert "resumo_filtrados: nunca" in saida
+
+
+def test_config_quebrada_degrada_e_o_script_sai_com_zero(tmp_path):
+    _criar_logs(tmp_path)
+    monitor_env = tmp_path / "monitor.env"
+    monitor_env.write_text("MONITOR_TARGETS_JSON=[{quebrado\n", encoding="utf-8")
+    codigo, saida = _rodar(tmp_path, env_extra={"MONITOR_ENV_FILE": _caminho_bash(monitor_env)})
+    assert codigo == 0
+    assert "== Config efetiva ==" in saida
+    assert "invalido" in saida
+
+
+def test_a_saida_nova_nao_traz_segredo(tmp_path):
+    _criar_logs(tmp_path)
+    monitor_env = tmp_path / "monitor.env"
+    monitor_env.write_text(
+        "TELEGRAM_TOKEN=123456:SECRETO_TESTE\n"
+        "ZAI_API_KEY=sk-segredo-fake\n"
+        'MONITOR_TARGETS_JSON=\'[{"area": "TI", "url": "https://exemplo.blog",'
+        ' "token": "999888:OUTRO_SEGREDO", "chat_ids": ["777666555"],'
+        ' "pci_mcp": true, "pci_mcp_cargos": ["ti"],'
+        ' "filtro_salarial": "ativo", "corte_fora_sul": 10000, "resumo_filtrados": "semanal"}]\'\n',
+        encoding="utf-8",
+    )
+    codigo, saida = _rodar(tmp_path, env_extra={"MONITOR_ENV_FILE": _caminho_bash(monitor_env)})
+    assert codigo == 0
+    assert "porta pci_mcp: ligada (1 termo(s))" in saida
+    assert "filtro_salarial: ativo" in saida
+    assert "123456" not in saida
+    assert "SECRETO_TESTE" not in saida
+    assert "sk-segredo-fake" not in saida
+    assert "999888" not in saida
+    assert "OUTRO_SEGREDO" not in saida
+    assert "777666555" not in saida
