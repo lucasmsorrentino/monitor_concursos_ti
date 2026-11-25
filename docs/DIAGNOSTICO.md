@@ -80,13 +80,17 @@ As linhas do projeto no `crontab` (entrada horária e `@reboot`) e se há proces
 
 ### 8. Config efetiva
 
-Áreas configuradas e portas ligadas em cada uma (`gran` sempre ligada pela URL; `pci_cargos` quando há
-slugs; `pci_nacional` quando a flag está ligada), lidas do `MONITOR_TARGETS_JSON` do ambiente de produção
-com token e `chat_id` substituídos; na sequência, os **nomes** das chaves encontradas no `.env` local e no
-arquivo de segredos.
+Áreas configuradas, portas ligadas e parâmetros de filtragem em cada uma (`gran` ligada pela URL; `pci_cargos`
+quando há `pci_slugs`, com contagem de slugs; `pci_nacional` quando a flag está ligada; `pci_mcp` quando a flag
+está ligada, com a contagem de termos de `pci_mcp_cargos`; além de `filtro_salarial` com padrão `"desligado"`
+[`desligado` ou `ativo`], `corte_fora_sul` com padrão `0` e `resumo_filtrados` com padrão `"nunca"` [`nunca` ou
+`semanal`]), lidos do `MONITOR_TARGETS_JSON` do ambiente de produção com `token` e `chat_ids` substituídos
+por `<omitido>`; na sequência, os **nomes** das chaves encontradas no `.env` local e no arquivo de segredos.
 
 - **Sinal de problema**: área esperada ausente; porta esperada desligada (ex.: `pci_nacional: desligada`
-  explica estatal federal não aparecer); `MONITOR_TARGETS_JSON` ausente — a produção está no modo legado
+  explica estatal federal não aparecer; `pci_mcp: desligada` ou com `0 termo(s)` explica busca MCP não rodar);
+  `filtro_salarial`, `corte_fora_sul` ou `resumo_filtrados` em desacordo com o esperado (ex.: valor inválido de
+  `filtro_salarial` caindo em `desligado`); `MONITOR_TARGETS_JSON` ausente — a produção está no modo legado
   de URL única.
 
 ## Dica de leitura
