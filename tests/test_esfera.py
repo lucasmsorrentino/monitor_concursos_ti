@@ -288,3 +288,35 @@ def test_esfera_de_estadual_padroes_do_aceite(nome):
 )
 def test_esfera_de_conselho_pela_sigla(nome):
     assert esfera_de(nome) == "conselho_profissional"
+
+
+# Travas de isolamento: um nome por caso, escolhido para que SO o padrao sob
+# prova feche a resposta. Se o padrao sumir da lista fechada, ou se a ordem
+# das checagens mudar, a resposta muda e o teste quebra. Os nomes sao reais;
+# os quatro casos sao os que a bateria de mutacao apontou como sobreviventes.
+def test_federal_e_distrital_nao_se_confundem():
+    # "Tribunal Regional Eleitoral" (federal) e "do Distrito Federal"
+    # (distrital) no mesmo nome: com a precedencia declarada, federal decide
+    # primeiro; com as checagens invertidas, o nome viraria distrital.
+    nome = "TRE-DF - Tribunal Regional Eleitoral do Distrito Federal - DF"
+    assert esfera_de(nome) == "federal"
+
+
+def test_transpetro_e_federal():
+    # Nome real do orgao, sem "Petrobras" no mesmo nome: so o termo proprio
+    # da lista fecha o casamento.
+    assert esfera_de("Transpetro") == "federal"
+
+
+def test_universidade_federal_sem_fundacao_e_federal():
+    # "Universidade Federal" sem "Fundacao": sem o termo proprio da expressao,
+    # nada mais na lista casa este nome.
+    assert esfera_de("UFPR - Universidade Federal do Parana - PR") == "federal"
+
+
+def test_orgao_fora_da_lista_fechada_devolve_none():
+    # Nome real do item 296537 da fixture do MCP do PCI: "Companhia Ambiental
+    # do Estado" nao e o padrao contiguo "companhia do estado". A lista
+    # fechada nao reconhece e o fail-open devolve None: quem decide e a
+    # elegibilidade.
+    assert esfera_de("CETESB - Companhia Ambiental do Estado de São Paulo - SP") is None
