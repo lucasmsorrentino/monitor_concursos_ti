@@ -142,6 +142,23 @@ class TestMapeamentoDoItem:
         # "Prefeitura de Italva - RJ abre concurso publico ..." -> edital_publicado
         assert item_por_id(itens, "296654")["fase"] == "edital_publicado"
 
+    def test_titulo_que_nao_infere_edital_publicado_usa_em_breve(self, mocker):
+        """datas.em_breve decide sozinha quando o titulo nao infere fase nenhuma."""
+        # Titulo real do item 296235 da fixture tecnico ("suspende concurso"):
+        # nenhuma pista de fase casa nele. Montado sobre o item 295546, cujas
+        # datas reais carregam em_breve sem aberto, a fase so sai do sub-ramo
+        # datas.em_breve; sem ele, o fallback do titulo devolveria None.
+        payload = payload_de("tools_call_analista_de_sistemas.json")
+        santa_luzia = next(i for i in payload["data"] if i["id"] == 295546)
+        santa_luzia["noticia"]["titulo"] = (
+            "Prefeitura de São Julião - PI suspende concurso público"
+        )
+        dublar_post(mocker, [envelope_de(payload)])
+
+        itens = PciMcpScraper(["analista de sistemas"]).capturar_concursos()
+
+        assert item_por_id(itens, "295546")["fase"] == "edital_publicado"
+
     def test_data_fim_vem_de_datas_fim(self, mocker):
         """data_fim_inscricao e datas.fim, ja ISO, sem reparse."""
         dublar_post(mocker, [corpo_de("tools_call_analista_de_sistemas.json")])
@@ -149,6 +166,27 @@ class TestMapeamentoDoItem:
         itens = PciMcpScraper(["analista de sistemas"]).capturar_concursos()
 
         assert item_por_id(itens, "296654")["data_fim_inscricao"] == "2026-12-16"
+
+    @pytest.mark.parametrize(
+        "trato",
+        [
+            pytest.param("vazia", id="fim-vazia"),
+            pytest.param("ausente", id="fim-ausente"),
+        ],
+    )
+    def test_data_fim_vazia_e_ausente_viram_none(self, mocker, trato):
+        """datas.fim que chega vazia ou nem chega sai como None, nao como string."""
+        payload = payload_de("tools_call_analista_de_sistemas.json")
+        italva = next(i for i in payload["data"] if i["id"] == 296654)
+        if trato == "vazia":
+            italva["datas"]["fim"] = ""
+        else:
+            del italva["datas"]["fim"]
+        dublar_post(mocker, [envelope_de(payload)])
+
+        itens = PciMcpScraper(["analista de sistemas"]).capturar_concursos()
+
+        assert item_por_id(itens, "296654")["data_fim_inscricao"] is None
 
 
 class TestUniaoEntreTermos:
@@ -239,6 +277,33 @@ class TestTermoQueFalha:
         itens = PciMcpScraper(["quebrado", "analista de sistemas"], tentativas=1).capturar_concursos()
 
         assert len(itens) == 9
+
+    def test_resposta_fora_do_200(self, mocker, caplog):
+        """HTTP 500 com corpo valido e falha do termo: nao entra item nenhum dele."""
+        # O corpo da resposta de erro carrega o payload real da fixture
+        # tecnico de proposito: sem a checagem do status, os 30 itens dela
+        # seriam lidos como se a chamada tivesse dado certo e a uniao cresce
+        # para 38; com ela, o termo falha em warning e a varredura segue.
+        mocker.patch(
+            "src.scrapers.pci_mcp_scraper.requests.post",
+            side_effect=[
+                RespostaFake(
+                    corpo_de("tools_call_tecnico_em_informatica.json"),
+                    status_code=500,
+                ),
+                RespostaFake(corpo_de("tools_call_analista_de_sistemas.json")),
+            ],
+        )
+
+        with caplog.at_level(logging.WARNING):
+            itens = PciMcpScraper(["quebrado", "analista de sistemas"], tentativas=1).capturar_concursos()
+
+        assert len(itens) == 9
+        assert any(
+            "HTTP 500" in r.message
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+        )
 
     def test_avisa_truncamento_em_200(self, mocker, caplog):
         """meta.total no limite do servidor gera warning de truncamento."""
