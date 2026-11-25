@@ -14,7 +14,7 @@ import json
 import logging
 import re
 import time
-from datetime import date
+from datetime import date, datetime
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -94,6 +94,9 @@ class IntelligenceUnit:
         # Preenchido na primeira falha de login do backend. Dai em diante a
         # rodada nao chama mais a LLM: ver `extrair_dados`.
         self.falha_autenticacao: str | None = None
+        # Cota esgotada: instante em que o provedor diz que ela volta. Atributo
+        # separado do de credencial porque o conserto e outro (esperar).
+        self.cota_volta_em: datetime | None = None
         self._backend = self._detect_backend(model_name)
 
         if self._backend == "claude_cli":
