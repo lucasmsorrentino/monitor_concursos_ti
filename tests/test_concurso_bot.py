@@ -1330,7 +1330,7 @@ class TestFonteMcp:
         """Gran com 0 blocos, pagina de cargo desligada e a porta do MCP com item.
 
         E o deploy da porta do MCP como unica porta do PCI: `pci_slugs` sai,
-        e um dia em que o blog do Gran nao devolve nada nao e varredura cega
+        e um dia em que o blog do Gran nao devolve nada nao e rodada cega
         enquanto o MCP trouxe materia-prima.
         """
         self._montar(mock_deps, base_config, mocker, [self._item(1)])
@@ -2045,7 +2045,7 @@ class TestResumoSemanal:
         assert bot.falhou is False
         assert any("resumo" in r.getMessage().lower() for r in caplog.records
                    if r.levelname == "ERROR")
-        # A varredura fez o trabalho dela: o item do Sul saiu.
+        # A rodada fez o trabalho dela: o item do Sul saiu.
         assert len(mock_deps["notifier"].notificar_concurso.call_args_list) == 1
 
     def test_envio_do_resumo_que_falha_nao_marca_a_rodada_e_tenta_de_novo(

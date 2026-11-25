@@ -804,7 +804,7 @@ class ConcursoBot:
         o primeiro filtrado da semana ainda sair. Em dry-run nada sai e nada
         se grava.
 
-        O resumo e informativo; a varredura e o trabalho. Falha aqui (banco,
+        O resumo e informativo; a rodada e o trabalho. Falha aqui (banco,
         montagem ou Telegram) e logada e nao marca ``falhou``: o catch-up
         horario nao deve repetir a rodada inteira por causa dele. Envio
         recusado tambem nao grava o marcador, e a rodada seguinte tenta de novo.
@@ -860,7 +860,7 @@ class ConcursoBot:
         except Exception as e:
             self.logger.error(
                 f"❌ [{self.area_name}] falha no resumo semanal de filtrados: {e}. "
-                f"A varredura nao e afetada.",
+                f"A rodada nao e afetada.",
                 exc_info=True,
             )
 
