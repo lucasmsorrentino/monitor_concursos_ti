@@ -97,15 +97,32 @@ class TestSchemaCreation:
         assert pk_cols == ["id"]
 
     def test_area_nome_is_unique(self, db_path):
+        """(area, nome) e unico entre linhas SEM pci_id; o pci_id separa editais.
+
+        Ate a SPEC-003 a unicidade era o UNIQUE(area, nome) de tabela, que
+        impedia dois editais do mesmo orgao. Agora e o indice unico
+        (area, nome, COALESCE(pci_id, '')): o nome repetido sem pci_id continua
+        barrado, e dois pci_id distintos com o mesmo nome coexistem.
+        """
         DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
 
         conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='editais'")
-        schema_sql = cursor.fetchone()[0]
-        conn.close()
-
-        assert "UNIQUE(area, nome)" in schema_sql or "UNIQUE (area, nome)" in schema_sql
+        try:
+            conn.execute(
+                "INSERT INTO editais (area, nome, status, pci_id) VALUES ('TI', 'IFSP', 'a', '296044')"
+            )
+            conn.execute(
+                "INSERT INTO editais (area, nome, status, pci_id) VALUES ('TI', 'IFSP', 'b', '296538')"
+            )
+            conn.execute("INSERT INTO editais (area, nome, status) VALUES ('TI', 'TRF1', 'a')")
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("INSERT INTO editais (area, nome, status) VALUES ('TI', 'TRF1', 'b')")
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO editais (area, nome, status, pci_id) VALUES ('TI', 'IFSP', 'c', '296044')"
+                )
+        finally:
+            conn.close()
 
 
 class TestCrud:
@@ -599,3 +616,313 @@ class TestConnectionLifecycle:
         nested = tmp_path / "nested" / "data" / "x.db"
         DatabaseManager(area="TI", db_path=str(nested)).fechar_conexao()
         assert nested.exists()
+
+
+# ---------------------------------------------------------------------------
+# Identidade do concurso: o pci_id que discorda vence o nome (SPEC-003, 3.1)
+# ---------------------------------------------------------------------------
+#
+# Oraculo: os dois editais reais do IFSP que dividiam uma linha so em
+# 25/11/2026. O 296044 (professor substituto) esta em
+# docs/CONTABILIDADE-POS-DEPLOY.md; o 296538 (tecnico-administrativo, prazo
+# 2027-01-04) esta na fixture tests/fixtures/pci_mcp/tools_call_tecnico_em_
+# informatica.json. O prazo do 296044 foi escrito a mao: o que importa e que
+# os dois prazos sao distintos.
+
+IFSP_NOME = "IFSP - Instituto Federal de Educação, Ciência e Tecnologia de São Paulo - SP"
+IFSP_NOME_SEM_UF = "IFSP - Instituto Federal de Educação, Ciência e Tecnologia de São Paulo"
+
+IFSP_SUBSTITUTO_PCI = "296044"
+IFSP_SUBSTITUTO_LINK = (
+    "https://www.pciconcursos.com.br/noticias/"
+    "ifsp-sp-abre-processo-seletivo-para-professor-substituto-com-salarios-de-ate-8340"
+)
+IFSP_SUBSTITUTO_PRAZO = "2026-12-05"
+
+IFSP_TECNICO_PCI = "296538"
+IFSP_TECNICO_LINK = (
+    "https://www.pciconcursos.com.br/noticias/"
+    "ifsp-abre-concurso-publico-para-cargos-tecnico-administrativos"
+)
+IFSP_TECNICO_PRAZO = "2027-01-04"
+
+URL_INDICE_PCI = "https://mcp.pciconcursos.com.br/mcp"
+
+
+def _gravar_substituto(db, nome=IFSP_NOME, link=IFSP_SUBSTITUTO_LINK):
+    return db.atualizar_concurso(
+        nome, "Professor substituto", link, url_indice=URL_INDICE_PCI,
+        data_fim_inscricao=IFSP_SUBSTITUTO_PRAZO, fase="inscricoes_abertas",
+        fonte="pci_mcp", pci_id=IFSP_SUBSTITUTO_PCI,
+    )
+
+
+def _gravar_tecnico(db, nome=IFSP_NOME, link=IFSP_TECNICO_LINK):
+    return db.atualizar_concurso(
+        nome, "Tecnico-administrativo", link, url_indice=URL_INDICE_PCI,
+        data_fim_inscricao=IFSP_TECNICO_PRAZO, fase="inscricoes_abertas",
+        fonte="pci_mcp", pci_id=IFSP_TECNICO_PCI,
+    )
+
+
+class TestIdentidadePeloPciId:
+    """R-80 a R-83: item com pci_id nao casa com linha de outro pci_id."""
+
+    def test_pci_id_diferente_nao_casa_por_nome(self, db):
+        _gravar_substituto(db, link="")
+
+        assert db.buscar_registro(IFSP_NOME, pci_id=IFSP_TECNICO_PCI) is None
+
+    def test_pci_id_diferente_nao_casa_por_link(self, db):
+        _gravar_substituto(db, link=IFSP_SUBSTITUTO_LINK)
+
+        assert db.buscar_registro(
+            IFSP_NOME, link=IFSP_SUBSTITUTO_LINK, url_indice=URL_INDICE_PCI,
+            pci_id=IFSP_TECNICO_PCI,
+        ) is None
+
+    def test_pci_id_diferente_nao_casa_por_entidade(self, db):
+        # Sem o " - SP" o nome nao casa por (area, nome), so por entidade.
+        _gravar_substituto(db, link="")
+
+        assert db.buscar_registro(IFSP_NOME_SEM_UF, pci_id=IFSP_TECNICO_PCI) is None
+
+    def test_pci_id_casa_com_linha_sem_pci_id_e_rechaveia(self, db):
+        """R-81, ADR-0001: linha legada sem pci_id e rechaveada, nao duplicada."""
+        id_legado = db.atualizar_concurso(
+            IFSP_NOME, "legado das portas de HTML", IFSP_TECNICO_LINK,
+            url_indice=URL_INDICE_PCI, fonte="pci",
+        )
+
+        id_mcp = _gravar_tecnico(db, link="")
+
+        assert id_mcp == id_legado
+        registro = db.buscar_registro("nome qualquer", pci_id=IFSP_TECNICO_PCI)
+        assert registro["id"] == id_legado
+        assert registro["pci_id"] == IFSP_TECNICO_PCI
+
+    def test_item_sem_pci_id_mantem_a_ordem_de_hoje(self, db):
+        """R-82: Gran e portas de HTML casam por link, nome e entidade como antes."""
+        id_ = _gravar_substituto(db)
+
+        por_link = db.buscar_registro(
+            "Concurso IFSP", link=IFSP_SUBSTITUTO_LINK, url_indice=URL_INDICE_PCI
+        )
+        por_nome = db.buscar_registro(IFSP_NOME.upper())
+        por_entidade = db.buscar_registro(IFSP_NOME_SEM_UF)
+
+        assert por_link["id"] == por_nome["id"] == por_entidade["id"] == id_
+
+    def test_dois_editais_do_mesmo_orgao_viram_duas_linhas(self, db):
+        """R-83: o segundo edital entra; nao vira INSERT que bate na unicidade."""
+        id_substituto = _gravar_substituto(db)
+        id_tecnico = _gravar_tecnico(db)
+
+        assert id_substituto > 0
+        assert id_tecnico > 0
+        assert id_tecnico != id_substituto
+        substituto = db.buscar_registro(IFSP_NOME, pci_id=IFSP_SUBSTITUTO_PCI)
+        tecnico = db.buscar_registro(IFSP_NOME, pci_id=IFSP_TECNICO_PCI)
+        assert (substituto["id"], substituto["data_fim_inscricao"], substituto["fase"]) == (
+            id_substituto, IFSP_SUBSTITUTO_PRAZO, "inscricoes_abertas"
+        )
+        assert (tecnico["id"], tecnico["data_fim_inscricao"], tecnico["fase"]) == (
+            id_tecnico, IFSP_TECNICO_PRAZO, "inscricoes_abertas"
+        )
+
+    def test_segunda_linha_nao_sobrescreve_o_prazo_da_primeira(self, db):
+        """O caso exato do IFSP em 25/11: varreduras seguidas, prazo estavel.
+
+        Antes, cada varredura gravava o prazo de um edital na linha do outro, e
+        a matriz de decisao via "prazo mudou" duas vezes por varredura.
+        """
+        for _ in range(3):
+            antes_substituto = db.buscar_registro(IFSP_NOME, pci_id=IFSP_SUBSTITUTO_PCI)
+            _gravar_substituto(db)
+            antes_tecnico = db.buscar_registro(IFSP_NOME, pci_id=IFSP_TECNICO_PCI)
+            _gravar_tecnico(db)
+
+            if antes_substituto is not None:
+                assert antes_substituto["data_fim_inscricao"] == IFSP_SUBSTITUTO_PRAZO
+            if antes_tecnico is not None:
+                assert antes_tecnico["data_fim_inscricao"] == IFSP_TECNICO_PRAZO
+
+        assert db.buscar_registro(IFSP_NOME, pci_id=IFSP_SUBSTITUTO_PCI)[
+            "data_fim_inscricao"] == IFSP_SUBSTITUTO_PRAZO
+        assert db.buscar_registro(IFSP_NOME, pci_id=IFSP_TECNICO_PCI)[
+            "data_fim_inscricao"] == IFSP_TECNICO_PRAZO
+
+    def test_renomear_para_o_nome_do_outro_edital_nao_funde_as_linhas(self, db):
+        """Mesmo orgao, dois concursos: o terceiro caso da colisao de nome.
+
+        O tecnico entra com o nome sem UF e depois volta com o nome exato do
+        substituto. Os nomes sao a mesma entidade, mas os pci_id discordam:
+        fundir apagaria a linha (e a estrela) do substituto.
+        """
+        id_substituto = _gravar_substituto(db)
+        db.atualizar_estado_usuario(id_substituto, "seguindo")
+        id_tecnico = _gravar_tecnico(db, nome=IFSP_NOME_SEM_UF)
+
+        assert _gravar_tecnico(db, nome=IFSP_NOME) == id_tecnico
+
+        substituto = db.buscar_registro(IFSP_NOME, pci_id=IFSP_SUBSTITUTO_PCI)
+        assert substituto["id"] == id_substituto
+        assert substituto["estado_usuario"] == "seguindo"
+        assert substituto["data_fim_inscricao"] == IFSP_SUBSTITUTO_PRAZO
+        tecnico = db.buscar_registro(IFSP_NOME, pci_id=IFSP_TECNICO_PCI)
+        assert (tecnico["id"], tecnico["nome"]) == (id_tecnico, IFSP_NOME)
+
+    def test_colisao_irresolvivel_vira_erro_no_log_nao_silencio(self, db, caplog):
+        """R-86: a escrita que bate na unicidade sai no log como erro nomeado.
+
+        Cenario: duas linhas do Gran que so diferem na caixa ("ifsp" e "IFSP",
+        aceitas pela unicidade, que compara byte a byte) e uma terceira, casada
+        pelo link, que tenta assumir o nome "IFSP". A fusao com "ifsp" nao
+        libera o nome "IFSP", e o UPDATE colide.
+        """
+        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
+        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
+        conn = sqlite3.connect(db.db_path)
+        conn.executemany(
+            "INSERT INTO editais (area, nome, status, link, fonte) VALUES ('TI', ?, 'x', ?, 'gran')",
+            [("IFSP - SP", link_gran), ("ifsp", None), ("IFSP", None)],
+        )
+        conn.commit()
+        conn.close()
+
+        with caplog.at_level("ERROR", logger="DatabaseManager"):
+            id_ = db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran)
+
+        assert id_ == 0
+        erros = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert any("colisao de identidade" in m.lower() and "IFSP" in m for m in erros)
+        # Nada se perde: a fusao parcial e desfeita junto com o UPDATE.
+        assert db.contar_por_fonte("gran") == 3
+
+
+# Linhas do banco anterior a abertura da unicidade, escritas a mao com todos os
+# campos preenchidos, inclusive uma estrela do Lucas.
+LINHA_IFSP_ANTIGA = {
+    "id": 1, "area": "TI", "nome": IFSP_NOME,
+    "status": "Professor substituto", "link": IFSP_SUBSTITUTO_LINK,
+    "data_fim_inscricao": IFSP_SUBSTITUTO_PRAZO, "status_hash": "a1b2c3d4e5f60718",
+    "fase": "inscricoes_abertas", "estado_usuario": "seguindo",
+    "fonte": "pci_mcp", "pci_id": IFSP_SUBSTITUTO_PCI,
+    "uf": "SP", "regiao": "SUDESTE", "esfera": "federal",
+    "cargos_total": 12, "salario_teto": 8340.0,
+    "elegibilidade": "elegivel", "motivo_filtro": None,
+    "ultima_atualizacao": "2026-11-25 03:20:11",
+}
+LINHA_TRF1_ANTIGA = {
+    "id": 2, "area": "TI", "nome": "TRF1",
+    "status": "previsto", "link": "https://blog.grancursosonline.com.br/concurso-trf1/",
+    "data_fim_inscricao": None, "status_hash": None,
+    "fase": "previsto", "estado_usuario": "ignorado",
+    "fonte": "gran", "pci_id": None,
+    "uf": None, "regiao": None, "esfera": None,
+    "cargos_total": None, "salario_teto": None,
+    "elegibilidade": None, "motivo_filtro": "abaixo_do_corte",
+    "ultima_atualizacao": "2026-08-08 03:00:00",
+}
+
+
+def _criar_banco_com_unique_area_nome(db_path):
+    """Banco no formato v6, com o UNIQUE(area, nome) de tabela.
+
+    A linha 3 e criada e apagada (como faz uma fusao), entao o proximo id
+    livre e 4: id ja usado em botao do Telegram nao pode voltar.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE editais (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            area TEXT NOT NULL,
+            nome TEXT NOT NULL,
+            status TEXT NOT NULL,
+            link TEXT,
+            data_fim_inscricao TEXT,
+            status_hash TEXT,
+            fase TEXT,
+            estado_usuario TEXT NOT NULL DEFAULT 'ativo',
+            fonte TEXT,
+            pci_id TEXT,
+            uf TEXT,
+            regiao TEXT,
+            esfera TEXT,
+            cargos_total INTEGER,
+            salario_teto REAL,
+            elegibilidade TEXT,
+            motivo_filtro TEXT,
+            ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(area, nome)
+        )
+        """
+    )
+    for linha in (LINHA_IFSP_ANTIGA, LINHA_TRF1_ANTIGA):
+        colunas = ", ".join(linha)
+        marcas = ", ".join("?" for _ in linha)
+        conn.execute(f"INSERT INTO editais ({colunas}) VALUES ({marcas})", tuple(linha.values()))
+    conn.execute(
+        "INSERT INTO editais (id, area, nome, status, fonte) "
+        "VALUES (3, 'TI', 'Prefeitura de Blumenau - SC', 'x', 'pci_mcp')"
+    )
+    conn.execute("DELETE FROM editais WHERE id = 3")
+    conn.commit()
+    conn.close()
+
+
+class TestMigracaoDaUnicidade:
+    """R-84, R-85 e idempotencia da troca de UNIQUE(area, nome) pelo indice."""
+
+    def test_migracao_preserva_id_estado_usuario_e_contagem(self, db_path):
+        _criar_banco_com_unique_area_nome(db_path)
+
+        db = DatabaseManager(area="TI", db_path=db_path)
+        try:
+            assert db.buscar_registro("", pci_id=IFSP_SUBSTITUTO_PCI) == LINHA_IFSP_ANTIGA
+            assert db.buscar_registro("TRF1") == LINHA_TRF1_ANTIGA
+            assert db.contar_por_fonte("pci_mcp") == 1
+            assert db.contar_por_fonte("gran") == 1
+        finally:
+            db.fechar_conexao()
+
+    def test_migracao_abre_a_unicidade_para_o_segundo_edital(self, db_path):
+        """Depois da migracao, o tecnico do IFSP entra como linha propria.
+
+        E entra com id 4: o 3 foi de uma linha apagada e nao volta a circular.
+        """
+        _criar_banco_com_unique_area_nome(db_path)
+
+        db = DatabaseManager(area="TI", db_path=db_path)
+        try:
+            id_tecnico = _gravar_tecnico(db)
+
+            assert id_tecnico == 4
+            assert db.buscar_registro("", pci_id=IFSP_SUBSTITUTO_PCI) == LINHA_IFSP_ANTIGA
+        finally:
+            db.fechar_conexao()
+
+    def test_migracao_rodada_duas_vezes_nao_muda_nada(self, db_path):
+        _criar_banco_com_unique_area_nome(db_path)
+        DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
+        with open(db_path, "rb") as f:
+            depois_da_primeira = f.read()
+
+        DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
+        with open(db_path, "rb") as f:
+            depois_da_segunda = f.read()
+
+        assert depois_da_segunda == depois_da_primeira
+
+    def test_unicidade_continua_barrando_nome_repetido_sem_pci_id(self, db):
+        """O COALESCE do indice: duas linhas do Gran com o mesmo nome nao passam."""
+        assert db.atualizar_concurso("TRF1", "v1", "") > 0
+        conn = sqlite3.connect(db.db_path)
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO editais (area, nome, status) VALUES ('TI', 'TRF1', 'v2')"
+                )
+        finally:
+            conn.close()
