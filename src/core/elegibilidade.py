@@ -30,18 +30,6 @@ from dataclasses import dataclass
 
 SELO_NAO_VERIFICADO = "⚠️ salario nao verificado"
 
-MOTIVOS = frozenset({
-    "seguindo",
-    "filtro_desligado",
-    "nao_verificado",
-    "sul",
-    "federal",
-    "abaixo_do_corte",
-    "municipal_inflado",
-    "sem_evidencia",
-    "acima_do_corte",
-})
-
 
 @dataclass(frozen=True)
 class Candidato:
