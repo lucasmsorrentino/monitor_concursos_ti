@@ -92,6 +92,29 @@ for item in dados:
         print("    porta pci_nacional: ligada")
     else:
         print("    porta pci_nacional: desligada")
+    raw_termos = item.get("pci_mcp_cargos")
+    if isinstance(raw_termos, list):
+        n_termos = len([t for t in raw_termos if str(t).strip()])
+    elif isinstance(raw_termos, str):
+        n_termos = len([t for t in raw_termos.split(",") if t.strip()])
+    else:
+        n_termos = 0
+    if item.get("pci_mcp"):
+        print(f"    porta pci_mcp: ligada ({n_termos} termo(s))")
+    else:
+        print("    porta pci_mcp: desligada")
+    filtro = item.get("filtro_salarial")
+    if not filtro:
+        filtro = "desligado"
+    print(f"    filtro_salarial: {filtro}")
+    corte = item.get("corte_fora_sul")
+    if corte is None or corte == "":
+        corte = 0
+    print(f"    corte_fora_sul: {corte}")
+    resumo = item.get("resumo_filtrados")
+    if not resumo:
+        resumo = "nunca"
+    print(f"    resumo_filtrados: {resumo}")
     if item.get("token"):
         print("    token: <omitido>")
     else:
