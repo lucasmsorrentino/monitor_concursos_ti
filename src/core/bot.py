@@ -621,8 +621,8 @@ class ConcursoBot:
 
         Returns:
             bool: ``True`` se enviou um alerta sobre a varredura inteira
-            (degradada ou cega). Quem chama usa isso para nao empilhar o aviso
-            por fonte em cima do mesmo problema.
+            (LLM sem credencial ou sem cota, degradada ou cega). Quem chama usa
+            isso para nao empilhar o aviso por fonte em cima do mesmo problema.
         """
         # Erro de extracao acima do limite invalida o resultado do dia, mesmo
         # que alguns editais tenham passado. Antes isso saia como sucesso.

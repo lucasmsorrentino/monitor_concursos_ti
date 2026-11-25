@@ -408,6 +408,11 @@ class IntelligenceUnit:
         rodada fazia 3 tentativas para cada um dos ~95 itens que precisam de LLM
         (somando as tres areas), de hora em hora — 6.840 processos `claude` por
         dia, todos fadados a falhar.
+
+        Cota esgotada COM hora de volta encerra as chamadas do mesmo jeito, e
+        deixa o instante em ``cota_volta_em`` (um ``datetime``, sem fuso quando
+        o provedor nao declara um). Sem instante legivel, o erro tem as
+        tentativas normais.
         """
         if self.falha_autenticacao or self.cota_volta_em:
             return {"ignorar": True, "erro": True}
