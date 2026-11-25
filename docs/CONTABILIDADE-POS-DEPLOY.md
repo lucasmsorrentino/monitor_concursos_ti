@@ -4,9 +4,11 @@
 > pré-existentes (e não 30 — o saldo líquido de −30 nas portas antigas escondia +29 inserções novas
 > da porta `pci` em `EDUCACAO` e `SOCIOLOGIA_ARTES`), nenhuma linha foi apagada do banco
 > (`1629 + 71 = 1700`), a rechave de `fonte` em si é **desejada**, mas a rodada expôs um **defeito
-> real de identidade**: **4** linhas pré-existentes (`id`s `563`, `1131`, `1445` e `1587`) sofreram
-> colisão de editais distintos do mesmo órgão sob o mesmo `id` (mais **2** pares duvidosos, `930` e
-> `1113`, para julgamento humano).
+> real de identidade**: **5** linhas sofreram colisão de editais distintos do mesmo órgão sob o
+> mesmo `id` — **4** pré-existentes rechaveadas (`id`s `563`, `1131`, `1445` e `1587`) e **1**
+> linha nova criada na própria rodada (`id=1681`, `Prefeitura de Blumenau - SC`, elegível / Sul,
+> cujo segundo edital foi engolido em silêncio) — além de **2** pares duvidosos (`930` e `1113`)
+> para julgamento humano.
 
 **Condição da medição:** banco de produção `~/monitor_concursos_ti/data/concursos.db` no notebook
 (`100.98.50.59`), aberto somente leitura (`file:...?mode=ro`). Medição original em `2026-11-24
@@ -205,7 +207,7 @@ SELECT id, pci_id, elegibilidade, motivo_filtro, nome, link
 
 ---
 
-## 3. Verificação de casamento — 4 colisões confirmadas e 2 pares duvidosos
+## 3. Verificação de casamento — 5 colisões confirmadas e 2 pares duvidosos
 
 **Nota metodológica:** o banco não guarda histórico de `link` ou `pci_id` anteriores ao `UPDATE`.
 A verificação das 59 linhas cruzou: (a) nome de criação nos logs `run_*.log` contra o nome atual no
@@ -213,25 +215,44 @@ banco; (b) eventos repetidos no mesmo nome na rodada das `12:24` (`run_20261124.
 `--dry-run` (`bot_concursos.log`, `12:20`); e (c) monotonicidade de `pci_id` em relação à data de
 criação da linha (os números de notícia do PCI crescem com o tempo).
 
-Das 59 linhas rechaveadas:
+Das 59 linhas pré-existentes rechaveadas:
 - **53** não têm indício de colisão: mesmo nome na criação e agora (com exceção de `id=1159`, que só
   ganhou espaço em `TRT4` → `TRT 4`, e `id=1446`, que mudou `SAA MS - Subsecretaria de Assuntos
   Administrativos do Ministério da Saúde` → `Ministério da Saúde` mantendo o mesmo link `saa-ms-...`),
   evento único na rodada e `pci_id` compatível com a época de criação (em `id=1231`, Faina-GO, o
   `pci_id=271576` antigo corresponde à notícia de reabertura do concurso).
-- **4** têm **colisão comprovada de editais distintos** sob o mesmo `id`:
-- **2** são **pares duvidosos** para julgamento do Lucas.
+- **4** têm **colisão comprovada de editais distintos** sob o mesmo `id` (`563`, `1131`, `1445`, `1587`).
+- **2** são **pares duvidosos** para julgamento do Lucas (`930`, `1113`).
+
+Além dessas 4 linhas pré-existentes, **1** linha nova criada na própria rodada (`id=1681`,
+`Prefeitura de Blumenau - SC`, elegível / Sul) também sofreu **colisão intrarrodada** logo após a
+inserção, totalizando **5 linhas afetadas** na rodada.
 
 ### 3.1. Colisões comprovadas (editais distintos do mesmo órgão sobrescrevendo o mesmo `id`)
 
 A porta do MCP retornou **106 concursos distintos** (`run_20261124.log:L566`), mas o banco só ficou
-com **101** linhas `pci_mcp`: **5** itens colidiram com linhas já tocadas na própria rodada — 4
-visíveis em nível `INFO` (abaixo) e 1 invisível, porque refresh sem mudança de fase/data grava no
-banco sem deixar linha de evento. A conta fecha por aritmética, medida na seção `L566–761`: `102`
-eventos `INFO` (`56` `[FILTRADO]` + `25` `[NOVO]` + `21` `[TRANSICAO]`), dos quais `4` são
-duplicatas sobre linhas já tocadas (`98` linhas distintas), mais `3` toques que só fizeram refresh
-silencioso (`101` linhas); o `106º` item foi refresh silencioso sobre linha já tocada — a 5ª
-colisão, que o log não mostra.
+com **101** linhas `pci_mcp` (`59` pré-existentes + `42` novas): exatamente **5** itens colidiram
+intrarrodada com linhas já tocadas na própria rodada — **4** visíveis em nível `INFO` em
+`run_20261124.log` sobre 3 linhas pré-existentes (`id=1131` com 1 colisão, `id=1445` com 2 colisões
+e `id=1587` com 1 colisão) e **1** colisão silenciosa sobre a linha nova **`id=1681`** (`Prefeitura
+de Blumenau - SC`), identificada explicitamente no `--dry-run` das `12:20:07`
+(`bot_concursos.log:L3693–3698`).
+
+A conta fecha por aritmética na seção `run_20261124.log:L566–761`: `102` eventos `INFO` (`56`
+`[FILTRADO]` + `25` `[NOVO]` + `21` `[TRANSICAO]`), dos quais `4` são duplicatas sobre linhas já
+tocadas (`98` linhas distintas), mais `3` toques em linhas pré-existentes que só fizeram refresh
+silencioso (`101` linhas distintas no banco), mais o `106º` item — o segundo edital de `Prefeitura
+de Blumenau - SC`, que colidiu por `(area, nome)` sobre a linha recém-inserida `id=1681` em refresh
+silencioso (sem gerar evento `INFO`). No ensaio `--dry-run`, como nada é gravado no banco, os dois
+editais apareceram em sequência como `✨ [NOVO] Prefeitura de Blumenau - SC detectado pela primeira
+vez.` (`bot_concursos.log:L3693–3698`). Isso explica também por que `--dry-run` e rodada real
+empataram em `25 novos`: o `--dry-run` contou `2× Blumenau` e `0× UNESP id=1445` (que entrou como
+`[BACKFILL]` em `bot_concursos.log:L3597`), enquanto a rodada real contou `1× Blumenau` e `1× UNESP
+id=1445` (`[NOVO]` em `run_20261124.log:L658`).
+
+No conjunto das linhas afetadas, **4** colisões ocorreram em linhas pré-existentes rechaveadas
+(`563` — colisão histórica contra linha de set/2026; `1131`, `1445` e `1587` — colisões
+intrarrodada) e **1** colisão intrarrodada ocorreu sobre uma linha nova (`1681`):
 
 | `id` | Nome antes (criação) | Nome e link agora (pós-deploy) | Evidência da colisão |
 | ---: | :--- | :--- | :--- |
@@ -239,6 +260,7 @@ colisão, que o log não mostra.
 | **`1131`** | `IFSP - Instituto Federal de Educação, Ciência e Tecnologia de São Paulo - SP` (`run_20261022.log:L260`, `22/10/2026`) | `IFSP - Instituto Federal de Educação, Ciência e Tecnologia de São Paulo - SP` · `pci_id=296044` · [professor substituto](https://www.pciconcursos.com.br/noticias/ifsp-sp-abre-processo-seletivo-para-professor-substituto-com-salarios-de-ate-8340) | Atingida **2 vezes** na mesma rodada: `L582` (`12:27:38`, `Edital publicado → Inscrições abertas, data_mudou=True`) e `L661` (`12:31:59`, `Inscrições abertas → Inscrições abertas, data_mudou=True`). Dois editais distintos do IFSP disputaram a mesma linha. |
 | **`1445`** | `UNESP - Universidade Estadual Paulista "Júlio de Mesquita Filho" - SP` (`run_20261113.log:L145`, `13/11/2026`; vizinhos `pci_id` `296583..296620`) | `UNESP - Universidade Estadual Paulista "Júlio de Mesquita Filho" - SP` · `pci_id=296735` · [Rio Claro](https://www.pciconcursos.com.br/noticias/unesp-abre-tres-concursos-publicos-para-professores-substitutos-em-rio-claro) | Atingida **3 vezes** na mesma rodada: `L614` (`12:30:00`, `[FILTRADO]`, teto `3511.9`) → `L658–660` (`12:31:58`, **`[NOVO]`**, edital **elegível** que foi notificado porque a linha acabara de ficar `filtrado`!) → `L732` (`12:37:20`, `[FILTRADO]`, teto `3511.9`, sobrescrevendo o edital elegível de volta para `filtrado`!). |
 | **`1587`** | `IFMS - Instituto Federal de Educação, Ciência e Tecnologia de Mato Grosso do Sul - MS` (`run_20261121.log:L125`, `21/11/2026`) | `IFMS - Instituto Federal de Educação, Ciência e Tecnologia de Mato Grosso do Sul - MS` · `pci_id=296823` · [campus Jardim](https://www.pciconcursos.com.br/noticias/ifms-ms-abre-vagas-para-professores-substitutos-no-campus-jardim) | Atingida **2 vezes** na mesma rodada: `L708` (`12:34:59`, `Edital publicado → Inscrições abertas, data_mudou=False`) e `L714` (`12:35:29`, `Inscrições abertas → Inscrições abertas, data_mudou=True`). Dois editais distintos do IFMS disputaram a mesma linha. |
+| **`1681`** | *(nova na rodada)* `Prefeitura de Blumenau - SC` (`run_20261124.log:L756–758`, `24/11/2026 12:38:59`) | `Prefeitura de Blumenau - SC` · `pci_id=296321` · `elegivel` (`sul`) · prazo `2026-12-09` · [área da educação](https://www.pciconcursos.com.br/noticias/prefeitura-de-blumenau-sc-abre-concurso-publico-para-a-area-da-educacao) | O `--dry-run` das `12:20:07` (`bot_concursos.log:L3693–3698`) registra **2** `[NOVO]` consecutivos para `Prefeitura de Blumenau - SC`. Na rodada real (`run_20261124.log:L756–758`), o primeiro inseriu `id=1681` e o segundo colidiu por `(area, nome)` em refresh silencioso sobre `id=1681`, engolindo um segundo edital **elegível da Região Sul** sem notificação. |
 
 ### 3.2. Lista de duvidosos para o Lucas julgar
 
@@ -308,14 +330,17 @@ SELECT elegibilidade, motivo_filtro,
    linhas sem colisão, a troca de `fonte` funcionou exatamente como previsto.
 
 2. **A colisão de editais distintos do mesmo órgão no mesmo `id` é DEFEITO — e pode esconder concurso.**
-   A causa raiz está na regra de identidade em `src/database/manager.py`: a tabela impõe
-   `UNIQUE(area, nome)` (linha 24) e `buscar_registro` (linhas 256–281) cai para `(area, nome)
-   COLLATE NOCASE` mesmo quando o item novo já traz `pci_id` e `link` diferentes dos da linha
-   existente. Para prefeituras com um edital ativo por vez isso não aparece, mas para universidades
-   e institutos federais com vários editais simultâneos (UNESP, IFSP, IFMS — exatamente os órgãos
-   que o corte fora do Sul preserva quando federais), um edital sobrescreve o outro na mesma linha.
-   No caso extremo de `id=1445` (UNESP), um edital **elegível** foi sobrescrito 5 minutos depois
-   por um edital **filtrado** da mesma universidade.
+   A causa raiz está na regra de identidade em `src/database/manager.py`: o DDL da tabela impõe
+   `UNIQUE(area, nome)` (`src/database/manager.py:191`, descrito também na docstring da linha 24) e
+   `buscar_registro` (linhas 256–281) cai para `(area, nome) COLLATE NOCASE` mesmo quando o item
+   novo já traz `pci_id` e `link` diferentes dos da linha existente. Para prefeituras com um edital
+   ativo por vez isso não aparece, mas para universidades, institutos federais e prefeituras com
+   vários editais simultâneos (UNESP, IFSP, IFMS e Prefeitura de Blumenau - SC — incluindo órgãos
+   preservados pelo corte fora do Sul ou dentro da própria Região Sul), um edital sobrescreve o
+   outro na mesma linha. No caso extremo de `id=1445` (UNESP), um edital **elegível** foi
+   sobrescrito 5 minutos depois por um edital **filtrado** da mesma universidade; em `id=1681`
+   (Prefeitura de Blumenau - SC), o segundo edital **elegível da Região Sul** colidiu em refresh
+   silencioso logo após a inserção do primeiro e foi engolido sem notificação.
 
 ### Tickets recomendados para a fase seguinte
 
@@ -328,5 +353,6 @@ SELECT elegibilidade, motivo_filtro,
   - `id=1131` — IFSP (2 editais distintos colidiram na rodada de 24/11)
   - `id=1445` — UNESP (3 editais distintos colidiram na rodada de 24/11; 1 elegível foi sobrescrito por filtrado)
   - `id=1587` — IFMS (2 editais distintos colidiram na rodada de 24/11)
+  - `id=1681` — Prefeitura de Blumenau - SC (elegível / Sul; 2 editais distintos colidiram na rodada de 24/11 logo após a inserção, engolindo o segundo em silêncio)
   - `id=930` — UNIFEI (duvidoso; aguarda julgamento do Lucas)
   - `id=1113` — UERJ (duvidoso; aguarda julgamento do Lucas)
