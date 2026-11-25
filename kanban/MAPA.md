@@ -1,11 +1,11 @@
 # Mapa de trabalho — monitor-concursos
 
-> Gerado por `esteira.py mapa` em 2026-11-24 18:33. Não edite à mão: mude os tickets e gere de novo.
+> Gerado por `esteira.py mapa` em 2026-11-25 01:11. Não edite à mão: mude os tickets e gere de novo.
 
 ## Resumo
 
-- 19 tickets: 7 backlog, 12 integrado
-- Caminho crítico restante (peso 6): T-015 → T-019
+- 19 tickets: 1 backlog, 18 integrado
+- Caminho crítico restante (peso 3): T-015 → T-019
 - Ondas: 5; paralelismo máximo: 14 tickets numa onda
 - Validação: 0 erro(s), 2 aviso(s)
 
@@ -25,12 +25,12 @@ Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependênc
 | T-006 | M- | glm | principal | integrado | Config por area: as oito chaves novas |
 | T-007 | M- | glm | principal | integrado | Texto do resumo semanal de filtrados |
 | T-008 | P+ | glm-flash (high) | principal | integrado | Script de diagnostico da producao |
-| T-013 | M- | glm | principal | backlog | Matar as nove mutacoes que sobreviveram na decisao de elegibilidade |
-| T-014 | M- | glm | principal | backlog | Matar as mutacoes sobreviventes na esfera e na porta do MCP |
-| T-015 ★ | M- | glm | principal | backlog | Estreitar as assercoes frouxas do loader, do bot e do resumo |
-| T-016 | P- | glm-flash | principal | backlog | A porta do MCP e o filtro no retrato do diagnostico |
-| T-017 | M- | glm | principal | backlog | Conferir que a rechave de fonte nao perdeu concurso |
-| T-018 | P- | glm-flash | principal | backlog | ADR do fuso: banco em UTC, log em hora local |
+| T-013 | M- | glm | principal | integrado | Matar as nove mutacoes que sobreviveram na decisao de elegibilidade |
+| T-014 | M- | glm | principal | integrado | Matar as mutacoes sobreviventes na esfera e na porta do MCP |
+| T-015 ★ | M- | glm | principal | integrado | Estreitar as assercoes frouxas do loader, do bot e do resumo |
+| T-016 | P- | glm-flash | principal | integrado | A porta do MCP e o filtro no retrato do diagnostico |
+| T-017 | M- | glm | principal | integrado | Conferir que a rechave de fonte nao perdeu concurso |
+| T-018 | P- | glm-flash | principal | integrado | ADR do fuso: banco em UTC, log em hora local |
 
 ### Onda 1 — depois de T-004, T-006, T-015 (2 em paralelo)
 
@@ -114,7 +114,7 @@ graph LR
   T011 --> T012
   T015 --> T019
   classDef integrado fill:#d1fae5,stroke:#059669
-  class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011,T012 integrado
+  class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011,T012,T013,T014,T015,T016,T017,T018 integrado
   classDef critico stroke-width:3px
   class T015,T019 critico
 ```

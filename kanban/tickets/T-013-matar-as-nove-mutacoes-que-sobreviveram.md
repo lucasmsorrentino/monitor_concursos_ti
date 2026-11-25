@@ -3,14 +3,23 @@ id: T-013
 titulo: Matar as nove mutacoes que sobreviveram na decisao de elegibilidade
 tipo: codigo
 nivel: M-
-status: backlog
+status: integrado
 repo: principal
-spec: [SPEC-001, R-01, R-02]
+spec: [SPEC-001]
 depende_de: []
 toca: [src/core/elegibilidade.py, tests/test_elegibilidade.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-25T01:08-03:00
+branch: t/T-013-matar-as-nove-mutacoes-que-sobreviveram
+executor: script
+executor_impl: agy-neon
+corpo_lancado: 73cd1be8ba73
+fora_do_toca: []
+ponta: aa3f48ec9e03474939f28f8815991f36a910c654
+executor_rev: glm-go
+executor_int: script
 ---
 # T-013 · Matar as nove mutacoes que sobreviveram na decisao de elegibilidade
 
@@ -111,3 +120,12 @@ Testes, um por mutacao do aceite (nomes sugeridos, o implementador pode melhorar
   com o aceite, pare e volte com `BLOQUEADO`.
 - O caso M4 (federal do Sul) merece atencao: nao e borda inventada. UFPR, UFSC, IFPR, IFSC e UTFPR sao
   federais **e** do Sul, e aparecem no PCI toda semana. O motivo gravado muda o que o resumo semanal diz.
+
+## Histórico
+- 2026-11-24 23:43 backlog → pronto · liberado: OK do Lucas no chat, 24/11/2026: libera a onda 0
+- 2026-11-24 23:46 pronto → fazendo · implementador · agy-neon M- medium
+- 2026-11-24 23:53 fazendo → entregue · implementador: ENTREGUE · relatório T-013-implementador-1.md · 7 min
+- 2026-11-25 00:07 entregue → revisando · revisor · glm-go M+ high
+- 2026-11-25 00:13 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-013-revisor-1.md · 7 min
+- 2026-11-25 01:07 aprovado → integrando · integrador · script
+- 2026-11-25 01:08 integrando → integrado · integrador: INTEGRADO · relatório T-013-integrador-1.md · 1 min

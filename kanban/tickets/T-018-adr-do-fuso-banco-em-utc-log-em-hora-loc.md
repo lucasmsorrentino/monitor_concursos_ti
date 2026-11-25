@@ -3,7 +3,7 @@ id: T-018
 titulo: ADR do fuso: banco em UTC, log em hora local
 tipo: docs
 nivel: P-
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-001, R-20, R-22]
 depende_de: []
@@ -11,6 +11,15 @@ toca: [docs/adr/0004-fuso-do-banco-e-do-log.md]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-25T01:09-03:00
+branch: t/T-018-adr-do-fuso-banco-em-utc-log-em-hora-loc
+executor: script
+executor_impl: agy-hydrogen
+corpo_lancado: 1583ce1e6a57
+fora_do_toca: []
+ponta: f839804a6b258d9cabf19a23267206f7a46a863b
+executor_rev: glm-go
+executor_int: script
 ---
 # T-018 · ADR do fuso: banco em UTC, log em hora local
 
@@ -73,3 +82,12 @@ Verificacao, em vez de teste:
 - Essa e a saida mais barata para o achado: a alternativa seria um ticket de conserto que mexe em data em
   producao, e nao ha sintoma que justifique isso. Escrever a decisao impede a redescoberta, que foi o
   custo real.
+
+## Histórico
+- 2026-11-24 23:43 backlog → pronto · liberado: OK do Lucas no chat, 24/11/2026: libera a onda 0
+- 2026-11-24 23:58 pronto → fazendo · implementador · agy-hydrogen P- medium
+- 2026-11-25 00:01 fazendo → entregue · implementador: ENTREGUE · relatório T-018-implementador-1.md · 4 min
+- 2026-11-25 00:22 entregue → revisando · revisor · glm-go M-
+- 2026-11-25 00:28 revisando → aprovado · revisor: APROVADO · relatório T-018-revisor-1.md · 7 min
+- 2026-11-25 01:09 aprovado → integrando · integrador · script
+- 2026-11-25 01:09 integrando → integrado · integrador: INTEGRADO · relatório T-018-integrador-1.md · 0 min

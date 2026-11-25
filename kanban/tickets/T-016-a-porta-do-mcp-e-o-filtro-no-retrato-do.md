@@ -3,7 +3,7 @@ id: T-016
 titulo: A porta do MCP e o filtro no retrato do diagnostico
 tipo: codigo
 nivel: P-
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-001]
 depende_de: []
@@ -11,6 +11,15 @@ toca: [scripts/diagnostico_producao.sh, tests/test_diagnostico_producao.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-25T01:09-03:00
+branch: t/T-016-a-porta-do-mcp-e-o-filtro-no-retrato-do
+executor: script
+executor_impl: agy-hydrogen
+corpo_lancado: 1c22a8f57a83
+fora_do_toca: []
+ponta: e3978cb718af35cf8426c569a0aed85d9bf674c9
+executor_rev: glm-go
+executor_int: script
 ---
 # T-016 · A porta do MCP e o filtro no retrato do diagnostico
 
@@ -74,3 +83,12 @@ Testes que nascem vermelhos em `tests/test_diagnostico_producao.py`:
 - O script exporta `LC_ALL=C` de proposito, para o `grep` e o `sed` tratarem byte e nao caractere. Nao
   mexa nisso: foi o que fez a saida ficar igual em qualquer Debian.
 - Esse bloco e ancestral da sonda da SPEC-002. Melhorar o retrato agora e barato e a fase seguinte herda.
+
+## Histórico
+- 2026-11-24 23:43 backlog → pronto · liberado: OK do Lucas no chat, 24/11/2026: libera a onda 0
+- 2026-11-24 23:53 pronto → fazendo · implementador · agy-hydrogen P- medium
+- 2026-11-24 23:58 fazendo → entregue · implementador: ENTREGUE · relatório T-016-implementador-1.md · 5 min
+- 2026-11-25 00:13 entregue → revisando · revisor · glm-go M-
+- 2026-11-25 00:22 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-016-revisor-1.md · 10 min
+- 2026-11-25 01:08 aprovado → integrando · integrador · script
+- 2026-11-25 01:09 integrando → integrado · integrador: INTEGRADO · relatório T-016-integrador-1.md · 1 min

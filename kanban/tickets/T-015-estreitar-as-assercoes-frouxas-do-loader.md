@@ -3,7 +3,7 @@ id: T-015
 titulo: Estreitar as assercoes frouxas do loader, do bot e do resumo
 tipo: codigo
 nivel: M-
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-001, R-14, R-20]
 depende_de: []
@@ -11,6 +11,15 @@ toca: [src/core/bot.py, tests/test_config_loader.py, tests/test_concurso_bot.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-25T01:07-03:00
+branch: t/T-015-estreitar-as-assercoes-frouxas-do-loader
+executor: script
+executor_impl: agy-neon
+corpo_lancado: ece32ea140d3
+fora_do_toca: []
+ponta: 82db274a2de6e93e55997a739d597cb4999a83d3
+executor_rev: glm-go
+executor_int: script
 ---
 # T-015 · Estreitar as assercoes frouxas do loader, do bot e do resumo
 
@@ -127,3 +136,12 @@ A troca de `varredura` por `rodada` nao tem teste proprio: e texto, e a conferen
   relatorio, com a mutacao de cada um ao lado. Revisor: confira a tabela, nao procure o vermelho.
 - **Nao afrouxe nem apague teste que ja existe** para fazer o seu passar. Se um teste antigo conflitar
   com o aceite, pare e volte com `BLOQUEADO`.
+
+## Histórico
+- 2026-11-24 23:43 backlog → pronto · liberado: OK do Lucas no chat, 24/11/2026: libera a onda 0
+- 2026-11-24 23:46 pronto → fazendo · implementador · agy-neon M- medium
+- 2026-11-24 23:54 fazendo → entregue · implementador: ENTREGUE · relatório T-015-implementador-1.md · 9 min
+- 2026-11-24 23:58 entregue → revisando · revisor · glm-go M+ high
+- 2026-11-25 00:07 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-015-revisor-1.md · 10 min
+- 2026-11-25 01:06 aprovado → integrando · integrador · script
+- 2026-11-25 01:07 integrando → integrado · integrador: INTEGRADO · relatório T-015-integrador-1.md · 1 min

@@ -59,6 +59,30 @@
       "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
       "resultado": "539 passed in 41.46s",
       "lint": "não configurado"
+    },
+    "97b7ed1388200043a19a1d6977d97b957324b410": {
+      "quando": "2026-11-25T01:07-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "545 passed in 40.76s",
+      "lint": "não configurado"
+    },
+    "085fa0823581096c20af2d33191d50d85a249ead": {
+      "quando": "2026-11-25T01:08-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "556 passed in 40.12s",
+      "lint": "não configurado"
+    },
+    "f2bb9e8bdd72d80dd6a09a025859cf0b43ed3cc0": {
+      "quando": "2026-11-25T01:08-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "564 passed in 39.81s",
+      "lint": "não configurado"
+    },
+    "02a14c0255eb626b88a417fe542c0ad4684b83f6": {
+      "quando": "2026-11-25T01:09-03:00",
+      "teste": "\"C:/Users/Lucas/Documents/automation/monitor_concursos/.venv/Scripts/python.exe\" -m pytest -q",
+      "resultado": "569 passed in 50.77s",
+      "lint": "não configurado"
     }
   }
 }

@@ -3,14 +3,23 @@ id: T-017
 titulo: Conferir que a rechave de fonte nao perdeu concurso
 tipo: spike
 nivel: M-
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-001]
 depende_de: []
 toca: [docs/CONTABILIDADE-POS-DEPLOY.md]
 recursos: []
 afinidade:
-retornos: 0
+retornos: 1
+atualizado: 2026-11-25T01:09-03:00
+branch: t/T-017-conferir-que-a-rechave-de-fonte-nao-perd
+executor: script
+executor_impl: agy-neon
+corpo_lancado: ec05e442cb94
+fora_do_toca: []
+ponta: 0f3e7145ebe447e498db2c611cea857725106c13
+executor_rev: glm-go
+executor_int: script
 ---
 # T-017 · Conferir que a rechave de fonte nao perdeu concurso
 
@@ -84,3 +93,18 @@ banco por consulta, mais a conta de 1629 para 1700.
   20, e o `run_daily.sh` tem `flock`, mas o seu `sqlite3` nao passa por ele.
 - Nao e preciso parar o cron. Se o retrato se mover entre consultas, diga em que momento cada numero foi
   medido: o documento relata, nao precisa congelar o mundo.
+
+## Histórico
+- 2026-11-24 23:43 backlog → pronto · liberado: OK do Lucas no chat, 24/11/2026: libera a onda 0
+- 2026-11-24 23:54 pronto → fazendo · implementador · agy-neon M- medium
+- 2026-11-25 00:05 fazendo → pronto · laço: sem cota em antigravity, espera
+- 2026-11-25 00:28 pronto → fazendo · implementador · glm-go M-
+- 2026-11-25 00:48 fazendo → entregue · implementador: ENTREGUE · relatório T-017-implementador-1.md · 20 min
+- 2026-11-25 00:48 entregue → revisando · revisor · agy-neon M+ high
+- 2026-11-25 00:56 revisando → pronto · revisor: REPROVADO · relatório T-017-revisor-1.md · 8 min
+- 2026-11-25 00:56 pronto → fazendo · implementador · agy-neon M- medium
+- 2026-11-25 01:00 fazendo → entregue · implementador: ENTREGUE · relatório T-017-implementador-2.md · 5 min
+- 2026-11-25 01:00 entregue → revisando · revisor · glm-go M+ high
+- 2026-11-25 01:05 revisando → aprovado · revisor: APROVADO · relatório T-017-revisor-2.md · 5 min
+- 2026-11-25 01:09 aprovado → integrando · integrador · script
+- 2026-11-25 01:09 integrando → integrado · integrador: INTEGRADO · relatório T-017-integrador-1.md · 0 min

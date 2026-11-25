@@ -3,14 +3,23 @@ id: T-014
 titulo: Matar as mutacoes sobreviventes na esfera e na porta do MCP
 tipo: codigo
 nivel: M-
-status: backlog
+status: integrado
 repo: principal
-spec: [SPEC-001, R-07]
+spec: [SPEC-001, R-04]
 depende_de: []
 toca: [tests/test_esfera.py, tests/test_pci_mcp_scraper.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-25T01:08-03:00
+branch: t/T-014-matar-as-mutacoes-sobreviventes-na-esfer
+executor: script
+executor_impl: glm-go
+corpo_lancado: 5d6b19c8a24f
+fora_do_toca: []
+ponta: 105c19efc50a5f2e260e644c6651c71993c769ed
+executor_rev: agy-neon
+executor_int: script
 ---
 # T-014 · Matar as mutacoes sobreviventes na esfera e na porta do MCP
 
@@ -93,3 +102,12 @@ Testes que nascem verdes (ver a nota do arquiteto), um por mutacao:
   relatorio, com a mutacao de cada um ao lado. Revisor: confira a tabela, nao procure o vermelho.
 - **Nao afrouxe nem apague teste que ja existe** para fazer o seu passar. Se um teste antigo conflitar
   com o aceite, pare e volte com `BLOQUEADO`.
+
+## Histórico
+- 2026-11-24 23:43 backlog → pronto · liberado: OK do Lucas no chat, 24/11/2026: libera a onda 0
+- 2026-11-24 23:46 pronto → fazendo · implementador · glm-go M-
+- 2026-11-24 23:58 fazendo → entregue · implementador: ENTREGUE · relatório T-014-implementador-1.md · 13 min
+- 2026-11-25 00:01 entregue → revisando · revisor · agy-neon M+ high
+- 2026-11-25 00:06 revisando → aprovado · revisor: APROVADO · relatório T-014-revisor-1.md · 6 min
+- 2026-11-25 01:08 aprovado → integrando · integrador · script
+- 2026-11-25 01:08 integrando → integrado · integrador: INTEGRADO · relatório T-014-integrador-1.md · 1 min
