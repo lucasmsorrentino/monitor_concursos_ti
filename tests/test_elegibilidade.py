@@ -84,6 +84,18 @@ def test_seguindo_vence_municipal_inflado():
     assert decidir(c, ATIVA) == Decisao(entra=True, motivo="seguindo")
 
 
+def test_estrela_vence_o_filtro_desligado():
+    p = Politica(modo="desligado", corte_fora_sul=10000.0)
+    c = dataclasses.replace(MAIS_FILTRAVEL, seguindo=True)
+    assert decidir(c, p) == Decisao(entra=True, motivo="seguindo")
+
+
+def test_estrela_sem_uf_e_sem_regiao_nao_leva_selo():
+    c = _cand(uf=None, regiao=None, esfera="municipal", teto=2000.0,
+              cargos_total=86, seguindo=True)
+    assert decidir(c, ATIVA) == Decisao(entra=True, motivo="seguindo")
+
+
 # --- regra 1: modo --------------------------------------------------------
 
 def test_modo_desligado_deixa_tudo_entrar():
@@ -103,10 +115,25 @@ def test_modo_invalido_se_comporta_como_desligado(modo):
                                                  motivo="filtro_desligado")
 
 
+def test_filtro_desligado_sem_uf_e_sem_regiao_nao_leva_selo():
+    p = Politica(modo="desligado", corte_fora_sul=10000.0)
+    c = _cand(uf=None, regiao=None, esfera="municipal", teto=2000.0,
+              cargos_total=86)
+    assert decidir(c, p) == Decisao(entra=True, motivo="filtro_desligado")
+
+
 # --- regra 2: uf e regiao desconhecidas -----------------------------------
 
 def test_uf_e_regiao_desconhecidas_entram_com_selo():
     c = _cand(uf=None, regiao=None, esfera="municipal", teto=2000.0,
+              cargos_total=86)
+    assert decidir(c, ATIVA) == Decisao(entra=True, motivo="nao_verificado",
+                                        selo=SELO_NAO_VERIFICADO)
+
+
+@pytest.mark.parametrize("vazio", ["", " ", "\t"])
+def test_uf_e_regiao_em_branco_contam_como_ausentes(vazio):
+    c = _cand(uf=vazio, regiao=vazio, esfera="municipal", teto=2000.0,
               cargos_total=86)
     assert decidir(c, ATIVA) == Decisao(entra=True, motivo="nao_verificado",
                                         selo=SELO_NAO_VERIFICADO)
@@ -167,6 +194,12 @@ def test_nacional_nao_e_sul():
     assert decidir(c, ATIVA) == Decisao(entra=True, motivo="federal")
 
 
+def test_federal_do_sul_sai_como_sul():
+    # Universidade ou instituto federal no Sul (ex.: UFPR, UFSC, IFPR).
+    c = _cand(uf="PR", regiao="SUL", esfera="federal", teto=5000.0)
+    assert decidir(c, ATIVA) == Decisao(entra=True, motivo="sul")
+
+
 # --- regra 4: federal -----------------------------------------------------
 
 def test_federal_entra_mesmo_abaixo_do_corte():
@@ -190,6 +223,14 @@ def test_conselho_profissional_nao_e_federal():
     assert decidir(c, ATIVA) == Decisao(entra=False, motivo="abaixo_do_corte")
 
 
+def test_a_isencao_de_esfera_vem_da_politica():
+    p = dataclasses.replace(ATIVA, esferas_sem_corte=("estadual",))
+    estadual = _cand(uf="MG", regiao="SUDESTE", esfera="estadual", teto=2000.0)
+    federal = _cand(uf="MG", regiao="SUDESTE", esfera="federal", teto=2000.0)
+    assert decidir(estadual, p) == Decisao(entra=True, motivo="federal")
+    assert decidir(federal, p) == Decisao(entra=False, motivo="abaixo_do_corte")
+
+
 # --- regra 5: abaixo do corte ---------------------------------------------
 
 def test_abaixo_do_corte_e_filtrado():
@@ -208,6 +249,19 @@ def test_teto_exatamente_no_corte_entra():
 def test_abaixo_do_corte_vence_municipal_inflado():
     c = _cand(uf="MG", esfera="municipal", teto=9000.0, cargos_total=86)
     assert decidir(c, ATIVA).motivo == "abaixo_do_corte"
+
+
+def test_o_corte_vem_da_politica_nao_de_um_literal():
+    p = dataclasses.replace(ATIVA, corte_fora_sul=3000.0)
+    acima = _cand(uf="MG", regiao="SUDESTE", esfera="estadual", teto=5000.0)
+    abaixo = _cand(uf="MG", regiao="SUDESTE", esfera="estadual", teto=2500.0)
+    assert decidir(acima, p) == Decisao(entra=True, motivo="acima_do_corte")
+    assert decidir(abaixo, p) == Decisao(entra=False, motivo="abaixo_do_corte")
+
+
+def test_teto_zero_nao_e_teto_ausente():
+    c = _cand(uf="MG", regiao="SUDESTE", esfera="estadual", teto=0.0)
+    assert decidir(c, ATIVA) == Decisao(entra=False, motivo="abaixo_do_corte")
 
 
 # --- regra 6: municipal inflado -------------------------------------------
@@ -255,6 +309,16 @@ def test_teto_desconhecido_em_municipal_inflado_e_filtrado():
 def test_cargos_total_none_nao_infla():
     c = _cand(uf="SP", esfera="municipal", teto=18540.71, cargos_total=None)
     assert decidir(c, ATIVA) == Decisao(entra=True, motivo="acima_do_corte")
+
+
+def test_o_limite_de_cargos_vem_da_politica():
+    p = dataclasses.replace(ATIVA, cargos_total_inflado=3)
+    no_limite = _cand(uf="SP", regiao="SUDESTE", esfera="municipal",
+                      teto=15000.0, cargos_total=3)
+    inflado = _cand(uf="SP", regiao="SUDESTE", esfera="municipal",
+                    teto=15000.0, cargos_total=5)
+    assert decidir(no_limite, p) == Decisao(entra=True, motivo="acima_do_corte")
+    assert decidir(inflado, p) == Decisao(entra=False, motivo="municipal_inflado")
 
 
 # --- regra 7: sem evidencia -----------------------------------------------
