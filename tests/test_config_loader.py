@@ -255,7 +255,7 @@ class TestConfigPorArea:
         monkeypatch.setenv("PCI_MCP_CARGOS", "analista de sistemas, informatica")
         monkeypatch.setenv("FILTRO_SALARIAL", " ativo ")
         monkeypatch.setenv("CORTE_FORA_SUL", "10000.50")
-        monkeypatch.setenv("UFS_SEM_CORTE", "pr, sc,rs")
+        monkeypatch.setenv("UFS_SEM_CORTE", "mg, ba")
         monkeypatch.setenv("ESFERAS_SEM_CORTE", "FEDERAL,Distrital")
         monkeypatch.setenv("CARGOS_TOTAL_INFLADO", "25")
         monkeypatch.setenv("RESUMO_FILTRADOS", "semanal")
@@ -267,7 +267,7 @@ class TestConfigPorArea:
             "pci_mcp_cargos": ["analista de sistemas", "informatica"],
             "filtro_salarial": "ativo",
             "corte_fora_sul": 10000.5,
-            "ufs_sem_corte": ["PR", "SC", "RS"],
+            "ufs_sem_corte": ["MG", "BA"],
             "esferas_sem_corte": ["federal", "distrital"],
             "cargos_total_inflado": 25,
             "resumo_filtrados": "semanal",
@@ -301,10 +301,10 @@ class TestConfigPorArea:
 
     def test_ufs_sem_corte_aceita_csv_e_normaliza_caixa(self, monkeypatch, logger):
         alvos = _carregar_alvos(monkeypatch, logger, [
-            _alvo_minimo(ufs_sem_corte="pr, sc,rs")
+            _alvo_minimo(ufs_sem_corte="mg, ba,sp")
         ])
 
-        assert alvos["TI"]["ufs_sem_corte"] == ["PR", "SC", "RS"]
+        assert alvos["TI"]["ufs_sem_corte"] == ["MG", "BA", "SP"]
 
     def test_ufs_sem_corte_vazia_explicita_e_respeitada(self, monkeypatch, logger):
         alvos = _carregar_alvos(monkeypatch, logger, [
@@ -320,12 +320,19 @@ class TestConfigPorArea:
 
         assert alvos["TI"]["esferas_sem_corte"] == ["federal", "distrital"]
 
-    def test_pci_mcp_cargos_aceita_csv_e_preserva_ordem(self, monkeypatch, logger):
+    def test_esferas_sem_corte_vazia_manda_e_nao_cai_no_padrao(self, monkeypatch, logger):
         alvos = _carregar_alvos(monkeypatch, logger, [
-            _alvo_minimo(pci_mcp_cargos="analista de sistemas, informatica")
+            _alvo_minimo(esferas_sem_corte=[])
         ])
 
-        assert alvos["TI"]["pci_mcp_cargos"] == ["analista de sistemas", "informatica"]
+        assert alvos["TI"]["esferas_sem_corte"] == []
+
+    def test_pci_mcp_cargos_aceita_csv_e_preserva_ordem(self, monkeypatch, logger):
+        alvos = _carregar_alvos(monkeypatch, logger, [
+            _alvo_minimo(pci_mcp_cargos="Analista de Sistemas, informatica")
+        ])
+
+        assert alvos["TI"]["pci_mcp_cargos"] == ["Analista de Sistemas", "informatica"]
 
     def test_uma_area_filtrando_nao_afeta_a_outra(self, monkeypatch, logger):
         alvos = _carregar_alvos(monkeypatch, logger, [
@@ -419,6 +426,21 @@ class TestAvisosDaPortaMcp:
                     pci_mcp_cargos=["informatica"],
                     pci_slugs=["analista-de-sistemas"],
                 ),
+            ])
+
+        assert alvos["COM_SLUGS"]["pci_mcp"] is True
+        assert alvos["COM_SLUGS"]["pci_slugs"] == ["analista-de-sistemas"]
+        avisos = [
+            rec.getMessage()
+            for rec in caplog.records
+            if rec.levelno == logging.WARNING and "duplica" in rec.getMessage()
+        ]
+        assert len(avisos) == 1
+        assert "pci_slugs" in avisos[0]
+
+    def test_pci_mcp_com_nacional_avisa_mas_nao_desliga(self, monkeypatch, logger, caplog):
+        with caplog.at_level(logging.WARNING):
+            alvos = _carregar_alvos(monkeypatch, logger, [
                 _alvo_minimo(
                     area="COM_NACIONAL",
                     pci_mcp=True,
@@ -427,8 +449,6 @@ class TestAvisosDaPortaMcp:
                 ),
             ])
 
-        assert alvos["COM_SLUGS"]["pci_mcp"] is True
-        assert alvos["COM_SLUGS"]["pci_slugs"] == ["analista-de-sistemas"]
         assert alvos["COM_NACIONAL"]["pci_mcp"] is True
         assert alvos["COM_NACIONAL"]["pci_nacional"] is True
         avisos = [
@@ -436,4 +456,5 @@ class TestAvisosDaPortaMcp:
             for rec in caplog.records
             if rec.levelno == logging.WARNING and "duplica" in rec.getMessage()
         ]
-        assert avisos
+        assert len(avisos) == 1
+        assert "pci_nacional" in avisos[0]
