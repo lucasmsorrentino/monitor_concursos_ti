@@ -3,7 +3,7 @@ id: T-025
 titulo: Secao 8 do DIAGNOSTICO.md defasada desde a porta do MCP
 tipo: docs
 nivel: P-
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-001, R-20, R-22]
 depende_de: []
@@ -11,6 +11,15 @@ toca: [docs/DIAGNOSTICO.md]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-25T17:03-03:00
+branch: t/T-025-secao-8-do-diagnostico-md-defasada-desde
+executor: script
+executor_impl: agy-hydrogen
+corpo_lancado: 10e328727774
+fora_do_toca: []
+ponta: c46481b36b7fb53764351f8d6d5fabf64be4517f
+executor_rev: glm-go
+executor_int: script
 ---
 # T-025 · Secao 8 do DIAGNOSTICO.md defasada desde a porta do MCP
 
@@ -46,3 +55,12 @@ padroes da SPEC-001 secao 3.6.
 
 Nasceu de ressalva de revisao, nao de pedido novo. E nao e `docs:` de cortesia: documento que descreve uma
 saida que nao existe mais e **pior** que documento ausente, porque manda o leitor procurar o que nao esta la.
+
+## Histórico
+- 2026-11-25 16:48 backlog → pronto · liberado: Lucas liberou no chat em 25/11/2026
+- 2026-11-25 16:49 pronto → fazendo · implementador · agy-hydrogen P- medium
+- 2026-11-25 16:55 fazendo → entregue · implementador: ENTREGUE · relatório T-025-implementador-1.md · 7 min
+- 2026-11-25 16:56 entregue → revisando · revisor · glm-go M-
+- 2026-11-25 17:03 revisando → aprovado · revisor: APROVADO · relatório T-025-revisor-1.md · 7 min
+- 2026-11-25 17:03 aprovado → integrando · integrador · script
+- 2026-11-25 17:03 integrando → integrado · integrador: INTEGRADO · relatório T-025-integrador-1.md · 0 min

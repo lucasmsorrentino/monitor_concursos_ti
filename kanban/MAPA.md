@@ -1,10 +1,10 @@
 # Mapa de trabalho — monitor-concursos
 
-> Gerado por `esteira.py mapa` em 2026-11-25 15:12. Não edite à mão: mude os tickets e gere de novo.
+> Gerado por `esteira.py mapa` em 2026-11-25 17:15. Não edite à mão: mude os tickets e gere de novo.
 
 ## Resumo
 
-- 25 tickets: 7 backlog, 18 integrado
+- 25 tickets: 4 backlog, 20 integrado, 1 bloqueado
 - Caminho crítico restante (peso 11): T-020 → T-023
 - Ondas: 5; paralelismo máximo: 17 tickets numa onda
 - Validação: 0 erro(s), 2 aviso(s)
@@ -31,9 +31,9 @@ Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependênc
 | T-016 | P- | glm-flash | principal | integrado | A porta do MCP e o filtro no retrato do diagnostico |
 | T-017 | M- | glm | principal | integrado | Conferir que a rechave de fonte nao perdeu concurso |
 | T-018 | P- | glm-flash | principal | integrado | ADR do fuso: banco em UTC, log em hora local |
-| T-020 ★ | G- | opus (high) | principal | backlog | Identidade do concurso: o pci_id que discorda vence o nome |
-| T-021 | M- | glm | principal | backlog | Cota da LLM com hora de reset nao e falha generica |
-| T-025 | P- | glm-flash | principal | backlog | Secao 8 do DIAGNOSTICO.md defasada desde a porta do MCP |
+| T-020 ★ | G- | opus (high) | principal | bloqueado | Identidade do concurso: o pci_id que discorda vence o nome |
+| T-021 | M- | glm | principal | integrado | Cota da LLM com hora de reset nao e falha generica |
+| T-025 | P- | glm-flash | principal | integrado | Secao 8 do DIAGNOSTICO.md defasada desde a porta do MCP |
 
 ### Onda 1 — depois de T-004, T-006, T-020, T-021 (4 em paralelo)
 
@@ -134,7 +134,9 @@ graph LR
   T020 --> T023
   T021 --> T024
   classDef integrado fill:#d1fae5,stroke:#059669
-  class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011,T012,T013,T014,T015,T016,T017,T018 integrado
+  class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011,T012,T013,T014,T015,T016,T017,T018,T021,T025 integrado
+  classDef bloqueado fill:#fee2e2,stroke:#dc2626
+  class T020 bloqueado
   classDef critico stroke-width:3px
   class T020,T023 critico
 ```
