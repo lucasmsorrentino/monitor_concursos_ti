@@ -4,7 +4,7 @@ Foco no orquestrador — todos os subsistemas (scraper, IA, DB, notifier,
 callback processor) sao substituidos por mocks para verificar o fluxo
 de decisao por bloco.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -1145,11 +1145,13 @@ class TestFonteMcp:
         mock_deps["scraper"].capturar_concursos.return_value = []
 
         bot = ConcursoBot(base_config)
+        bot.executar()
 
         assert bot.mcp_scraper is None
         mcp_cls.assert_not_called()
-        # Nenhuma fonte nova no diagnostico de saude.
+        # Diagnostico de saude rodou na costura e nao inclui a porta desligada.
         fontes = [c.args[1] for c in avaliar.call_args_list]
+        assert "gran" in fontes
         assert "pci_mcp" not in fontes
 
     def test_mcp_ligado_instancia_com_os_termos(
@@ -1363,6 +1365,63 @@ class TestFonteMcp:
         assert sum("TRF1" in c.args[1] for c in cards) == 1
         assert sum("Orgao" in c.args[1] for c in cards) == 2
 
+    def test_contadores_do_mcp_e_do_gran_aparecem_no_resumo_final(
+        self, mock_deps, base_config, mocker, caplog
+    ):
+        """Os acumuladores `novos_cont` e `atualizados_cont` somam Gran e MCP
+        no texto do resumo final de `_mensagem_final`."""
+        self._montar(mock_deps, base_config, mocker, [self._item(1), self._item(2)])
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "TRF1", "status": "edital publicado",
+            "link": "https://example.com/trf1", "data_fim_inscricao": _amanha(),
+            "data_referencia": None, "fase": "edital_publicado",
+        }
+
+        def _buscar(nome, **_kw):
+            if nome == "Orgao 2 - MG":
+                return {
+                    "id": 10, "fase": "banca_definida", "estado_usuario": "ativo",
+                    "data_fim_inscricao": _amanha(), "nome": nome,
+                }
+            return None
+
+        mock_deps["db"].buscar_registro.side_effect = _buscar
+
+        with caplog.at_level("INFO"):
+            ConcursoBot(base_config).executar()
+
+        # 1 novo do Gran + 1 novo do MCP = 2 novos; 1 avanco de fase do MCP = 1 atualizacao.
+        logs = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+        assert any("2 novos e 1 atualizações enviadas" in msg for msg in logs)
+
+    def test_validos_do_mcp_e_do_gran_aparecem_no_heartbeat(
+        self, mock_deps, base_config, mocker
+    ):
+        """Sem novidades, o acumulador `validos` soma Gran e MCP no heartbeat."""
+        self._montar(mock_deps, base_config, mocker, [self._item(1), self._item(2)])
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"]
+        mock_deps["ai"].extrair_dados.return_value = {
+            "ignorar": False, "nome": "TRF1", "status": "edital publicado",
+            "link": "https://example.com/trf1", "data_fim_inscricao": _amanha(),
+            "data_referencia": None, "fase": "edital_publicado",
+        }
+
+        def _buscar(nome, **_kw):
+            fase = "edital_publicado" if nome == "TRF1" else "inscricoes_abertas"
+            return {
+                "id": 10, "fase": fase, "estado_usuario": "ativo",
+                "data_fim_inscricao": _amanha(), "nome": nome,
+            }
+
+        mock_deps["db"].buscar_registro.side_effect = _buscar
+
+        ConcursoBot(base_config).executar()
+
+        mock_deps["notifier"].notificar_concurso.assert_not_called()
+        mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+        assert any("Analisei <b>3</b> concursos" in m for m in mensagens)
+
     def test_dedup_entre_mcp_e_gran_pelo_pci_id(
         self, mock_deps, base_config, mocker, tmp_path
     ):
@@ -1572,6 +1631,10 @@ SEM_LOCAL = dict(         # uf e regiao nulas -> regra 2, nao_verificado, com se
 TJMG = dict(              # estadual, MG, teto > corte, poucos cargos -> regra 8
     nome="Tribunal de Justiça de Minas Gerais - MG", uf="MG", regiao="SUDESTE",
     vagas_salario="30 vagas até R$ 15.000,00", cargos_total=3, pci_id="296500",
+)
+SEM_TETO = dict(          # estadual, MG, teto desconhecido -> regra 7, sem_evidencia, com selo
+    nome="Tribunal de Justiça de Minas Gerais - MG", uf="MG", regiao="SUDESTE",
+    vagas_salario="30 vagas - salário a combinar", cargos_total=3, pci_id="296501",
 )
 
 
@@ -1797,6 +1860,19 @@ class TestFiltroSalarial:
         assert "⚠️ " + SELO in cards[0]
         assert self._gravacao(mock_deps)["motivo_filtro"] == "nao_verificado"
 
+    def test_selo_sem_evidencia_aparece_no_card(self, mock_deps, base_config, mocker):
+        self._montar(mock_deps, base_config, mocker, [_item_mcp(**SEM_TETO)])
+
+        ConcursoBot(base_config).executar()
+
+        cards = self._cards(mock_deps)
+        assert len(cards) == 1
+        assert "⚠️ " + SELO in cards[0]
+        gravado = self._gravacao(mock_deps)
+        assert gravado["elegibilidade"] == "elegivel"
+        assert gravado["motivo_filtro"] == "sem_evidencia"
+        assert gravado["salario_teto"] is None
+
     def test_sem_selo_nao_poe_linha_extra(self, mock_deps, base_config, mocker):
         self._montar(mock_deps, base_config, mocker, [_item_mcp(**TJMG)])
 
@@ -1990,3 +2066,23 @@ class TestResumoSemanal:
         mock_deps["notifier"].notificar.side_effect = None
         ConcursoBot(base_config).executar()
         assert len(self._resumos(mock_deps)) == 2   # a recusada e a entregue
+
+    def test_o_resumo_semanal_pede_sete_dias_ao_banco(
+        self, mock_deps, base_config, mocker
+    ):
+        """O argumento `desde` vai em UTC no formato AAAA-MM-DD HH:MM:SS, 7 dias atras."""
+        self._montar(mock_deps, base_config, mocker, [FILTRADO_SANTA_LUZIA])
+        self._hoje(mocker, SEGUNDA)
+
+        class _Agora(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                assert tz == timezone.utc
+                return cls(2026, 11, 23, 14, 30, 45, tzinfo=timezone.utc)
+
+        mocker.patch("src.core.bot.datetime", _Agora)
+
+        ConcursoBot(base_config).executar()
+
+        # 2026-11-23 menos 7 dias = 2026-11-16 (calculado a mao).
+        mock_deps["db"].listar_filtrados.assert_called_once_with("2026-11-16 14:30:45")
