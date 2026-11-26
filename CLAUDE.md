@@ -147,13 +147,13 @@ Config loading logic is in `config/loader.py`.
 
 ## Database
 
-SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, not relative to cwd). Table `editais` (schema v6):
+SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, not relative to cwd). Table `editais` (schema v7):
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | INTEGER PK AUTOINCREMENT | Stable across updates — used in Telegram `callback_data` |
 | `area` | TEXT NOT NULL | Area slug (TI, EDUCACAO, ...) |
-| `nome` | TEXT NOT NULL | `UNIQUE(area, nome)` — LLM name may vary, dedup also falls back to `link` |
+| `nome` | TEXT NOT NULL | Unique per `(area, nome, COALESCE(pci_id, ''))` since v7 (index `idx_editais_identidade`), so two editais of the same órgão coexist when their `pci_id` differ; rows without `pci_id` still cannot repeat a name. LLM name may vary, dedup also falls back to `link` |
 | `status` | TEXT NOT NULL | Raw 2-sentence summary from the extraction chain (display only — NOT used for change detection) |
 | `link` | TEXT | Canonical identity when specific (different from scraper's index URL) |
 | `data_fim_inscricao` | TEXT NULL | ISO `YYYY-MM-DD` or NULL — gates activity + its change triggers notification |
@@ -161,7 +161,7 @@ SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, no
 | `fase` | TEXT NULL | Controlled vocabulary (see "Fase vocabulary") — the change-detection key. NULL = pre-v4 row awaiting silent backfill |
 | `estado_usuario` | TEXT DEFAULT `'ativo'` | `ativo` \| `ignorado` \| `seguindo` — controlled by Telegram inline buttons |
 | `fonte` | TEXT NULL | v5. `gran` \| `pci` \| `pci_nacional` \| `pci_mcp` (MCP items, v6 wave). Pre-v5 rows backfilled to `gran` (the only source that existed). First-load detection counts `pci` only |
-| `pci_id` | TEXT NULL | v5. PCI news id, the strongest dedup key. Indexed on `(area, pci_id)`. Always NULL for `pci_nacional` — that page does not carry the id, so those rows dedup by `link`. MCP items carry it from the server `id` (the same news id), so dedup crosses the door switch without data migration |
+| `pci_id` | TEXT NULL | v5. PCI news id, the strongest dedup key. Indexed on `(area, pci_id)`. Always NULL for `pci_nacional` — that page does not carry the id, so those rows dedup by `link`. MCP items carry it from the server `id` (the same news id), so dedup crosses the door switch without data migration. Empty string counts as NULL everywhere and is written as NULL |
 | `ultima_atualizacao` | TIMESTAMP | Auto-updated on every upsert |
 
 **v6 columns** (the eligibility context, additive with no backfill — SPEC-001 §3.5): `uf`, `regiao`, `esfera`, `cargos_total`, `salario_teto`, `elegibilidade` (`filtrado` \| `elegivel`) and `motivo_filtro`. A pre-v6 row has `elegibilidade` NULL and **counts as eligible**: it was already notified, so it is neither re-notified nor erased. They are written empty (NULL) for items from doors that don't carry `regiao`. `listar_filtrados(desde)` returns the area's `filtrado` rows for the weekly summary.
@@ -173,9 +173,11 @@ SQLite at `data/concursos.db` (path anchored to the repo root via `__file__`, no
 3. `(area, nome)` COLLATE NOCASE — the LLM varies capitalization.
 4. `mesma_entidade(nome_a, nome_b)` (`src/utils/text.py`) — the only step that crosses sources, since Gran and PCI spell the same órgão differently ("Prefeitura de Ponta Grossa - PR" vs "Concurso Prefeitura Ponta Grossa"). It compares only **discriminating** tokens, subtracting generic org types (`TIPOS_ORGAO`), and refuses a match when both names carry a UF and the UFs differ. Without that, "Prefeitura de Ponta Grossa" and "Prefeitura de Ponta Porã" would share `{prefeitura, ponta}` and merge.
 
-When a name collision turns out to be the same órgão, `_fundir` merges the rows instead of leaving both. The user's `estado_usuario` wins by priority (`seguindo` > `ignorado` > `ativo`) from either row — an automatic merge must never discard a manual ⭐.
+**A disagreeing `pci_id` beats the name** ([ADR-0005](docs/adr/0005-identidade-do-concurso.md)): an item with `pci_id` matches steps 2–4 only against a row with NULL `pci_id` (and rekeys it, ADR-0001); a row with a different `pci_id` is another edital of the same órgão, even with the same name. Items without `pci_id` (Gran, reserve HTML doors) keep the order above unchanged.
 
-Auto-migrates v1 (PK `nome`) → v2 (PK `(area, nome)`) → v3 (`id` autoincrement) → v4 (adds `fase`) → v5 (adds `fonte`, `pci_id` and `(area, pci_id)` index) → v6 (adds the seven eligibility columns, `ALTER TABLE ... ADD COLUMN` guarded by `PRAGMA table_info` — additive and idempotent, never `DROP`) on startup; legacy v1 rows are tagged with area `TI`. `atualizar_concurso` uses `COALESCE(?, fase)` so updates without a fase never erase a stored one. Connection opened with `check_same_thread=False`. Manager in `src/database/manager.py`.
+When a name collision turns out to be the same órgão, `_fundir` merges the rows instead of leaving both — **every** row disputing the new name that is the same órgão and not another edital, exact name first; a `pci_id` inherited in one merge blocks the next, so a row never absorbs two editais. A write that still hits the unique index (a row written by another writer between lookup and write) is logged as `COLISAO DE IDENTIDADE`, never swallowed. The user's `estado_usuario` wins by priority (`seguindo` > `ignorado` > `ativo`) from either row — an automatic merge must never discard a manual ⭐.
+
+Auto-migrates v1 (PK `nome`) → v2 (PK `(area, nome)`) → v3 (`id` autoincrement) → v4 (adds `fase`) → v5 (adds `fonte`, `pci_id` and `(area, pci_id)` index) → v6 (adds the seven eligibility columns, `ALTER TABLE ... ADD COLUMN` guarded by `PRAGMA table_info` — additive and idempotent, never `DROP`) → v7 (swaps the table-level `UNIQUE(area, nome)` for the `idx_editais_identidade` index; the **only** migration that rebuilds the table, an owner-approved exception: one transaction, every column and `id` copied, `sqlite_sequence` kept, no row deleted, merged or split — back up `data/concursos.db` before its first production run) on startup; legacy v1 rows are tagged with area `TI`. `atualizar_concurso` uses `COALESCE(?, fase)` so updates without a fase never erase a stored one. Connection opened with `check_same_thread=False`. Manager in `src/database/manager.py`.
 
 `atualizar_concurso` does explicit UPDATE-if-exists (by `pci_id` / `link` if specific, else by `(area, nome)` / `mesma_entidade`) before INSERT — this preserves `id` between runs, which is required for the Telegram callback buttons to stay valid.
 

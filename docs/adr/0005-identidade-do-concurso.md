@@ -34,12 +34,21 @@ e nenhum fallback mais fraco pode dizer que e. Vale nos tres fallbacks.
 - Linha candidata com `pci_id` **nulo** continua casando pelas regras de antes, e recebe o `pci_id` (a
   rechave da ADR-0001, que rechaveou 59 linhas em 24/11 sem perder nenhuma).
 - Item **sem** `pci_id` (blog do Gran, portas de HTML de reserva) segue a ordem de sempre, sem restricao.
+- `pci_id` vazio e nulo, com um criterio so na busca, na fusao e no indice (`COALESCE(pci_id, '')`), e entra
+  no banco como `NULL`. Gravar `""` deixava na linha um valor que a busca lia como ausente, e o `COALESCE` do
+  `UPDATE` trocava por ele o `pci_id` ja gravado.
 - Na troca de nome (`_resolver_nome_sem_colisao`), a linha que disputa o nome e tem outro `pci_id` e o
   terceiro caso, mesmo orgao com dois concursos: nao se funde. Os dois primeiros casos (mesmo orgao escrito
   de duas formas, que se funde; orgaos distintos que disputam o nome, que mantem o nome antigo) seguem como
-  eram.
+  eram, com uma correcao: podem ser **varias** as linhas que disputam o nome (grafias que so diferem na
+  caixa, aceitas pela unicidade, que compara byte a byte), e **todas** as do mesmo orgao que nao sao outro
+  edital se fundem. Fundir so a primeira deixava a outra ocupando o nome, e o `UPDATE` batia na unicidade.
+  A de nome exato vem primeiro; o `pci_id` que a linha herda numa fusao passa a barrar as seguintes, entao
+  uma linha nunca absorve dois editais.
 - Escrita que, mesmo assim, bate na unicidade e logada como erro com nome proprio, `COLISAO DE IDENTIDADE`,
-  com area, nome, `pci_id` e link. Nunca vira silencio (R-86).
+  com area, nome, `pci_id` e link. Nunca vira silencio (R-86). Com as regras acima, a busca resolve toda
+  colisao que enxerga; a que sobra e a linha gravada por outro escritor entre a busca e a escrita. O alerta
+  do dia para esse erro, a outra metade do requisito na SPEC-003, sai em entrega separada, no `bot.py`.
 
 ### Unicidade: as duas opcoes e a escolha do dono
 

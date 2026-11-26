@@ -61,8 +61,15 @@ Ordem de identidade (do mais forte pro mais fraco, ADR-0005):
 A chave canonica que discorda vence o nome: item com `pci_id` so casa nos
 passos 2 a 4 com linha SEM `pci_id` (e a rechaveia); linha com outro `pci_id`
 e outro edital, ainda que do mesmo orgao e com o mesmo nome. Item sem
-`pci_id` segue a ordem acima sem restricao. Escrita que, mesmo assim, bate na
-unicidade e logada como `COLISAO DE IDENTIDADE`, nunca engolida.
+`pci_id` segue a ordem acima sem restricao. `pci_id` vazio conta como nulo em
+toda parte (busca, fusao, indice) e e gravado como NULL.
+
+Na troca de nome, todas as linhas do mesmo orgao que disputam o nome novo e
+nao sao outro edital se fundem na linha casada, a de nome exato primeiro; o
+`pci_id` herdado numa fusao barra as seguintes, entao uma linha nunca absorve
+dois editais. Escrita que, mesmo assim, bate na unicidade (uma linha gravada
+por outro escritor entre a busca e a escrita) e logada como
+`COLISAO DE IDENTIDADE`, nunca engolida.
 
 Preservar o `id` importa: ele vai no `callback_data` dos botoes do Telegram,
 entao trocar de id invalida os botoes de mensagens ja enviadas.
@@ -123,7 +130,14 @@ class DatabaseManager:
         self._ensure_schema()
 
     def _ensure_schema(self):
-        """Cria a tabela atual ou migra esquemas antigos, sempre de forma aditiva e idempotente."""
+        """Cria a tabela atual ou migra esquemas antigos, de forma idempotente.
+
+        As migracoes de coluna sao aditivas (`ALTER TABLE ... ADD COLUMN`
+        guardado por `PRAGMA table_info`). A unica excecao e o v7, em
+        `_abrir_unicidade`, que recria a tabela uma vez para trocar a
+        unicidade: excecao aberta pelo dono em `kanban/REGRAS.md`, com escopo
+        de um caso so, e registrada na ADR-0005.
+        """
         try:
             cursor = self.conn.cursor()
 
