@@ -279,9 +279,13 @@ class DatabaseManager:
     @staticmethod
     def _criar_indices(cursor: sqlite3.Cursor) -> None:
         # COALESCE: em SQLite NULL nao colide com NULL numa chave unica. Sem ele
-        # duas linhas do Gran com o mesmo nome passariam, que e a duplicata que
-        # o _resolver_nome_sem_colisao existe para matar. `COALESCE(pci_id, '')`
-        # e o criterio de nulidade de `_PCI_ID_SQL` visto pelo indice.
+        # duas linhas do Gran com o mesmo nome passariam, e nascia uma
+        # duplicata nova. O indice e o que barra essa duplicata; o
+        # _resolver_nome_sem_colisao nao funde nem apaga linha: ele so evita
+        # dar a uma linha um nome que outra ja ocupa, e as duas linhas ficam
+        # como estao. `COALESCE(pci_id, '')` e o criterio de nulidade de
+        # `_PCI_ID_SQL` visto pelo indice: so NULL e '' sao ausencia de chave
+        # (sem TRIM: "296538 " e outra chave, como e na busca).
         cursor.execute(
             f"CREATE UNIQUE INDEX IF NOT EXISTS {_INDICE_IDENTIDADE} "
             "ON editais(area, nome, COALESCE(pci_id, ''))"
