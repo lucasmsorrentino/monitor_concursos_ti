@@ -67,9 +67,10 @@ toda parte (busca, fusao, indice) e e gravado como NULL.
 Na troca de nome, todas as linhas do mesmo orgao que disputam o nome novo e
 nao sao outro edital se fundem na linha casada, a de nome exato primeiro; o
 `pci_id` herdado numa fusao barra as seguintes, entao uma linha nunca absorve
-dois editais. Escrita que, mesmo assim, bate na unicidade (uma linha gravada
-por outro escritor entre a busca e a escrita) e logada como
-`COLISAO DE IDENTIDADE`, nunca engolida.
+dois editais. O nome e a chave finais entram juntos no mesmo `UPDATE`, depois
+das fusoes: a chave herdada nunca e aplicada com o nome antigo. Escrita que,
+mesmo assim, bate na unicidade (uma linha gravada por outro escritor entre a
+busca e a escrita) e logada como `COLISAO DE IDENTIDADE`, nunca engolida.
 
 Preservar o `id` importa: ele vai no `callback_data` dos botoes do Telegram,
 entao trocar de id invalida os botoes de mensagens ja enviadas.
@@ -629,7 +630,7 @@ class DatabaseManager:
         nome_novo: str,
         pci_id: str | None = None,
     ) -> tuple[str, str | None]:
-        """Decide o `nome` da linha, FUNDINDO duplicatas do mesmo orgao.
+        """Decide o `nome` e o `pci_id` da linha, FUNDINDO duplicatas do mesmo orgao.
 
         Antes esta funcao so desistia do nome novo quando ele colidia, e as duas
         linhas duplicadas ficavam no banco pra sempre. A varredura de 08/08
@@ -653,6 +654,15 @@ class DatabaseManager:
         primeiro, porque e ela que a unicidade compara byte a byte. Cada fusao
         pode dar o `pci_id` a esta linha, e a partir dai uma grafia com outro
         `pci_id` passa a ser outro edital: uma linha nunca absorve dois.
+
+        A chave herdada NAO e gravada aqui: ela volta junto com o nome, e quem
+        chama grava os dois no mesmo UPDATE. Com o nome antigo, a chave herdada
+        podia empatar com uma terceira linha de mesmo nome e mesmo `pci_id`
+        (estado que a unicidade com o `pci_id` admite), e a escrita inteira
+        se perdia.
+
+        Returns:
+            (nome, pci_id) finais da linha; `pci_id` None quando nao ha chave.
         """
         pci_id_da_linha = _pci_id_ou_none(pci_id)
         if not nome_novo or nome_novo == nome_atual:
@@ -687,6 +697,10 @@ class DatabaseManager:
         O estado marcado pelo Lucas (seguindo/ignorado) tem prioridade sobre
         'ativo' e sobrevive a fusao, venha de qual das duas linhas vier. Perder
         um "seguindo" numa fusao automatica seria destruir dado do usuario.
+
+        Nao toca em `nome` nem em `pci_id`, as colunas da unicidade: o
+        `pci_id` de `descarta` e herdado pelo chamador, que o grava junto com o
+        nome final (ver :meth:`_resolver_nome_sem_colisao`).
         """
         atual = cursor.execute(
             "SELECT * FROM editais WHERE id = ?", (mantem,)

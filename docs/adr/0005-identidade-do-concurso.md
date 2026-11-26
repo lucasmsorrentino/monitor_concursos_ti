@@ -49,6 +49,12 @@ e nenhum fallback mais fraco pode dizer que e. Vale nos tres fallbacks.
   edital se fundem. Fundir so a primeira deixava a outra ocupando o nome, e o `UPDATE` batia na unicidade.
   A de nome exato vem primeiro; o `pci_id` que a linha herda numa fusao passa a barrar as seguintes, entao
   uma linha nunca absorve dois editais.
+- O nome e a chave finais da linha casada entram no **mesmo** `UPDATE`, depois das fusoes. A fusao so mexe
+  em colunas fora da unicidade (estado, fase, prazo, link, fonte); a chave herdada nao e aplicada com o nome
+  antigo. Abrir a unicidade tornou alcancavel o estado `(1, "IFSP - SP", sem chave)`,
+  `(2, "IFSP - SP", 296538)`, `(3, "IFSP", 296538)`: se a linha 1 herdasse o 296538 da linha 3 ainda chamada
+  "IFSP - SP", empataria com a linha 2 no meio da fusao, e a escrita inteira se perdia, embora o estado final
+  `("IFSP", 296538)` estivesse livre.
 - Quando mais de uma linha da area casa no mesmo passo (pelo `pci_id`, pelo link, pelo nome ou pela
   entidade), vence a de **menor `id`**, com `ORDER BY id` explicito em toda busca. A linha mais antiga e a
   de historia mais longa, e a que provavelmente carrega a estrela do usuario. Sem a ordem explicita, a
