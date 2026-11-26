@@ -1,13 +1,13 @@
 # Mapa de trabalho — monitor-concursos
 
-> Gerado por `esteira.py mapa` em 2026-11-26 15:16. Não edite à mão: mude os tickets e gere de novo.
+> Gerado por `esteira.py mapa` em 2026-11-26 15:51. Não edite à mão: mude os tickets e gere de novo.
 
 ## Resumo
 
-- 28 tickets: 6 backlog, 1 entregue, 21 integrado
-- Caminho crítico restante (peso 22): T-020 → T-026 → T-028 → T-027
+- 29 tickets: 7 backlog, 1 aprovado, 21 integrado
+- Caminho crítico restante (peso 23): T-020 → T-026 → T-028 → T-027 → T-029
 - Ondas: 5; paralelismo máximo: 17 tickets numa onda
-- Validação: 0 erro(s), 2 aviso(s)
+- Validação: 0 erro(s), 3 aviso(s)
 
 ## Ondas — o que vem antes e o que roda junto
 
@@ -31,7 +31,7 @@ Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependênc
 | T-016 | P- | glm-flash | principal | integrado | A porta do MCP e o filtro no retrato do diagnostico |
 | T-017 | M- | glm | principal | integrado | Conferir que a rechave de fonte nao perdeu concurso |
 | T-018 | P- | glm-flash | principal | integrado | ADR do fuso: banco em UTC, log em hora local |
-| T-020 ★ | G- | opus (high) | principal | entregue | Identidade do concurso: o pci_id que discorda vence o nome |
+| T-020 ★ | G- | opus (high) | principal | aprovado | Identidade do concurso: o pci_id que discorda vence o nome |
 | T-021 | M- | glm | principal | integrado | Cota da LLM com hora de reset nao e falha generica |
 | T-025 | P- | glm-flash | principal | integrado | Secao 8 do DIAGNOSTICO.md defasada desde a porta do MCP |
 
@@ -60,11 +60,12 @@ Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependênc
 | T-019 | M- | glm | principal | backlog | O concurso filtrado pelo MCP que o Gran acha depois |
 | T-027 ★ | M+ | glm (high) | principal | backlog | Identidade e escrita na mesma transacao protegida |
 
-### Onda 4 — depois de T-011 (1 em paralelo)
+### Onda 4 — depois de T-011, T-020, T-026, T-027, T-028 (2 em paralelo)
 
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
 | T-012 | P- | glm-flash | principal | integrado | Deploy no notebook de producao |
+| T-029 ★ | P+ | glm-flash (high) | principal | backlog | Constante duplicada e caso acentuado no teste da ordem sem pci_id |
 
 ## Conflitos de arquivo
 
@@ -76,11 +77,11 @@ Nenhum: tickets paralelos não tocam os mesmos arquivos.
 
 ## Gargalos (quem mais destrava)
 
-- T-020: 4 ticket(s) dependem dele diretamente
-- T-026: 3 ticket(s) dependem dele diretamente
+- T-020: 5 ticket(s) dependem dele diretamente
+- T-026: 4 ticket(s) dependem dele diretamente
 - T-021: 2 ticket(s) dependem dele diretamente
+- T-028: 2 ticket(s) dependem dele diretamente
 - T-004: 1 ticket(s) dependem dele diretamente
-- T-006: 1 ticket(s) dependem dele diretamente
 
 ## Grafo
 
@@ -123,6 +124,7 @@ graph LR
   end
   subgraph O4["Onda 4"]
     T012["T-012 · P- · Deploy no notebook de producao"]
+    T029["T-029 · P+ · Constante duplicada e caso acentuado no "]
   end
   T004 --> T009
   T006 --> T009
@@ -146,8 +148,12 @@ graph LR
   T028 --> T027
   T020 --> T028
   T026 --> T028
+  T020 --> T029
+  T026 --> T029
+  T028 --> T029
+  T027 --> T029
   classDef integrado fill:#d1fae5,stroke:#059669
   class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011,T012,T013,T014,T015,T016,T017,T018,T021,T022,T025 integrado
   classDef critico stroke-width:3px
-  class T020,T026,T028,T027 critico
+  class T020,T026,T028,T027,T029 critico
 ```
