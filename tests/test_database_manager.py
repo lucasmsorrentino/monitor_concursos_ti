@@ -1110,3 +1110,90 @@ class TestMigracaoDaUnicidade:
         assert db.atualizar_concurso("trf1", "v2", "", fonte="gran") == id_
         assert db.contar_por_fonte("gran") == 1
         assert db.buscar_registro("TRF1")["status"] == "v2"
+
+
+# Empate nas buscas: duas linhas da mesma area que a mesma busca alcanca.
+#
+# O banco de producao NAO tem empate hoje (medido em 26/11/2026, 1.725 linhas:
+# zero grupos de nome por area, os dois grupos de link sao paginas-indice que a
+# busca por link recusa, e nenhum pci_id repetido dentro de uma area). Estes
+# testes nao descrevem producao: afirmam a regra de desempate, que e
+# deterministica por escolha. A linha mais antiga (menor id) vence, em vez da
+# primeira que o indice escolhido pelo planejador devolver.
+#
+# Os ids estao de proposito na ordem OPOSTA a das duas ordens que o planejador
+# ja produziu: o id 1 tem o nome que vem depois em BINARY ("ifsp" > "IFSP", a
+# ordem do UNIQUE(area, nome) do v6) e o pci_id que vem depois no
+# idx_editais_pci ("296538" > "296044"). So o desempate explicito acerta o id 1.
+
+LINK_IFSP_GRAN = "https://blog.grancursosonline.com.br/concurso-ifsp/"
+URL_INDICE_GRAN = "https://blog.grancursosonline.com.br/concursos-ti/"
+
+
+def _criar_banco_v6_com_duas_grafias(db_path):
+    """Banco v6 (UNIQUE(area, nome) de tabela) com dois editais do IFSP que
+    empatam no link, no nome sem caixa e na entidade."""
+    _criar_banco_com_unique_area_nome(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute("DELETE FROM editais")
+    conn.executemany(
+        "INSERT INTO editais (id, area, nome, status, link, fonte, pci_id) "
+        "VALUES (?, 'TI', ?, ?, ?, 'pci_mcp', ?)",
+        [(1, "ifsp", "tecnico original", LINK_IFSP_GRAN, IFSP_TECNICO_PCI),
+         (2, "IFSP", "substituto original", LINK_IFSP_GRAN, IFSP_SUBSTITUTO_PCI)],
+    )
+    conn.commit()
+    conn.close()
+
+
+class TestDesempateDasBuscas:
+    """Busca que alcanca mais de uma linha escolhe a de menor id."""
+
+    BUSCA_SEM_CHAVE = {
+        "link": dict(nome="Concurso do instituto", link=LINK_IFSP_GRAN, url_indice=URL_INDICE_GRAN),
+        "nome": dict(nome="Ifsp"),
+        "entidade": dict(nome="IFSP - SP"),
+    }
+
+    @pytest.mark.parametrize("fallback", ["link", "nome", "entidade"])
+    def test_busca_sem_chave_empatada_escolhe_a_linha_mais_antiga(self, db_path, fallback):
+        _criar_banco_v6_com_duas_grafias(db_path)
+        db = DatabaseManager(area="TI", db_path=db_path)
+        try:
+            registro = db.buscar_registro(**self.BUSCA_SEM_CHAVE[fallback])
+
+            assert registro is not None
+            assert registro["id"] == 1
+        finally:
+            db.fechar_conexao()
+
+    @pytest.mark.parametrize("fallback", ["link", "nome", "entidade"])
+    def test_atualizacao_sem_chave_empatada_grava_so_na_linha_mais_antiga(self, db_path, fallback):
+        _criar_banco_v6_com_duas_grafias(db_path)
+        db = DatabaseManager(area="TI", db_path=db_path)
+        try:
+            id_ = db.atualizar_concurso(status="novo", **self.BUSCA_SEM_CHAVE[fallback])
+
+            assert id_ == 1
+            tecnico = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
+            substituto = db.buscar_registro("", pci_id=IFSP_SUBSTITUTO_PCI)
+            assert (tecnico["id"], tecnico["status"]) == (1, "novo")
+            assert (substituto["id"], substituto["status"]) == (2, "substituto original")
+        finally:
+            db.fechar_conexao()
+
+    def test_busca_pelo_pci_id_empatada_escolhe_a_linha_mais_antiga(self, db):
+        """Desde o v7, duas linhas de nomes diferentes podem ter o mesmo pci_id."""
+        conn = sqlite3.connect(db.db_path)
+        conn.executemany(
+            "INSERT INTO editais (id, area, nome, status, fonte, pci_id) "
+            "VALUES (?, 'TI', ?, ?, 'pci_mcp', ?)",
+            [(2, "IFSP", "mais nova", IFSP_TECNICO_PCI),
+             (1, "Instituto Federal de Sao Paulo", "mais antiga", IFSP_TECNICO_PCI)],
+        )
+        conn.commit()
+        conn.close()
+
+        registro = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
+
+        assert (registro["id"], registro["status"]) == (1, "mais antiga")
