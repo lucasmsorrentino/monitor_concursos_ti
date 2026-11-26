@@ -850,6 +850,59 @@ class TestIdentidadePeloPciId:
         registro = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
         assert (registro["id"], registro["pci_id"]) == (id_legado, IFSP_TECNICO_PCI)
 
+    def test_pci_id_vazio_grava_como_nulo(self, db):
+        """Vazio e nulo sao a mesma coisa para a chave canonica (SPEC-003, 3.1)."""
+        db.atualizar_concurso("TRF1", "previsto", "", fonte="gran", pci_id="")
+
+        assert db.buscar_registro("TRF1")["pci_id"] is None
+
+    def test_pci_id_vazio_nao_apaga_o_pci_id_gravado(self, db):
+        """Chamada com pci_id vazio e chamada sem pci_id: preserva o gravado."""
+        id_tecnico = _gravar_tecnico(db)
+
+        id_ = db.atualizar_concurso(
+            IFSP_NOME, "sem chave", IFSP_TECNICO_LINK, url_indice=URL_INDICE_PCI, pci_id="",
+        )
+
+        assert id_ == id_tecnico
+        registro = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
+        assert registro is not None, "o pci_id gravado se perdeu"
+        assert (registro["id"], registro["status"]) == (id_tecnico, "sem chave")
+
+    def test_linha_legada_com_pci_id_vazio_e_rechaveada(self, db):
+        """R-81: linha legada com pci_id vazio e linha sem pci_id."""
+        conn = sqlite3.connect(db.db_path)
+        conn.execute(
+            "INSERT INTO editais (area, nome, status, fonte, pci_id) "
+            "VALUES ('TI', ?, 'legado', 'pci', '')",
+            (IFSP_NOME,),
+        )
+        conn.commit()
+        conn.close()
+
+        assert _gravar_tecnico(db, link="") == 1
+        assert db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)["id"] == 1
+
+    def test_linha_legada_com_pci_id_vazio_herda_o_pci_id_na_fusao(self, db):
+        """A linha de pci_id vazio que absorve um edital fica com o pci_id dele."""
+        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
+        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
+        conn = sqlite3.connect(db.db_path)
+        conn.executemany(
+            "INSERT INTO editais (area, nome, status, link, fonte, pci_id) "
+            "VALUES ('TI', ?, 'x', ?, ?, ?)",
+            [("IFSP - SP", link_gran, "gran", ""),
+             ("IFSP", None, "pci_mcp", IFSP_SUBSTITUTO_PCI)],
+        )
+        conn.commit()
+        conn.close()
+
+        assert db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran) == 1
+
+        registro = db.buscar_registro("", pci_id=IFSP_SUBSTITUTO_PCI)
+        assert registro is not None, "o pci_id gravado se perdeu"
+        assert (registro["id"], registro["status"]) == (1, "novo")
+
     def test_colisao_irresolvivel_vira_erro_no_log_nao_silencio(self, db, caplog):
         """R-86: a escrita que bate na unicidade sai no log como erro nomeado.
 
