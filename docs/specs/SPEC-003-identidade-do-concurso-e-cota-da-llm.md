@@ -174,9 +174,9 @@ custa exatamente uma varredura, nao um dia.
   e o nome em conflito e do mesmo orgao ou nao. Cada linha diz tres coisas: o nome final, se funde e o que
   vai para o log. Nenhum estado fica sem linha, e cada linha tem um teste. A tabela tem de satisfazer um
   invariante, e ele e o criterio de aceite mais importante: **a funcao nunca devolve o nome novo deixando
-  atras de si um conflito que ela nao fundiu.** Os quatro defeitos achados nas cinco revisoes do T-020 sao,
+  atras de si um conflito que ela nao fundiu.** Os quatro defeitos achados nas cinco revisoes do ticket da migracao sao,
   dois deles, violacoes deste invariante; os outros dois sao o empate sem ordem e a escrita do nome separada
-  da escrita da chave, ambos ja resolvidos no T-020.
+  da escrita da chave, ambos ja resolvidos com a migracao.
 
 ### 3.2. Cota da LLM
 
@@ -231,21 +231,21 @@ custa exatamente uma varredura, nao um dia.
 4. **Se o freio entra nesta fase.** Ele e rede de seguranca, nao conserto: sem ele, a fase ainda resolve o
    PED-07. E o primeiro candidato a corte se o dono quiser a fase menor.
 5. **Onde entra o alerta do dia da colisao (R-86/R-97) — DECIDIDA em 25/11/2026: ticket separado.** O
-   revisor do T-020 apontou, com razao, que a spec pedia log **e** alerta e o ticket entregava so o log, e
+   revisor do ticket da migracao apontou, com razao, que a spec pedia log **e** alerta e o ticket entregava so o log, e
    devolveu a decisao de escopo. O dono respondeu «Ticket separado» no chat. O requisito foi partido em R-86
-   (log, no banco, no T-020) e R-97 (alerta do dia, no bot, no T-026). Razao registrada: o diff do T-020 e o
+   (log, no banco, junto da migracao) e R-97 (alerta do dia, no bot, em ticket proprio). Razao registrada: o diff da migracao e o
    que o dono le pessoalmente antes de uma migracao irreversivel sobre ~1.700 linhas, e inflar esse diff com
-   o `src/core/bot.py` — o arquivo mais disputado da fase, que o T-019 e o T-024 tambem querem — encareceria
-   a unica revisao humana que a fase tem. A alternativa era ampliar o T-020, que o revisor recomendava.
+   o `src/core/bot.py` — o arquivo mais disputado da fase, que os tickets do freio de renotificacao e do concurso filtrado tambem querem — encareceria
+   a unica revisao humana que a fase tem. A alternativa era ampliar o ticket da migracao, que o revisor recomendava.
 
-6. **O escopo do T-020 depois da terceira reprovacao - DECIDIDA em 26/11/2026: reduzir ao que esta
+6. **O escopo da migracao depois da terceira reprovacao - DECIDIDA em 26/11/2026: reduzir ao que esta
    provado.** A quinta revisao achou o **quarto** defeito distinto na mesma funcao, e todos os quatro moram
    em `_resolver_nome_sem_colisao`, `_fundir` e nas buscas de fallback. O arquiteto recusou o conserto de uma
    linha que estava disponivel, porque seria a quinta emenda na mesma sequencia de guardas, e levou ao dono
    duas opcoes: reduzir o ticket ou tentar uma sexta rodada. O dono respondeu «pode fazer o que recomendou»
-   no chat. Decisao: o T-020 fica com a migracao, a ordem de identidade, o desempate explicito e o criterio
+   no chat. Decisao: o ticket fica com a migracao, a ordem de identidade, o desempate explicito e o criterio
    unico de nulidade, nenhum deles contestado em cinco revisoes, e passa a cumprir o R-99 no lugar da logica
-   de nome e fusao; a regra de nome vira o T-028, cuja primeira entrega e a tabela do R-100, nao codigo.
+   de nome e fusao; a regra de nome vira ticket proprio, cuja primeira entrega e a tabela do R-100, nao codigo.
    Causa raiz registrada: **a regra nunca foi escrita como regra.** Nao ha, em nenhuma versao desta spec,
    requisito que diga o que a funcao deve fazer em cada estado; R-80 a R-86 falam de casamento, de migracao e
    de log, e nunca do nome. Quatro rodadas de implementacao foram gastas em comportamento que requisito

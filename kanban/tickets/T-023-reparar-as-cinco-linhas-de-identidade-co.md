@@ -70,6 +70,22 @@ colisao.
 **O risco de o reparo virar flood.** Se a linha nova nascer como inedita, a varredura seguinte manda card de
 concurso que o Lucas ja viu, cinco vezes. Nascer «ja notificada» e requisito, nao detalhe de implementacao.
 
+**Decisão do arquiteto (2026-11-26 15:01):** MEDIDA DE 26/11/2026 (leitura do banco e do log de producao, pela Tailscale): existe uma TERCEIRA classe de estrago, diferente das cinco linhas fundidas, e ela NAO esta no escopo deste ticket. Registro aqui para o dono decidir, porque o R-93 fixa a lista de cinco e mudar a lista e decisao dele.
+
+O QUE EU MEDI. O banco tem 1.758 linhas (EDUCACAO 971, SOCIOLOGIA_ARTES 412, TI 375) e 159 sem pci_id. Quatro linhas carregam a PAGINA-INDICE do Gran no campo link, como se fosse link de edital: 1038, 1265, 1284 e 1404. O log traz 109 avisos de colisao de nome, e a linha id=1284 (area TI, sem pci_id, link da pagina-indice) aparece com TRES nomes diferentes ao longo do tempo: Francisco Macedo (PI), Serra Grande (PB) e, hoje, Luiz Alves (SC).
+
+O QUE ISSO E, caso por caso, ja descontando o que e por design (a mesma vaga em areas diferentes e esperado, porque cada area e um feed proprio):
+- id=1284 e DUPLICATA da id=1158 na mesma area TI. As duas sao o concurso da Prefeitura de Luiz Alves - SC; a 1158 tem a chave 296083 e link de edital, a 1284 nao tem chave e tem o link da pagina-indice. A 1284 e a linha onde os fallbacks fracos foram caindo, e e por isso que ela trocou de nome tres vezes.
+- id=1265 e lixo: nome «Nome nao identificado», sem chave, link da pagina-indice.
+- id=1404 (Nova Boa Vista RS, TI, sem chave) parece LEGITIMA: e vaga de Professor de Informatica, e o par com chave dela existe so na area EDUCACAO. Nao mexer.
+- id=1038 tem a chave certa e o link errado. Identidade correta, nao e caso de reparo.
+
+POR QUE NAO ENTRA NESTE TICKET: aqui o estrago e duas vagas numa linha, e o reparo SEPARA. Ali o estrago e uma vaga em duas linhas, e o reparo juntaria ou descartaria. E o criterio de aceite deste ticket diz, com razao, que nenhuma linha e apagada em nenhum caminho do script.
+
+O QUE O T-020 JA FAZ COM ELAS, e isto e bom: depois da migracao, a 1284 ou recebe a chave na primeira rechave (R-81) ou nunca mais e casada, porque a busca por chave passa a ter desempate e sempre devolve a 1158. Ou seja, ela para de absorver identidade alheia. Ela fica no banco como linha morta, com estado_usuario «ativo», sem estrela do Lucas em risco.
+
+RECOMENDACAO AO DONO: deixar como esta por enquanto. Linha morta sem estrela nao notifica, nao atrapalha e nao e urgente. Se um dia incomodar, e um ticket proprio de limpeza, com dry-run, e nao um apendice deste. Se quiser o contrario, e uma frase nas suas notas aqui.
+
 ## Notas do Lucas
 <!-- Ao rodar o reparo em producao, cole aqui a saida do --dry-run, a contagem antes e depois, o caminho do
      backup do banco e, no comeco de uma linha, a marca "Recurso notebook: feito". -->
