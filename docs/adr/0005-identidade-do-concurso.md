@@ -49,6 +49,14 @@ e nenhum fallback mais fraco pode dizer que e. Vale nos tres fallbacks.
   edital se fundem. Fundir so a primeira deixava a outra ocupando o nome, e o `UPDATE` batia na unicidade.
   A de nome exato vem primeiro; o `pci_id` que a linha herda numa fusao passa a barrar as seguintes, entao
   uma linha nunca absorve dois editais.
+- Quando mais de uma linha da area casa no mesmo passo (pelo `pci_id`, pelo link, pelo nome ou pela
+  entidade), vence a de **menor `id`**, com `ORDER BY id` explicito em toda busca. A linha mais antiga e a
+  de historia mais longa, e a que provavelmente carrega a estrela do usuario. Sem a ordem explicita, a
+  "primeira linha" era a do indice que o planejador do SQLite escolhia, e a migracao do v7, ao trocar o
+  indice usado, passou a mandar a mesma escrita sem `pci_id` para outro edital. O banco de producao nao
+  tem empate hoje (medido em 26/11/2026, 1.725 linhas: nenhum nome repetido sem caixa por area, os dois
+  links repetidos sao paginas-indice do Gran, que a busca por link recusa, e nenhum `pci_id` repetido
+  dentro de uma area). A regra nao muda nenhuma linha existente: e garantia para o futuro.
 - Escrita que, mesmo assim, bate na unicidade e logada como erro com nome proprio, `COLISAO DE IDENTIDADE`,
   com area, nome, `pci_id` e link. Nunca vira silencio (R-86). Com as regras acima, a busca resolve toda
   colisao que enxerga; a que sobra e a linha gravada por outro escritor entre a busca e a escrita. O alerta

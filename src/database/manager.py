@@ -391,6 +391,9 @@ class DatabaseManager:
         rechave da ADR-0001). Linha com outro `pci_id` e outro edital, ainda
         que do mesmo orgao e com o mesmo nome. Item sem `pci_id` segue a ordem
         de sempre.
+
+        Empate dentro de um passo (duas linhas casam): vence a de menor `id`
+        (ver `_DESEMPATE`).
         """
         cursor = self.conn.cursor()
         pci_id = _pci_id_ou_none(pci_id)
