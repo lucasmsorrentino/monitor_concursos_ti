@@ -772,13 +772,14 @@ class TestIdentidadePeloPciId:
         tecnico = db.buscar_registro(IFSP_NOME, pci_id=IFSP_TECNICO_PCI)
         assert (tecnico["id"], tecnico["nome"]) == (id_tecnico, IFSP_NOME)
 
-    def test_colisao_irresolvivel_vira_erro_no_log_nao_silencio(self, db, caplog):
-        """R-86: a escrita que bate na unicidade sai no log como erro nomeado.
+    def test_item_sem_pci_id_funde_todas_as_grafias_do_nome_novo(self, db):
+        """R-82: linhas legadas do mesmo orgao em varias grafias viram uma so.
 
-        Cenario: duas linhas do Gran que so diferem na caixa ("ifsp" e "IFSP",
-        aceitas pela unicidade, que compara byte a byte) e uma terceira, casada
-        pelo link, que tenta assumir o nome "IFSP". A fusao com "ifsp" nao
-        libera o nome "IFSP", e o UPDATE colide.
+        Tres linhas do Gran sem pci_id: "IFSP - SP" (casada pelo link),
+        "ifsp" e "IFSP" (a unicidade compara byte a byte e aceita as duas). A
+        atualizacao pelo link assume o nome "IFSP": todas sao o mesmo orgao e
+        nenhuma e outro edital, entao todas se fundem na linha casada. Fundir so
+        uma deixava a outra ocupando o nome e a escrita batia na unicidade.
         """
         link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
         url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
@@ -790,14 +791,95 @@ class TestIdentidadePeloPciId:
         conn.commit()
         conn.close()
 
+        id_ = db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran)
+
+        assert id_ == 1
+        registro = db.buscar_registro("IFSP")
+        assert (registro["id"], registro["nome"], registro["status"]) == (1, "IFSP", "novo")
+        assert db.contar_por_fonte("gran") == 1
+
+    def test_fusao_pelo_nome_nao_junta_dois_editais_de_pci_id_distintos(self, db):
+        """A linha sem pci_id que assume o nome absorve UM edital, nunca dois.
+
+        "IFSP" (296044) e "ifsp" (296538) sao dois editais. A linha do Gran,
+        casada pelo link, assume o nome "IFSP": funde-se com o de nome exato e
+        herda o pci_id dele; o outro, agora de pci_id diferente, fica.
+        """
+        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
+        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
+        conn = sqlite3.connect(db.db_path)
+        conn.executemany(
+            "INSERT INTO editais (area, nome, status, link, fonte, pci_id) "
+            "VALUES ('TI', ?, 'x', ?, ?, ?)",
+            [("IFSP - SP", link_gran, "gran", None),
+             ("ifsp", None, "pci_mcp", IFSP_TECNICO_PCI),
+             ("IFSP", None, "pci_mcp", IFSP_SUBSTITUTO_PCI)],
+        )
+        conn.commit()
+        conn.close()
+
+        assert db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran) == 1
+
+        substituto = db.buscar_registro("", pci_id=IFSP_SUBSTITUTO_PCI)
+        tecnico = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
+        assert (substituto["id"], substituto["nome"], substituto["status"]) == (1, "IFSP", "novo")
+        assert (tecnico["id"], tecnico["nome"]) == (2, "ifsp")
+
+    def test_pci_id_rechaveia_pelo_link_com_nome_de_outra_entidade(self, db):
+        """R-81 pelo link: o nome legado nao casaria nem por nome nem por entidade."""
+        id_legado = db.atualizar_concurso(
+            "Concurso técnico-administrativo 2026", "legado", IFSP_TECNICO_LINK,
+            url_indice=URL_INDICE_PCI, fonte="pci",
+        )
+
+        id_mcp = _gravar_tecnico(db)
+
+        assert id_mcp == id_legado
+        registro = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
+        assert (registro["id"], registro["pci_id"]) == (id_legado, IFSP_TECNICO_PCI)
+
+    def test_pci_id_rechaveia_por_entidade_sem_link_especifico(self, db):
+        """R-81 por entidade: outro nome do mesmo orgao, nenhum link especifico."""
+        id_legado = db.atualizar_concurso(
+            IFSP_NOME_SEM_UF, "legado", "", fonte="gran",
+        )
+
+        id_mcp = _gravar_tecnico(db, link="")
+
+        assert id_mcp == id_legado
+        registro = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
+        assert (registro["id"], registro["pci_id"]) == (id_legado, IFSP_TECNICO_PCI)
+
+    def test_colisao_irresolvivel_vira_erro_no_log_nao_silencio(self, db, caplog):
+        """R-86: a escrita que bate na unicidade sai no log como erro nomeado.
+
+        A regra de identidade resolve toda colisao que ela consegue ver. A que
+        sobra e a linha que aparece entre a busca e a escrita: outro escritor
+        no mesmo arquivo. O gatilho abaixo faz esse papel, gravando o mesmo
+        edital imediatamente antes do INSERT.
+        """
+        conn = sqlite3.connect(db.db_path)
+        conn.execute(
+            """
+            CREATE TRIGGER outro_escritor BEFORE INSERT ON editais
+            WHEN NEW.pci_id = '296538'
+            BEGIN
+                INSERT INTO editais (area, nome, status, pci_id, fonte)
+                VALUES (NEW.area, NEW.nome, 'gravado por outro processo', NEW.pci_id, 'pci_mcp');
+            END
+            """
+        )
+        conn.commit()
+        conn.close()
+
         with caplog.at_level("ERROR", logger="DatabaseManager"):
-            id_ = db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran)
+            id_ = _gravar_tecnico(db)
 
         assert id_ == 0
         erros = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-        assert any("colisao de identidade" in m.lower() and "IFSP" in m for m in erros)
-        # Nada se perde: a fusao parcial e desfeita junto com o UPDATE.
-        assert db.contar_por_fonte("gran") == 3
+        assert any(
+            "colisao de identidade" in m.lower() and IFSP_TECNICO_PCI in m for m in erros
+        )
 
 
 # Linhas do banco anterior a abertura da unicidade, escritas a mao com todos os
@@ -915,14 +997,11 @@ class TestMigracaoDaUnicidade:
 
         assert depois_da_segunda == depois_da_primeira
 
-    def test_unicidade_continua_barrando_nome_repetido_sem_pci_id(self, db):
-        """O COALESCE do indice: duas linhas do Gran com o mesmo nome nao passam."""
-        assert db.atualizar_concurso("TRF1", "v1", "") > 0
-        conn = sqlite3.connect(db.db_path)
-        try:
-            with pytest.raises(sqlite3.IntegrityError):
-                conn.execute(
-                    "INSERT INTO editais (area, nome, status) VALUES ('TI', 'TRF1', 'v2')"
-                )
-        finally:
-            conn.close()
+    def test_nome_repetido_sem_pci_id_volta_para_a_mesma_linha(self, db):
+        """Item sem pci_id repetido nao vira linha nova (o COALESCE do indice
+        guarda o banco; quem guarda o fluxo e a busca por nome)."""
+        id_ = db.atualizar_concurso("TRF1", "v1", "", fonte="gran")
+
+        assert db.atualizar_concurso("trf1", "v2", "", fonte="gran") == id_
+        assert db.contar_por_fonte("gran") == 1
+        assert db.buscar_registro("TRF1")["status"] == "v2"
