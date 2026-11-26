@@ -83,6 +83,18 @@ _INDICE_IDENTIDADE = "idx_editais_identidade"
 # nunca pode ser perdido por causa de uma fusao automatica.
 _PRIORIDADE_ESTADO = {"seguindo": 2, "ignorado": 1, "ativo": 0}
 
+
+def _pci_id_ou_none(valor: str | None) -> str | None:
+    """O criterio unico de nulidade do `pci_id`: vazio conta como nulo.
+
+    E o mesmo do indice de unicidade (`COALESCE(pci_id, '')`) e o da busca:
+    linha legada com `pci_id` vazio e linha SEM chave canonica, rechaveavel.
+    """
+    if valor is None or not str(valor).strip():
+        return None
+    return valor
+
+
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH_PADRAO = os.path.join(REPO_DIR, "data", "concursos.db")
 
@@ -588,31 +600,37 @@ class DatabaseManager:
         o nome tem `pci_id` e ele difere do `pci_id` desta. E outro edital, nao
         se funde, e o nome pode ser o mesmo, porque a unicidade da tabela inclui
         o `pci_id`.
+
+        Pode haver VARIAS linhas disputando o nome (grafias que so diferem na
+        caixa). Todas as que sao o mesmo orgao e nao sao outro edital se fundem;
+        fundir so uma deixava a outra ocupando o nome. A de nome exato vem
+        primeiro, porque e ela que a unicidade compara byte a byte. Cada fusao
+        pode dar o `pci_id` a esta linha, e a partir dai uma grafia com outro
+        `pci_id` passa a ser outro edital: uma linha nunca absorve dois.
         """
         if not nome_novo or nome_novo == nome_atual:
             return nome_atual
 
         conflitos = cursor.execute(
             "SELECT * FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE AND id != ?"
-            " ORDER BY id",
-            (self.area, nome_novo, id_existente),
+            " ORDER BY nome != ?, id",
+            (self.area, nome_novo, id_existente, nome_novo),
         ).fetchall()
-        conflito = next(
-            (c for c in conflitos
-             if not (pci_id and c["pci_id"] and c["pci_id"] != pci_id)),
-            None,
-        )
-        if not conflito:
-            return nome_novo
 
-        if not mesma_entidade(nome_novo, nome_atual):
-            self.logger.warning(
-                f"Nome {nome_novo!r} colide com id={conflito['id']} e nao e o mesmo orgao; "
-                f"mantendo {nome_atual!r} em id={id_existente}."
-            )
-            return nome_atual
-
-        self._fundir(cursor, mantem=id_existente, descarta=dict(conflito))
+        pci_id_da_linha = _pci_id_ou_none(pci_id)
+        mesmo_orgao = mesma_entidade(nome_novo, nome_atual)
+        for conflito in conflitos:
+            pci_id_do_conflito = _pci_id_ou_none(conflito["pci_id"])
+            if pci_id_da_linha and pci_id_do_conflito and pci_id_do_conflito != pci_id_da_linha:
+                continue
+            if not mesmo_orgao:
+                self.logger.warning(
+                    f"Nome {nome_novo!r} colide com id={conflito['id']} e nao e o mesmo orgao; "
+                    f"mantendo {nome_atual!r} em id={id_existente}."
+                )
+                return nome_atual
+            self._fundir(cursor, mantem=id_existente, descarta=dict(conflito))
+            pci_id_da_linha = pci_id_da_linha or pci_id_do_conflito
         return nome_novo
 
     def _fundir(self, cursor: sqlite3.Cursor, mantem: int, descarta: dict) -> None:
