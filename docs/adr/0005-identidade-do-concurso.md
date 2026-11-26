@@ -34,9 +34,13 @@ e nenhum fallback mais fraco pode dizer que e. Vale nos tres fallbacks.
 - Linha candidata com `pci_id` **nulo** continua casando pelas regras de antes, e recebe o `pci_id` (a
   rechave da ADR-0001, que rechaveou 59 linhas em 24/11 sem perder nenhuma).
 - Item **sem** `pci_id` (blog do Gran, portas de HTML de reserva) segue a ordem de sempre, sem restricao.
-- `pci_id` vazio e nulo, com um criterio so na busca, na fusao e no indice (`COALESCE(pci_id, '')`), e entra
-  no banco como `NULL`. Gravar `""` deixava na linha um valor que a busca lia como ausente, e o `COALESCE` do
-  `UPDATE` trocava por ele o `pci_id` ja gravado.
+- `pci_id` vazio e nulo, com um criterio so na escrita, na busca, na fusao e no indice
+  (`COALESCE(pci_id, '')`), e entra no banco como `NULL`. Gravar `""` deixava na linha um valor que a busca
+  lia como ausente, e o `COALESCE` do `UPDATE` trocava por ele o `pci_id` ja gravado.
+- Nulo e **so** `NULL` ou `''`. Qualquer outro valor, mesmo so de espacos, e chave. O que importa nao e o
+  espaco, e que as camadas concordem: quando o Python tirava espacos e o SQL nao, a fusao autorizada pelo
+  Python descartava a chave valida da outra linha, e o SQL deixava de herda-la. O criterio vive em
+  `_pci_id_ou_none` (Python) e `_PCI_ID_SQL` (SQL), e o indice e a imagem dele.
 - Na troca de nome (`_resolver_nome_sem_colisao`), a linha que disputa o nome e tem outro `pci_id` e o
   terceiro caso, mesmo orgao com dois concursos: nao se funde. Os dois primeiros casos (mesmo orgao escrito
   de duas formas, que se funde; orgaos distintos que disputam o nome, que mantem o nome antigo) seguem como
