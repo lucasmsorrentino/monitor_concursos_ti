@@ -825,6 +825,43 @@ class TestIdentidadePeloPciId:
         assert (substituto["id"], substituto["nome"], substituto["status"]) == (1, "IFSP", "novo")
         assert (tecnico["id"], tecnico["nome"]) == (2, "ifsp")
 
+    def test_fusao_grava_nome_e_chave_finais_juntos_sem_colidir_no_meio(self, db):
+        """A chave herdada na fusao nunca e aplicada com o nome antigo.
+
+        Tres linhas validas desde que a unicidade inclui o pci_id: a do Gran
+        "IFSP - SP" sem chave (casada pelo link), "IFSP - SP" do 296538 e
+        "IFSP" do 296538 com estrela. A atualizacao assume o nome "IFSP" e
+        funde a linha 3. Se a linha 1 herdasse o 296538 ainda chamada
+        "IFSP - SP", ela empataria com a linha 2 na unicidade e a escrita
+        inteira se perderia. O estado final ("IFSP", 296538) e livre assim que
+        a linha 3 e incorporada.
+        """
+        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
+        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
+        conn = sqlite3.connect(db.db_path)
+        conn.executemany(
+            "INSERT INTO editais (id, area, nome, status, link, fonte, pci_id, estado_usuario) "
+            "VALUES (?, 'TI', ?, ?, ?, ?, ?, ?)",
+            [(1, "IFSP - SP", "gran", link_gran, "gran", None, "ativo"),
+             (2, "IFSP - SP", "tecnico com outro nome", None, "pci_mcp", IFSP_TECNICO_PCI, "ativo"),
+             (3, "IFSP", "tecnico", None, "pci_mcp", IFSP_TECNICO_PCI, "seguindo")],
+        )
+        conn.commit()
+        conn.close()
+
+        assert db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran) == 1
+
+        casada = db.buscar_registro("", link=link_gran, url_indice=url_gran)
+        assert (casada["id"], casada["nome"], casada["status"]) == (1, "IFSP", "novo")
+        assert casada["pci_id"] == IFSP_TECNICO_PCI
+        assert casada["estado_usuario"] == "seguindo"
+        intacta = db.buscar_registro("IFSP - SP")
+        assert (intacta["id"], intacta["nome"], intacta["status"], intacta["pci_id"]) == (
+            2, "IFSP - SP", "tecnico com outro nome", IFSP_TECNICO_PCI
+        )
+        assert db.contar_por_fonte("pci_mcp") == 1
+        assert db.contar_por_fonte("gran") == 1
+
     def test_pci_id_rechaveia_pelo_link_com_nome_de_outra_entidade(self, db):
         """R-81 pelo link: o nome legado nao casaria nem por nome nem por entidade."""
         id_legado = db.atualizar_concurso(
@@ -985,6 +1022,45 @@ class TestIdentidadePeloPciId:
         assert any(
             "colisao de identidade" in m.lower() and IFSP_TECNICO_PCI in m for m in erros
         )
+
+    def test_colisao_depois_de_uma_fusao_desfaz_a_fusao(self, db, caplog):
+        """R-86: escrita perdida nao leva junto as linhas que a fusao apagou.
+
+        Duas grafias do Gran do mesmo orgao. A atualizacao pelo link funde
+        "IFSP" na linha casada e entao a escrita final falha (o gatilho faz o
+        papel da colisao que o codigo nao previu). O erro sai nomeado e o banco
+        volta a ter as duas linhas como estavam.
+        """
+        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
+        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
+        conn = sqlite3.connect(db.db_path)
+        conn.executemany(
+            "INSERT INTO editais (area, nome, status, link, fonte) VALUES ('TI', ?, ?, ?, 'gran')",
+            [("IFSP - SP", "casada", link_gran), ("IFSP", "grafia", None)],
+        )
+        conn.execute(
+            """
+            CREATE TRIGGER escrita_final_falha BEFORE UPDATE ON editais
+            WHEN NEW.status = 'novo'
+            BEGIN
+                SELECT RAISE(ABORT, 'UNIQUE constraint failed: editais.nome (simulado)');
+            END
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        with caplog.at_level("ERROR", logger="DatabaseManager"):
+            id_ = db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran)
+
+        assert id_ == 0
+        erros = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert any("colisao de identidade" in m.lower() for m in erros)
+        assert db.contar_por_fonte("gran") == 2
+        casada = db.buscar_registro("", link=link_gran, url_indice=url_gran)
+        assert (casada["id"], casada["nome"], casada["status"]) == (1, "IFSP - SP", "casada")
+        grafia = db.buscar_registro("IFSP")
+        assert (grafia["id"], grafia["nome"], grafia["status"]) == (2, "IFSP", "grafia")
 
 
 # Linhas do banco anterior a abertura da unicidade, escritas a mao com todos os
@@ -1191,6 +1267,28 @@ class TestDesempateDasBuscas:
             [(2, "IFSP", "mais nova", IFSP_TECNICO_PCI),
              (1, "Instituto Federal de Sao Paulo", "mais antiga", IFSP_TECNICO_PCI)],
         )
+        conn.commit()
+        conn.close()
+
+        registro = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
+
+        assert (registro["id"], registro["status"]) == (1, "mais antiga")
+
+    def test_busca_pelo_pci_id_empatada_nao_depende_do_indice(self, db):
+        """O desempate vale mesmo com um indice que guarda a ordem contraria.
+
+        O indice abaixo cobre a busca pelo pci_id e guarda as linhas em id
+        decrescente: sem o desempate explicito, a primeira linha que ele
+        devolve e a mais nova.
+        """
+        conn = sqlite3.connect(db.db_path)
+        conn.executemany(
+            "INSERT INTO editais (id, area, nome, status, fonte, pci_id) "
+            "VALUES (?, 'TI', ?, ?, 'pci_mcp', ?)",
+            [(1, "Instituto Federal de Sao Paulo", "mais antiga", IFSP_TECNICO_PCI),
+             (2, "IFSP", "mais nova", IFSP_TECNICO_PCI)],
+        )
+        conn.execute("CREATE INDEX idx_ordem_contraria ON editais (area, pci_id, id DESC)")
         conn.commit()
         conn.close()
 
