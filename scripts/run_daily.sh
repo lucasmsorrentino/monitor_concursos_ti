@@ -34,6 +34,9 @@ LOCK="$LOG_DIR/.run_daily.lock"
 # 22/10/2026 foram 24 "ficou N dias sem rodar" por dia, junto com o alerta do
 # proprio bot sobre a mesma falha.
 DEAD_MAN_MARK="$LOG_DIR/.last_dead_man_alert"
+# Instante ISO (uma linha) a partir do qual a cota da LLM volta. Quem escreve e
+# o tratamento de erro de cota; este script so honra o marcador.
+RETRY_MARK="$LOG_DIR/.retry_nao_antes"
 
 # Cron tem PATH minimo; o backend claude-cli precisa do `claude` em ~/.local/bin.
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
@@ -50,6 +53,23 @@ mkdir -p "$LOG_DIR"
 # Ja rodou com sucesso hoje? Entao este tick do cron e so catch-up — sai quieto.
 if [[ -f "$MARKER" && "$(cat "$MARKER")" == "$HOJE" ]]; then
     exit 0
+fi
+
+# O provedor disse a que horas a cota da LLM reseta? Repetir antes daquela hora
+# e certeza de falhar igual, e cada tick repetido repassa a matriz de decisao
+# em todas as linhas do banco. Sai antes do lock, como o marcador do dia, com
+# no maximo uma linha no log. Fail-open: marcador ausente, vazio, ilegivel,
+# com data invalida ou com instante no passado nao impede a varredura, porque
+# na duvida rodar custa uma varredura e ficar parado custa um dia de
+# monitoramento. Instante ISO sem fuso explicito vale o fuso local da maquina
+# (ADR-0004); com offset, o date -d converte antes de comparar.
+if [[ -r "$RETRY_MARK" ]]; then
+    NAO_ANTES="$(cat "$RETRY_MARK" 2>/dev/null)"
+    RESET_EPOCH="$(date -d "$NAO_ANTES" +%s 2>/dev/null)"
+    if [[ "$RESET_EPOCH" =~ ^[0-9]+$ ]] && (( RESET_EPOCH > $(date +%s) )); then
+        echo "[espera] cota da LLM reseta as $NAO_ANTES; tick sai sem rodar." >> "$LOG_FILE"
+        exit 0
+    fi
 fi
 
 # --- dead-man's-switch -------------------------------------------------------
