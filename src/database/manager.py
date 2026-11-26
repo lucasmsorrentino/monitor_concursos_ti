@@ -549,10 +549,13 @@ class DatabaseManager:
 
             if existente:
                 id_ = existente["id"]
-                nome_final = self._resolver_nome_sem_colisao(
+                nome_final, pci_id_final = self._resolver_nome_sem_colisao(
                     cursor, id_, existente["nome"], nome,
                     pci_id=pci_id or existente["pci_id"],
                 )
+                # Nome e chave finais entram no MESMO UPDATE: a chave herdada
+                # numa fusao, aplicada com o nome antigo, podia empatar com
+                # outra linha na unicidade e perder a escrita inteira.
                 # COALESCE em todo campo opcional: uma fonte que nao conhece o
                 # prazo (PCI de concurso so previsto) nao pode apagar o prazo
                 # que a outra ja tinha descoberto.
@@ -580,7 +583,7 @@ class DatabaseManager:
                      WHERE id = ?
                     """,
                     (nome_final, status, link, status_hash, data_fim_inscricao,
-                     fase, fonte, pci_id, uf, regiao, esfera, cargos_total,
+                     fase, fonte, pci_id_final, uf, regiao, esfera, cargos_total,
                      salario_teto, elegibilidade, motivo_filtro, id_),
                 )
                 self.conn.commit()
@@ -625,7 +628,7 @@ class DatabaseManager:
         nome_atual: str,
         nome_novo: str,
         pci_id: str | None = None,
-    ) -> str:
+    ) -> tuple[str, str | None]:
         """Decide o `nome` da linha, FUNDINDO duplicatas do mesmo orgao.
 
         Antes esta funcao so desistia do nome novo quando ele colidia, e as duas
@@ -651,8 +654,9 @@ class DatabaseManager:
         pode dar o `pci_id` a esta linha, e a partir dai uma grafia com outro
         `pci_id` passa a ser outro edital: uma linha nunca absorve dois.
         """
+        pci_id_da_linha = _pci_id_ou_none(pci_id)
         if not nome_novo or nome_novo == nome_atual:
-            return nome_atual
+            return nome_atual, pci_id_da_linha
 
         conflitos = cursor.execute(
             "SELECT * FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE AND id != ?"
@@ -660,21 +664,22 @@ class DatabaseManager:
             (self.area, nome_novo, id_existente, nome_novo),
         ).fetchall()
 
-        pci_id_da_linha = _pci_id_ou_none(pci_id)
         mesmo_orgao = mesma_entidade(nome_novo, nome_atual)
         for conflito in conflitos:
             pci_id_do_conflito = _pci_id_ou_none(conflito["pci_id"])
             if pci_id_da_linha and pci_id_do_conflito and pci_id_do_conflito != pci_id_da_linha:
                 continue
             if not mesmo_orgao:
+                # `mesmo_orgao` nao muda no laco: este retorno so acontece
+                # antes de qualquer fusao, entao nao ha chave herdada a perder.
                 self.logger.warning(
                     f"Nome {nome_novo!r} colide com id={conflito['id']} e nao e o mesmo orgao; "
                     f"mantendo {nome_atual!r} em id={id_existente}."
                 )
-                return nome_atual
+                return nome_atual, pci_id_da_linha
             self._fundir(cursor, mantem=id_existente, descarta=dict(conflito))
             pci_id_da_linha = pci_id_da_linha or pci_id_do_conflito
-        return nome_novo
+        return nome_novo, pci_id_da_linha
 
     def _fundir(self, cursor: sqlite3.Cursor, mantem: int, descarta: dict) -> None:
         """Funde a linha `descarta` na linha `mantem` e remove a duplicata.
@@ -696,19 +701,17 @@ class DatabaseManager:
         fase_final = fase_mais_avancada(atual["fase"], descarta.get("fase"))
 
         cursor.execute(
-            f"""
+            """
             UPDATE editais
                SET estado_usuario = ?,
                    fase = COALESCE(?, fase),
                    data_fim_inscricao = COALESCE(data_fim_inscricao, ?),
                    link = COALESCE(link, ?),
-                   pci_id = COALESCE({_PCI_ID_SQL}, ?),
                    fonte = COALESCE(fonte, ?)
              WHERE id = ?
             """,
             (estado, fase_final, descarta.get("data_fim_inscricao"),
-             descarta.get("link"), _pci_id_ou_none(descarta.get("pci_id")),
-             descarta.get("fonte"), mantem),
+             descarta.get("link"), descarta.get("fonte"), mantem),
         )
         cursor.execute("DELETE FROM editais WHERE id = ?", (descarta["id"],))
         self.logger.info(
