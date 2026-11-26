@@ -5,22 +5,22 @@ tipo: codigo
 nivel: G-
 status: pronto
 repo: principal
-spec: [SPEC-003, R-80, R-81, R-82, R-83, R-84, R-85, R-86]
+spec: [SPEC-003, R-80, R-81, R-82, R-83, R-84, R-85, R-86, R-99]
 depende_de: []
 toca: [src/database/manager.py, tests/test_database_manager.py, docs/adr/0005-identidade-do-concurso.md, CLAUDE.md]
 recursos: []
 afinidade:
-retornos: 0
-atualizado: 2026-11-25T18:31-03:00
+retornos: 3
+atualizado: 2026-11-26T14:57-03:00
 branch: t/T-020-identidade-do-concurso-o-pci-id-que-disc
 executor: codex
 executor_impl: opus
-corpo_lancado: 86a87b70ce09
-sessao: 32da4d18-7b91-4540-a447-23376e479efe
+corpo_lancado: 34d74ae4a9e8
+sessao: 69c0b69e-cc45-4604-ad92-873be6a2fdf3
 fora_do_toca: []
-ponta: 17537ba8e91e9c9f07beeed3a512472fb6184c68
+ponta: 09b4d0a0a12e7419e95f446aab99f8b600ff81db
 executor_rev: codex
-motivo: arquiteto julgou o BLOQUEADO: tres achados confirmados viram 2a rodada; o alerta do R-86 saiu para o T-026 por decisao do dono
+motivo: escopo reduzido por decisao do dono em 26/11/2026: a regra de nome e fusao saiu para o T-028 (R-100) e o R-99 conservador entra no lugar
 ---
 # T-020 · Identidade do concurso: o pci_id que discorda vence o nome
 
@@ -49,23 +49,36 @@ unicidade tem de abrir junto, e e isso que faz deste um ticket de mao unica.
 - [ ] Item com `pci_id` **casa** com linha de `pci_id` nulo e grava o `pci_id` nela, mantendo a rechave da
       ADR-0001 (R-81)
 - [ ] Item **sem** `pci_id` mantem a ordem de identidade de hoje, sem mudanca de comportamento (R-82)
+- [ ] As quatro buscas de identidade tem desempate explicito pelo menor `id`: nenhuma delas depende de qual
+      indice o planejador do SQLite escolheu
+- [ ] O `pci_id` tem **um** criterio de nulidade (`NULL` ou vazio; qualquer outro valor e chave), o mesmo na
+      busca, na escrita e no indice
 - [ ] Dois editais do mesmo orgao e da mesma area coexistem como duas linhas, cada uma com o seu `pci_id`,
       `data_fim_inscricao` e `fase` (R-83)
 - [ ] A migracao preserva `id`, `estado_usuario` e todos os campos de todas as linhas; a contagem de linhas
       antes e depois e a mesma; nenhuma linha e apagada e nenhuma e fundida (R-84)
 - [ ] A migracao **nao** divide linha que ja colidiu (R-85)
+- [ ] A migracao e idempotente: rodada duas vezes no mesmo banco, a segunda nao muda nada
 - [ ] Colisao de identidade que o codigo nao consiga resolver entra no log como erro nomeado, nunca como
       silencio (R-86)
-- [ ] A migracao e idempotente: rodada duas vezes no mesmo banco, a segunda nao muda nada
-- [ ] `docs/adr/0005-identidade-do-concurso.md` registra a decisao, as duas opcoes da SPEC-003 secao 4 item 1
-      e qual delas o dono escolheu
-- [ ] Suite inteira verde; nenhum teste existente afrouxado, renomeado ou apagado
+- [ ] O `_resolver_nome_sem_colisao` e **conservador**: o nome novo so vence quando nenhuma outra linha da
+      area o ocupa (COLLATE NOCASE); havendo qualquer conflito, mantem o nome atual e loga (R-99)
+- [ ] **Nenhum caminho** do `atualizar_concurso` funde linha ou apaga linha. O `_fundir` sai do arquivo, e a
+      regra do `estado_usuario` que ele carregava (`seguindo` > `ignorado` > `ativo`, de qualquer das duas
+      linhas) fica registrada na ADR-0005 como o que o T-028 tem de preservar quando reescrever a fusao
+      (R-99)
+- [ ] `docs/adr/0005-identidade-do-concurso.md` registra a decisao da unicidade, as duas opcoes da SPEC-003
+      secao 4 item 1 e qual o dono escolheu, e **remete ao T-028** a tabela de decisao do nome (R-100)
+- [ ] Suite inteira verde; nenhum teste existente afrouxado, renomeado ou apagado, com **uma** excecao
+      nomeada: teste que afirma o `UNIQUE(area, nome)` de tabela muda de forma, porque trocar essa unicidade
+      e o objeto deste ticket. Teste que afirma fusao de linha sai junto com o comportamento, e o relatorio
+      lista cada um pelo nome
 
 ## Plano de testes
 Costura: `DatabaseManager.buscar_registro` e `DatabaseManager.atualizar_concurso`, sobre banco temporario em
 **arquivo** (nao `:memory:`, para a migracao ser exercitada de verdade). Pega: a ordem de identidade, o
-`INSERT` de dois editais do mesmo orgao, a migracao e a idempotencia dela. Nao pega: a decisao de notificar,
-que e do `src/core/bot.py` e nao muda neste ticket.
+desempate, o criterio de nulidade, o `INSERT` de dois editais do mesmo orgao, a migracao e a idempotencia
+dela. Nao pega: a decisao de notificar, que e do `src/core/bot.py` e nao muda neste ticket.
 Oráculo: literais escritos a mao a partir dos dados reais de 25/11 (os dois editais do IFSP, com `pci_id`
 distintos e prazos distintos) e a tabela de requisitos da SPEC-003 secao 3.1.
 
@@ -79,6 +92,8 @@ Testes que nascem vermelhos:
 - `test_pci_id_casa_com_linha_sem_pci_id_e_rechaveia` — linha de `pci_id` nulo: casa, e a linha sai com o
   `pci_id` gravado.
 - `test_item_sem_pci_id_mantem_a_ordem_de_hoje` — guarda de nao-regressao do Gran e das portas de HTML.
+- `test_busca_empatada_escolhe_a_linha_mais_antiga` — nas quatro buscas, com empate plantado.
+- `test_pci_id_vazio_conta_como_nulo_na_busca_e_na_escrita` — o criterio unico de nulidade.
 - `test_dois_editais_do_mesmo_orgao_viram_duas_linhas` — dois `atualizar_concurso` com `pci_id` distintos e o
   mesmo nome: dois `id` distintos, os dois prazos preservados.
 - `test_segunda_linha_nao_sobrescreve_o_prazo_da_primeira` — o caso exato do IFSP. **E o teste que mata o
@@ -87,14 +102,27 @@ Testes que nascem vermelhos:
   marcada `seguindo`.
 - `test_migracao_rodada_duas_vezes_nao_muda_nada`
 - `test_colisao_irresolvivel_vira_erro_no_log_nao_silencio`
+- `test_nome_novo_vence_quando_ninguem_ocupa` — R-99, o unico caminho em que o nome muda.
+- `test_nome_em_conflito_mantem_o_nome_atual_e_loga` — R-99, com o conflito sendo do mesmo orgao numa
+  execucao e de outro orgao na outra: **o resultado e o mesmo nas duas**, e e isso que o teste afirma.
+- `test_nenhum_caminho_funde_ou_apaga_linha` — bateria de cenarios, afirmando a contagem de linhas antes e
+  depois e que todos os `id` continuam no banco.
+- `test_nome_nao_vira_de_outro_orgao_o_caso_do_parecer_5` — **a regressao do quarto defeito, pelo cenario
+  exato do parecer**: `id=1` IFSP - SP, chave `296538`, link `/a`; `id=2` TJPR, chave `296044`, link `/b`;
+  `atualizar_concurso` com nome TJPR, link `/a` e sem `pci_id`. Afirma que `id=1` continua IFSP - SP e que
+  `buscar_registro("TJPR")` devolve `id=2`, nao `id=1`.
 
 ## Fora do escopo
-- Reparar as linhas que **ja** colidiram. E outro ticket, que depende deste.
+- Reparar as linhas que **ja** colidiram. E outro ticket (T-023), que depende deste.
 - Mexer na matriz de decisao ou na elegibilidade. Foram conferidas e estao corretas.
 - Dividir linha colidida durante a migracao: o R-85 proibe, porque separar exige julgamento sobre qual dado
   pertence a qual edital.
 - Ampliar a lista fechada de esfera, ou qualquer outra mudanca no `_buscar_por_entidade` alem de passar a
   respeitar o `pci_id`.
+- **A regra de nome e de fusao.** Saiu deste ticket em 26/11/2026, por decisao do dono (SPEC-003 secao 4
+  item 6), e virou o **T-028**, com requisito proprio (R-100) e a tabela de decisao como primeira entrega.
+  Aqui vale o R-99, que e conservador de proposito. Nao reintroduza fusao, nem «so para o caso obvio».
+- Concorrencia, WAL, `BEGIN IMMEDIATE`: viraram o T-027 (R-98), com medida registrada.
 
 ## Notas do arquiteto
 
@@ -148,6 +176,104 @@ O gate de integracao (a linha «OK do Lucas:») segue em aberto, como desde o in
 
 **Decisão do arquiteto (2026-11-25 18:31):** ACHADO 4 decidido, 25/11/2026: o dono respondeu «Ticket separado». O alerta do dia saiu deste ticket e virou o T-026, com o requisito partido em R-86 (log, aqui) e R-97 (alerta, la), registrado na SPEC-003 secao 4 item 5. Portanto: NAO toque em src/core/bot.py nesta rodada. O log nomeado que voce ja entregou e exatamente o escopo do R-86 e esta aceito. A segunda rodada e so os tres achados confirmados da nota anterior, mais os tres itens menores. O parecer completo do revisor esta em kanban/relatorios/T-020-revisor-1.md, no repo: leia antes de comecar, ele tem os numeros das linhas e os cenarios exatos que ele reproduziu. O CLAUDE.md entrou no toca deste ticket.
 
+**Decisão do arquiteto (2026-11-26 13:09):** Terceira rodada. Decisao do arquiteto, 26/11/2026, sobre o REPROVADO do revisor (Codex, G- high). Os dois achados sao reais e confirmei os dois. Mas um deles NAO deve ser implementado como esta escrito, e e por isso que esta nota existe.
+
+ACHADO 1, a escrita no edital errado: CONFIRMADO, e e o grave. A causa raiz nao e a migracao: e que as buscas de fallback sem chave NAO TEM DESEMPATE. Elas pegam a primeira linha que o indice devolver, e qual e a primeira depende de qual indice o SQLite escolhe. Antes, o plano usava o `sqlite_autoindex_editais_1` do `UNIQUE(area, nome)`, em ordem BINARY, onde maiuscula vem antes de minuscula. Depois da migracao o plano usa o `idx_editais_pci`, e a primeira linha muda. Com `(1, "ifsp", pci 100)` e `(2, "IFSP", pci 900)` no mesmo link, a mesma atualizacao sem `pci_id` acertava o id 2 e passou a acertar o id 1. Isso e **mover historia de um edital para outro em silencio**, que e exatamente o que este ticket existe para impedir.
+Restricao do conserto, e aqui esta a parte que o parecer nao diz: o desempate tem de ser deterministico **e** igual ao resultado de antes da migracao para as linhas que existem hoje. So `ORDER BY id` e deterministico e esta ERRADO, porque muda a resposta e reatribui dado entre dois editais. Reproduza a ordem antiga de proposito, e escreva no codigo por que ela e essa, senao a proxima pessoa a "limpa". O teste tem de ter os ids em ordem oposta a dos nomes, em banco v6 migrado, afirmando pelos tres fallbacks qual id foi escolhido, o status novo num e o status original no outro.
+
+ACHADO 2, o `pci_id` de um espaco: CONFIRMADO, mas **o espaco nao e o defeito**. O defeito e que ha DOIS critarios de nulidade em duas camadas: no Python, `" "` conta como ausente, entao a fusao e autorizada e a chave da outra linha e descartada; no SQL, `NULLIF(pci_id, '')` conta como presente, entao a chave valida nao e herdada. Qualquer valor em que as duas camadas discordem destroi uma chave canonica valida. O espaco e so a testemunha.
+Portanto: **nao acrescente caso especial para espaco em branco.** Unifique o critario de nulidade num lugar so e use o mesmo na escrita, na busca, na fusao e no indice. Se o critario passar a ser "vazio depois de tirar espaco", o indice tambem precisa ver isso.
+E nao discuta se um espaco chega do scraper. Nao importa: o conserto e barato e a consequencia de ele acontecer e perder o `pci_id`, que e a pior coisa que este modulo pode fazer.
+
+PLUMBING, e isso te afeta: a base deste worktree e anterior ao commit da spec. A copia da SPEC-003 que esta aqui dentro ainda tem a redacao ANTIGA do R-86, pedindo log e alerta do dia. A redacao normativa esta na `main`. Vou relancar com `--atualizar-base`, entao voce vai receber o T-021 e o T-025 na base e a spec correta. **Nao reintroduza o alerta do dia**: ele e o R-97, no T-026, por decisao do dono.
+
+Do parecer, duas coisas ficam registradas como acerto. O revisor achou os dois defeitos por experimento diferencial em bancos temporarios, nao por leitura: e a segunda vez na mesma rodada que isso acontece, e nenhum teste verde pegaria. E ele foi conferir a spec normativa na `main` em vez de confiar na copia do worktree, que estava velha.
+
+Aviso de processo, para voce saber onde pisa: esta foi a PRIMEIRA reprovacao. Uma segunda bloqueia o ticket, e ai eu o quebro ou subo o nivel. Se chegar nisso, o corte ja esta pensado e nao e pelo meio: a migracao em si esta provada (R-84, R-85, idempotencia, preserva id e `sqlite_sequence`, arquivo igual na segunda abertura), e todos os defeitos das duas rodadas vivem na logica de identidade conversando com linha legada. O corte seria migracao e schema de um lado, determinismo dos fallbacks legados do outro.
+
+O gate de integracao (a linha «OK do Lucas:») segue em aberto.
+
+**Decisão do arquiteto (2026-11-26 13:11):** Plumbing, correcao de detalhe da nota anterior: o --atualizar-base so vale para o revisor, entao trouxe a main para esta branch por merge, a mao, em 26/11/2026. O merge foi limpo, sem conflito, inclusive no CLAUDE.md que o T-021 tambem havia tocado, e rodei a suite depois para descartar conflito semantico: 603 passed. Portanto a base desta rodada NAO e mais o d5fdae7: e o merge, com 603 testes, que ja inclui o T-021, o T-025 e a spec normativa. Medir contra 582 ou 569 agora da numero errado.
+
+**Decisão do arquiteto (2026-11-26 13:21):** Quarta rodada. Decisao do arquiteto, 26/11/2026. Voce parou pelo motivo certo, e o furo era da minha nota: ela mandava "preservar o comportamento de antes" sem eu ter medido de qual banco eu estava falando. Fui medir a producao, so leitura, pelo SSH. Segue o que o banco de verdade diz, com numero, para esta rodada nao precisar de mais nenhuma pergunta.
+
+MEDIDO EM PRODUCAO, 26/11/2026, 1.725 linhas:
+- `idx_editais_pci` EXISTE. Sua hipotese estava certa, e a minha instrucao, implementada ao pe da letra, teria MUDADO a linha escolhida em producao. Foi bom voce ter parado.
+- Empates de nome (`area` + `nome` sem caixa): **zero grupos**. E garantido pelo proprio `UNIQUE(area, nome)` do v6, que nao deixa dois nomes iguais na mesma area. O cenario `IFSP`/`ifsp`/`IFSP - SP` que o revisor montou **nao existe em producao**: e forma sintetica de banco legado.
+- Empates de link: **2 grupos**, de 2 e 5 linhas, e os dois sao a pagina-indice do Gran (`blog.grancursosonline.com.br/concursos-ti/` e `/concursos-educacao/`). O `_link_e_especifico` recusa exatamente esses quando o `url_indice` e passado, entao eles nao chegam a empatar na busca por link.
+- `pci_id` vazio: 0. So espaco: 0. Nao numerico: 0. 158 sao NULL, que e o esperado (Gran e portas de HTML). Ou seja: o conserto do critario de nulidade que voce acabou de fazer esta certo e continua, mas a urgencia dele em producao e zero. Isso e bom saber, nao motivo para desfazer.
+- `pci_id` repetido: 429 grupos, 926 linhas. **Todos os 429 cruzam area, e dentro de uma area mesma nao ha nenhum.** E o esperado: um concurso que abre vaga de TI e de educacao aparece nas duas areas, uma linha em cada. Como toda busca filtra `WHERE area = ?`, isso nao produz empate nenhum. O achado que voce levantou de brinde e verdadeiro e inofensivo hoje, e e por isso que ele vale um desempate de barato, nao um conserto de urgencia.
+
+CONCLUSAO QUE ISSO FORCA: hoje, em producao, **nenhuma busca sem chave tem empate**. Logo a regra de desempate nao muda nenhuma linha existente. Ela e garantia para o futuro, nao compatibilidade de migracao. Isso derruba a minha propria objecao da nota anterior.
+
+DECISAO, e ela REVOGA o que a nota 3 dizia sobre o `ORDER BY id`:
+1. Ponha o desempate EXPLICITO no SQL de todas as buscas sem chave, e tambem na busca pelo `pci_id`. O criterio e `ORDER BY id` ASC: a linha mais antiga ganha. Razao a escrever no codigo: linha mais antiga e a de historia mais longa, e portanto a que provavelmente carrega a estrela do Lucas; e um resultado explicito nunca depende de qual indice o planejador escolheu, que foi a causa raiz da regressao do revisor.
+2. Eu proibi `ORDER BY id` na nota anterior porque, no banco sintetico do revisor, ele mudava a resposta. Com empate zero em producao, essa objecao caiu. Nao e volta atras por conveniencia: e a medida substituindo a suposicao.
+3. O teste que a nota 3 pedia muda de expectativa: ele passa a afirmar a regra explicita, e nao a ordem antiga do indice. Deixe no proprio teste um comentario dizendo que a forma do banco de producao nao tem empate e que a regra e deterministica por escolha, senao a proxima pessoa le o teste como se ele descrevesse producao.
+4. Inclua a busca pelo `pci_id` no mesmo desempate. Isso entra no escopo de proposito: e a mesma familia de consulta, no mesmo arquivo, e fecha a lacuna que voce apontou com uma clausula.
+
+Nao e preciso mais nada do notebook. Nao me pergunte de novo sobre a forma do banco: o que esta acima e a medida, nao a estimativa.
+
+O gate de integracao (a linha «OK do Lucas:») segue em aberto.
+
+**Decisão do arquiteto (2026-11-26 13:41):** Quinta rodada. Decisao do arquiteto sobre a SEGUNDA reprovacao, 26/11/2026. Pelas regras eu podia quebrar o ticket ou subir o nivel. Fiz nenhum dos dois, e explico por que, porque isso tambem e informacao para quem ler o historico depois.
+
+O revisor trouxe dois achados. Eles parecem o mesmo tipo de coisa e NAO SAO. Separei por medida.
+
+ACHADO 1, a janela entre a decisao e a escrita: REAL em laboratorio, INALCANCAVEL aqui. Ele reproduziu com duas conexoes e sincronizacao determinista, o que exige dois escritores. Fui medir: nao ha thread, async nem multiprocessing em `src/` nem no `main.py`; o `flock -n` do `run_daily.sh` impede duas varreduras ao mesmo tempo; o notebook nao tem servico residente (nenhum `systemd`, nenhum processo do monitor entre varreduras); e os callbacks do Telegram, que tambem escrevem, rodam DENTRO da varredura, chamados pelo `_processar_callbacks_telegram`. Um escritor so, por construcao. **Saiu deste ticket e virou o T-027**, com o requisito R-98 na SPEC-003 e a medida registrada com data. Nao e requisito abandonado: e requisito de garantia, com as tres mudancas que o tornam vivo nomeadas no ticket.
+
+ACHADO 2, a colisao no estado intermediario da fusao: REAL, ALCANCAVEL COM UM ESCRITOR SO, e **e defeito que este ticket cria**. Repare na frase do proprio parecer: «sem outro escritor». Com `(1, "IFSP - SP", NULL)`, `(2, "IFSP - SP", "296538")` e `(3, "IFSP", "296538")`, a linha 1 herda a chave da 3 enquanto ainda se chama "IFSP - SP", e nesse instante a chave dela fica igual a da linha 2. Colide, da rollback, devolve 0 e a atualizacao valida e perdida.
+Medi tambem por que isso nao acontece hoje: producao tem **zero empates de nome**, porque o `UNIQUE(area, nome)` do v6 nao deixa. Mas a sua propria mudanca abre essa forma de proposito, e e disso que se trata: trocar a unicidade cria estados novos alcancaveis, e um deles e este. O defeito nasce com o ticket, entao morre com o ticket.
+Conserto pedido: a fusao e a gravacao do nome e da chave finais na mesma transacao, numa ordem que nunca passe por um estado intermediario conflitante. Nao aplique a chave nova com o nome antigo. O teste e o cenario das tres linhas pelo link especifico, afirmando retorno 1, status novo, a chave final, o `estado_usuario` «seguindo» herdado da linha 3, e a linha 2 intacta.
+
+ESCOPO DESTA RODADA: so o ACHADO 2. Nao toque em concorrencia, nao ligue WAL, nao mexa na ordem de identidade nem no desempate, que estao provados.
+
+POR QUE NAO SUBI O NIVEL NEM QUEBREI: as quatro rodadas nao foram o implementador errando o alvo. Cada rodada consertou o que foi pedido, e o revisor achou uma camada mais funda. A superficie encolheu a cada volta: migracao provada, ordem de identidade provada, desempate provado, e agora sobra UMA ordenacao dentro da fusao. Isso e convergencia, nao patinacao. Subir para G+ por uma ordem de operacoes seria exagero, e quebrar criaria dois tickets com revisao dobrada para um conserto de uma funcao.
+O que eu reconheco como meu erro, e vai para a retro da fase: a spec nao enumerou os estados NOVOS que abrir a unicidade passa a permitir. Se tivesse, o ACHADO 2 estaria no plano de testes da primeira rodada. Mudanca de unicidade cria estados alcancaveis novos, e o ticket tem de listar quais.
+
+O gate de integracao (a linha «OK do Lucas:») segue em aberto.
+
+**Decisão do arquiteto (2026-11-26 14:07):** TERCEIRA REPROVACAO. Analise do arquiteto, 26/11/2026. Nao e para a proxima rodada: e o diagnostico do ticket, e a decisao de escopo esta com o dono.
+
+OS QUATRO DEFEITOS, EM ORDEM, E O QUE ELES TEM EM COMUM:
+1. (rodada 1) Fundia um conflito quando havia varios; o que sobrava ocupava o nome e a gravacao era perdida.
+2. (rodadas 2 a 4) A linha escolhida nas buscas sem chave dependia de qual indice o planejador usava, e a migracao trocou o indice.
+3. (rodada 5) A linha herdava a chave com o nome antigo e colidia num estado intermediario.
+4. (agora) Um `continue` na discordancia de chave acontece ANTES da checagem de mesmo orgao. Quando o unico conflito e de outro orgao com outra chave, a funcao aceita o nome disputado: o IFSP passa a se chamar TJPR, e a busca sem chave por TJPR devolve a linha do IFSP.
+
+Os quatro vivem na MESMA familia: `_resolver_nome_sem_colisao`, `_fundir` e as buscas de fallback. A funcao decide tres coisas ao mesmo tempo (qual nome fica, se funde, se herda a chave) por uma SEQUENCIA DE GUARDAS, e a ordem dessas guardas esteve errada de um jeito diferente em cada rodada. O conserto obvio deste quarto defeito e mover a checagem de orgao para antes do `continue`: uma linha. Seria a QUINTA emenda na mesma sequencia, e e por isso que eu nao vou pedi-la.
+
+JUSTICA COM AS DECISOES ANTERIORES, porque isso importa para quem ler depois: a tabela do proprio parecer mostra que a regressao do nome entrou em `47291be`, na primeira rodada, e atravessou as rodadas 2 a 5 sem ser vista. O desempate pelo menor id, que EU aprovei em 26/11, nao causou o defeito: ele tornou o efeito deterministico e portanto visivel. Sem ele, este defeito continuaria no banco mudando de comportamento com o humor do planejador.
+
+O DIAGNOSTICO: o problema nao e nenhuma das quatro guardas. E que a regra nunca foi escrita como regra. Nao existe, nem na spec nem na ADR, a enumeracao dos estados que a troca de unicidade passa a permitir, com o que acontece em cada um. Sem essa tabela, cada rodada conserta o caso que o revisor trouxe e o proximo caso nao conservado continua la. Isso e o mesmo erro meu que eu ja havia anotado para a retro na nota da quinta rodada, e agora ele cobrou juros.
+
+PROPOSTA AO DONO, recomendada:
+(a) O T-020 fica com o que sobreviveu a TODAS as revisoes: a migracao (R-84, R-85, idempotencia, `id` e `sqlite_sequence` preservados, arquivo igual na segunda abertura), a ordem de identidade, o desempate explicito e o critario unico de nulidade. Nenhuma revisao contestou nada disso em cinco rodadas.
+(b) O `_resolver_nome_sem_colisao` e o `_fundir` VOLTAM ao comportamento da `main`, que e conservador: mantem o nome atual na duvida e nao escreve nome de outro orgao em linha nenhuma.
+(c) A logica de nome e fusao vira ticket proprio, G-, cuja PRIMEIRA entrega e a tabela de decisao enumerada na ADR (para cada combinacao de: o candidato tem chave, as chaves concordam, e o mesmo orgao, o item e sem chave), e so depois o codigo, com um teste por linha da tabela.
+
+POR QUE (b) E SEGURO, e isto e o ponto tecnico que sustenta a proposta: o motivo pelo qual o revisor exigiu "funda todos os conflitos" na rodada 2 era que a duplicata deixada para tras ocupava o nome e fazia o `UPDATE` colidir sob o `UNIQUE(area, nome)`. Com o indice novo por expressao, duas linhas de mesmo nome e chaves diferentes COEXISTEM legalmente. Ou seja: a razao da exigencia deixou de existir junto com a unicidade antiga. Voltar ao conservador nao perde nada que funcione hoje, e o que ele deixa de fazer (fundir duplicata legada) e justamente o trabalho do T-023, que existe para isso e pede julgamento humano.
+
+O ALTERNATIVO, que eu nao recomendo: uma sexta rodada movendo a guarda. Barato numa linha, e aposta de que o quinto caso nao existe, depois de quatro apostas perdidas.
+
+Decisao pendente com o Lucas. Nao lance nada neste ticket ate ela entrar aqui.
+
+**Decisão do arquiteto (2026-11-26 14:57):** DECISAO DO DONO, 26/11/2026: reduzir o ticket ao que esta provado. O dono respondeu «pode fazer o que recomendou» no chat. Registro na SPEC-003 secao 4 item 6. ESTA E A RODADA 6, e ela e de ESCOPO NOVO, nao a sexta tentativa do mesmo alvo.
+
+O QUE FICA, e nenhuma das cinco revisoes contestou: a migracao (R-84, R-85, idempotencia, id e sqlite_sequence preservados), a ordem de identidade (R-80, R-81, R-82), o desempate explicito pelo menor id nas quatro buscas, o criterio unico de nulidade do pci_id e o log nomeado da colisao (R-86).
+
+O QUE SAI: a regra de nome e de fusao. O _resolver_nome_sem_colisao passa a cumprir o R-99, conservador: o nome novo so vence quando NENHUMA outra linha da area o ocupa (COLLATE NOCASE); havendo qualquer conflito, mantem o nome atual e loga. O _fundir sai do arquivo e nenhum caminho funde nem apaga linha. A regra vira o T-028, cuja primeira entrega e a tabela de decisao do R-100, e nao codigo.
+
+POR QUE O CONSERVADOR E SEGURO, e isto foi medido hoje no log de producao, nao suposto: o caminho conservador (manter o nome atual) disparou 109 vezes na historia do bot, a ultima em 18/11/2026. A fusao disparou 7 vezes em toda a historia, a ultima em 15/09/2026, e nenhuma depois. O que o R-99 deixa de fazer e limpeza de duplicata legada que nao acontece ha dois meses e meio. E o motivo pelo qual o revisor exigiu «funda todos os conflitos» na rodada 2 morreu junto com a unicidade antiga: era o UPDATE colidir sob o UNIQUE(area, nome), e com o indice novo por expressao duas linhas de mesmo nome e chaves diferentes coexistem legalmente.
+
+E MAIS: a medida de hoje mostra que o estrago vivo em producao NAO vem da regra de nome. Vem do casamento, que e o que fica no ticket. A linha id=1284 (area TI, link igual a pagina-indice do Gran, pci_id nulo) passou por TRES nomes de municipios diferentes: Francisco Macedo (PI), Serra Grande (PB) e Luiz Alves (SC). Quatro linhas do banco carregam a pagina-indice como link (1038, 1265, 1284, 1404), e a busca por link usa fetchone sem ordem. Quem conserta isso e o R-80 mais o desempate, os dois deste ticket. A parte que estou cortando nunca causou o dano de producao: ela foi escrita em agosto para um problema que a unicidade nova resolve de outro jeito.
+
+O QUE FAZER NESTA RODADA, concretamente: reduzir a branch que ja existe (18 commits), nao comecar de novo. Apagar o _fundir e a logica de decisao de nome, deixar o _resolver_nome_sem_colisao com um caminho de mudanca de nome e um de preservacao, e apagar os testes que afirmam fusao, LISTANDO CADA UM PELO NOME no relatorio. Antes de apagar o _fundir, mover para a ADR-0005 a regra do estado_usuario que ele carregava (seguindo > ignorado > ativo, de qualquer das duas linhas), como o que o T-028 tem de preservar: essa regra protege a estrela que o Lucas marca a mao, e nao pode viver so no historico do git.
+
+E OBRIGATORIO entregar o teste test_nome_nao_vira_de_outro_orgao_o_caso_do_parecer_5, com o cenario exato do parecer 5 (id=1 IFSP - SP chave 296538 link /a; id=2 TJPR chave 296044 link /b; atualizar com nome TJPR, link /a e sem pci_id), afirmando que id=1 continua IFSP - SP e que buscar_registro de TJPR devolve id=2. Ele e a prova de que o corte fecha o quarto defeito, e nao so o esconde.
+
+O gate de integracao (a linha «OK do Lucas:») segue em aberto, de proposito: migracao de schema sobre 1.758 linhas de producao e porta de mao unica.
+
 ## Histórico
 - 2026-11-25 16:48 backlog → pronto · liberado: Lucas liberou no chat em 25/11/2026
 - 2026-11-25 16:49 pronto → fazendo · implementador · opus G- high
@@ -155,3 +281,20 @@ O gate de integracao (a linha «OK do Lucas:») segue em aberto, como desde o in
 - 2026-11-25 17:05 entregue → revisando · revisor · codex G- high
 - 2026-11-25 17:15 revisando → bloqueado · revisor: BLOQUEADO · relatório T-020-revisor-1.md · 11 min
 - 2026-11-25 18:31 bloqueado → pronto · manual: arquiteto julgou o BLOQUEADO: tres achados confirmados viram 2a rodada; o alerta do R-86 saiu para o T-026 por decisao do dono
+- 2026-11-26 12:47 pronto → fazendo · implementador · opus G- high
+- 2026-11-26 12:59 fazendo → entregue · implementador: ENTREGUE · relatório T-020-implementador-2.md · 13 min
+- 2026-11-26 13:00 entregue → revisando · revisor · codex G- high
+- 2026-11-26 13:09 revisando → pronto · revisor: REPROVADO · relatório T-020-revisor-2.md · 9 min
+- 2026-11-26 13:11 pronto → fazendo · implementador · opus G- high
+- 2026-11-26 13:20 fazendo → bloqueado · implementador: BLOQUEADO · relatório T-020-implementador-3.md · 10 min
+- 2026-11-26 13:21 bloqueado → pronto · manual: arquiteto mediu a producao e decidiu o desempate; a duvida que bloqueou foi respondida com numero
+- 2026-11-26 13:21 pronto → fazendo · implementador · opus G- high
+- 2026-11-26 13:29 fazendo → entregue · implementador: ENTREGUE · relatório T-020-implementador-4.md · 8 min
+- 2026-11-26 13:29 entregue → revisando · revisor · codex G- high
+- 2026-11-26 13:40 revisando → bloqueado · revisor: REPROVADO · relatório T-020-revisor-3.md · 11 min
+- 2026-11-26 13:41 bloqueado → pronto · manual: arquiteto separou os dois achados por medida: o de concorrencia virou T-027; sobra a ordem da fusao, que este ticket cria
+- 2026-11-26 13:41 pronto → fazendo · implementador · opus G- high
+- 2026-11-26 13:53 fazendo → entregue · implementador: ENTREGUE · relatório T-020-implementador-5.md · 13 min
+- 2026-11-26 13:56 entregue → revisando · revisor · codex G- high
+- 2026-11-26 14:06 revisando → bloqueado · revisor: REPROVADO · relatório T-020-revisor-4.md · 11 min
+- 2026-11-26 14:57 bloqueado → pronto · manual: escopo reduzido por decisao do dono em 26/11/2026: a regra de nome e fusao saiu para o T-028 (R-100) e o R-99 conservador entra no lugar
