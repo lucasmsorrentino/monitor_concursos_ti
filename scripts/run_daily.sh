@@ -4,6 +4,10 @@
 # Chamado DE HORA EM HORA pelo cron, nao mais so as 03h (ver install_schedule.sh):
 # - Marker de sucesso diario: se a varredura de HOJE ja concluiu com sucesso,
 #   sai imediatamente — os ticks restantes do dia sao no-op de 3 linhas.
+# - Marcador de espera da cota: se logs/.retry_nao_antes guarda um instante
+#   ainda no futuro, sai sem rodar — o provedor disse a que horas a cota da
+#   LLM volta, e repetir antes disso e certeza de falhar igual. Marcador
+#   ausente, vazio, ilegivel ou no passado nao impede a varredura.
 # - flock impede duas varreduras simultaneas (MultipleInstances=IgnoreNew).
 # - stdout/stderr vao para logs/run_YYYYMMDD.log (um arquivo por dia).
 #

@@ -216,7 +216,7 @@ monitor_concursos_ti/
 │   ├── install_schedule.ps1          # Instalador no Task Scheduler do Windows (com StartWhenAvailable)
 │   ├── run_daily.bat                 # Wrapper de execução diária no Windows
 │   ├── install_schedule.sh           # Instalador de cron horário + @reboot no Linux
-│   ├── run_daily.sh                  # Wrapper Linux: 1 sucesso/dia + catch-up horário + dead-man's-switch
+│   ├── run_daily.sh                  # Wrapper Linux: 1 sucesso/dia + catch-up horário + espera do reset da cota + dead-man's-switch
 │   ├── diagnostico_producao.sh       # Coleta somente-leitura de evidência dos últimos 30 dias
 │   ├── export_known.py               # Exporta os concursos ativos do SQLite para Markdown (auditoria)
 │   └── dedupe_db.py                  # Utilitário pontual de limpeza de duplicatas históricas
