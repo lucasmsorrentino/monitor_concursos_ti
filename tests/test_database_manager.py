@@ -1,4 +1,5 @@
 """Testes para src/database/manager.py — persistencia SQLite com PK (area, nome)."""
+import logging
 import sqlite3
 
 import pytest
@@ -757,7 +758,8 @@ class TestIdentidadePeloPciId:
 
         O tecnico entra com o nome sem UF e depois volta com o nome exato do
         substituto. Os nomes sao a mesma entidade, mas os pci_id discordam:
-        fundir apagaria a linha (e a estrela) do substituto.
+        fundir apagaria a linha (e a estrela) do substituto. E o nome esta
+        ocupado, entao o tecnico fica com o nome que ja tinha (R-99).
         """
         id_substituto = _gravar_substituto(db)
         db.atualizar_estado_usuario(id_substituto, "seguindo")
@@ -770,7 +772,7 @@ class TestIdentidadePeloPciId:
         assert substituto["estado_usuario"] == "seguindo"
         assert substituto["data_fim_inscricao"] == IFSP_SUBSTITUTO_PRAZO
         tecnico = db.buscar_registro(IFSP_NOME, pci_id=IFSP_TECNICO_PCI)
-        assert (tecnico["id"], tecnico["nome"]) == (id_tecnico, IFSP_NOME)
+        assert (tecnico["id"], tecnico["nome"]) == (id_tecnico, IFSP_NOME_SEM_UF)
 
     def test_item_sem_pci_id_funde_todas_as_grafias_do_nome_novo(self, db):
         """R-82: linhas legadas do mesmo orgao em varias grafias viram uma so.
@@ -1061,6 +1063,208 @@ class TestIdentidadePeloPciId:
         assert (casada["id"], casada["nome"], casada["status"]) == (1, "IFSP - SP", "casada")
         grafia = db.buscar_registro("IFSP")
         assert (grafia["id"], grafia["nome"], grafia["status"]) == (2, "IFSP", "grafia")
+
+
+# ---------------------------------------------------------------------------
+# R-99: o nome novo so vence quando ninguem o ocupa, e nada se funde
+# ---------------------------------------------------------------------------
+#
+# Oraculo: SPEC-003, R-99. Enquanto a regra de nome nao for escrita como
+# tabela (R-100), havendo QUALQUER outra linha da area com o nome novo (sem
+# diferenca de caixa), a linha casada mantem o nome atual e o conflito vai
+# para o log. Nenhuma linha e fundida nem apagada.
+
+URL_INDICE_GRAN = "https://blog.grancursosonline.com.br/concursos-ti/"
+LINK_GRAN_A = "https://blog.grancursosonline.com.br/concurso-ifsp-a/"
+LINK_GRAN_C = "https://blog.grancursosonline.com.br/concurso-ifsp-c/"
+LINK_GRAN_D = "https://blog.grancursosonline.com.br/concurso-ifsp-d/"
+TJPR_NOME = "TJPR - Tribunal de Justiça do Paraná"
+TJPR_LINK = "https://www.pciconcursos.com.br/noticias/tjpr-abre-concurso-publico"
+
+
+def _plantar(db_path, linhas):
+    """Monta o estado do banco que a API nao produz sozinha.
+
+    Duas grafias do mesmo orgao sem chave, por exemplo, sao linhas legadas de
+    antes do casamento por entidade: o `atualizar_concurso` de hoje casaria a
+    segunda com a primeira. Cada linha e (id, nome, status, link, fonte, pci_id).
+    """
+    conn = sqlite3.connect(db_path)
+    conn.executemany(
+        "INSERT INTO editais (id, area, nome, status, link, fonte, pci_id) "
+        "VALUES (?, 'TI', ?, ?, ?, ?, ?)",
+        linhas,
+    )
+    conn.commit()
+    conn.close()
+
+
+def _id_pela_chave(db, link, pci_id):
+    """O id da linha achada pela chave mais forte que ela tem, ou None."""
+    if pci_id:
+        registro = db.buscar_registro("", pci_id=pci_id)
+    else:
+        registro = db.buscar_registro("", link=link, url_indice=URL_INDICE_GRAN)
+    return registro["id"] if registro else None
+
+
+def _avisos_de_colisao(caplog, *nomes):
+    return [
+        r.getMessage() for r in caplog.records
+        if r.levelno >= logging.WARNING and all(n in r.getMessage() for n in nomes)
+    ]
+
+
+class TestNomeConservador:
+    """R-99: o nome so muda quando nenhuma outra linha da area o ocupa."""
+
+    def test_nome_novo_vence_quando_ninguem_ocupa(self, db):
+        """O unico caminho em que o nome muda: o nome novo esta livre na area."""
+        id_ifsp = db.atualizar_concurso(
+            "IFSP - SP", "antes", LINK_GRAN_A, url_indice=URL_INDICE_GRAN, fonte="gran"
+        )
+        id_tjpr = db.atualizar_concurso(
+            TJPR_NOME, "tribunal", TJPR_LINK, url_indice=URL_INDICE_GRAN, fonte="gran"
+        )
+
+        id_ = db.atualizar_concurso(
+            IFSP_NOME, "depois", LINK_GRAN_A, url_indice=URL_INDICE_GRAN
+        )
+
+        assert id_ == id_ifsp
+        ifsp = db.buscar_registro("", link=LINK_GRAN_A, url_indice=URL_INDICE_GRAN)
+        assert (ifsp["id"], ifsp["nome"], ifsp["status"]) == (id_ifsp, IFSP_NOME, "depois")
+        tjpr = db.buscar_registro(TJPR_NOME)
+        assert (tjpr["id"], tjpr["status"]) == (id_tjpr, "tribunal")
+
+    @pytest.mark.parametrize(
+        "nome_do_conflito",
+        ["IFSP", TJPR_NOME],
+        ids=["mesmo_orgao", "outro_orgao"],
+    )
+    def test_nome_em_conflito_mantem_o_nome_atual_e_loga(self, db, caplog, nome_do_conflito):
+        """Mesmo orgao ou outro, o resultado e o mesmo: o nome atual fica.
+
+        A linha 1 e casada pelo link e chega com o nome da linha 2. Sem a
+        tabela de decisao do nome, saber se a linha 2 e o mesmo orgao nao
+        autoriza nada: ela continua no banco, com o nome e o status dela.
+        """
+        _plantar(db.db_path, [
+            (1, "IFSP - SP", "casada", LINK_GRAN_A, "gran", None),
+            (2, nome_do_conflito, "conflito", LINK_GRAN_C, "gran", None),
+        ])
+
+        with caplog.at_level("WARNING", logger="DatabaseManager"):
+            id_ = db.atualizar_concurso(
+                nome_do_conflito, "novo", LINK_GRAN_A, url_indice=URL_INDICE_GRAN
+            )
+
+        assert id_ == 1
+        casada = db.buscar_registro("", link=LINK_GRAN_A, url_indice=URL_INDICE_GRAN)
+        assert (casada["id"], casada["nome"], casada["status"]) == (1, "IFSP - SP", "novo")
+        conflito = db.buscar_registro("", link=LINK_GRAN_C, url_indice=URL_INDICE_GRAN)
+        assert (conflito["id"], conflito["nome"], conflito["status"]) == (
+            2, nome_do_conflito, "conflito"
+        )
+        assert _avisos_de_colisao(caplog, nome_do_conflito, "IFSP - SP")
+
+    def test_nome_em_conflito_so_de_caixa_tambem_mantem_o_nome_atual(self, db):
+        """COLLATE NOCASE: "ifsp" ocupa o nome "IFSP"."""
+        _plantar(db.db_path, [
+            (1, "IFSP - SP", "casada", LINK_GRAN_A, "gran", None),
+            (2, "ifsp", "conflito", LINK_GRAN_C, "gran", None),
+        ])
+
+        assert db.atualizar_concurso("IFSP", "novo", LINK_GRAN_A, url_indice=URL_INDICE_GRAN) == 1
+
+        casada = db.buscar_registro("", link=LINK_GRAN_A, url_indice=URL_INDICE_GRAN)
+        assert (casada["nome"], casada["status"]) == ("IFSP - SP", "novo")
+        assert db.buscar_registro("IFSP")["id"] == 2
+
+    # Cada cenario: linhas plantadas e a atualizacao (nome, link, pci_id).
+    CENARIOS_SEM_FUSAO = {
+        "duas_grafias_sem_chave": (
+            [(1, "IFSP - SP", "a", LINK_GRAN_A, "gran", None),
+             (2, "IFSP", "b", LINK_GRAN_C, "gran", None)],
+            ("IFSP", LINK_GRAN_A, None),
+        ),
+        "tres_grafias_sem_chave": (
+            [(1, "IFSP - SP", "a", LINK_GRAN_A, "gran", None),
+             (2, "ifsp", "b", LINK_GRAN_C, "gran", None),
+             (3, "IFSP", "c", LINK_GRAN_D, "gran", None)],
+            ("IFSP", LINK_GRAN_A, None),
+        ),
+        "casada_com_chave_e_grafia_sem_chave": (
+            [(1, "IFSP - SP", "a", LINK_GRAN_A, "pci_mcp", IFSP_TECNICO_PCI),
+             (2, "IFSP", "b", LINK_GRAN_C, "gran", None)],
+            ("IFSP", LINK_GRAN_A, None),
+        ),
+        "casada_sem_chave_e_grafia_com_chave": (
+            [(1, "IFSP - SP", "a", LINK_GRAN_A, "gran", None),
+             (2, "IFSP", "b", LINK_GRAN_C, "pci_mcp", IFSP_TECNICO_PCI)],
+            ("IFSP", LINK_GRAN_A, None),
+        ),
+        "rechave_com_nome_de_outro_edital": (
+            [(1, "IFSP - SP", "a", LINK_GRAN_A, "gran", None),
+             (2, "IFSP", "b", LINK_GRAN_C, "pci_mcp", IFSP_SUBSTITUTO_PCI)],
+            ("IFSP", LINK_GRAN_A, IFSP_TECNICO_PCI),
+        ),
+        "nome_de_outro_orgao": (
+            [(1, "IFSP - SP", "a", LINK_GRAN_A, "pci_mcp", IFSP_TECNICO_PCI),
+             (2, TJPR_NOME, "b", TJPR_LINK, "pci_mcp", IFSP_SUBSTITUTO_PCI)],
+            (TJPR_NOME, LINK_GRAN_A, None),
+        ),
+    }
+
+    @pytest.mark.parametrize("cenario", list(CENARIOS_SEM_FUSAO))
+    def test_nenhum_caminho_funde_ou_apaga_linha(self, db, cenario):
+        linhas, (nome, link, pci_id) = self.CENARIOS_SEM_FUSAO[cenario]
+        _plantar(db.db_path, linhas)
+        fontes = {linha[4] for linha in linhas}
+        contagem_antes = {f: db.contar_por_fonte(f) for f in fontes}
+
+        id_ = db.atualizar_concurso(
+            nome, "novo", link, url_indice=URL_INDICE_GRAN, pci_id=pci_id
+        )
+
+        assert id_ == 1
+        assert {f: db.contar_por_fonte(f) for f in fontes} == contagem_antes
+        # A linha 1 pode ter ganho a chave do item (rechave): procura por ela.
+        chave_da_linha_1 = pci_id or linhas[0][5]
+        assert _id_pela_chave(db, linhas[0][3], chave_da_linha_1) == 1
+        for id_esperado, _, status, link_da_linha, _, pci_da_linha in linhas[1:]:
+            registro = db.buscar_registro(
+                "", link=link_da_linha, url_indice=URL_INDICE_GRAN, pci_id=pci_da_linha or ""
+            )
+            assert (registro["id"], registro["status"]) == (id_esperado, status)
+
+    def test_nome_nao_vira_de_outro_orgao_o_caso_do_parecer_5(self, db):
+        """A regressao do quarto defeito, pelo cenario exato do parecer.
+
+        O IFSP (296538, link /a) e o TJPR (296044, link /b) tem chaves
+        distintas. Uma atualizacao sem chave chega com o nome do TJPR e o link
+        do IFSP: casa com o IFSP pelo link, mas o nome do TJPR esta ocupado.
+        O IFSP continua IFSP, e a busca sem chave por TJPR acha o TJPR.
+        """
+        id_ifsp = db.atualizar_concurso(
+            "IFSP - SP", "A antes", IFSP_TECNICO_LINK, url_indice=URL_INDICE_PCI,
+            fonte="pci_mcp", pci_id=IFSP_TECNICO_PCI,
+        )
+        id_tjpr = db.atualizar_concurso(
+            "TJPR", "B antes", TJPR_LINK, url_indice=URL_INDICE_PCI,
+            fonte="pci_mcp", pci_id=IFSP_SUBSTITUTO_PCI,
+        )
+        assert (id_ifsp, id_tjpr) == (1, 2)
+
+        id_ = db.atualizar_concurso(
+            "TJPR", "A depois", IFSP_TECNICO_LINK, url_indice=URL_INDICE_PCI
+        )
+
+        assert id_ == 1
+        ifsp = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
+        assert (ifsp["id"], ifsp["nome"], ifsp["status"]) == (1, "IFSP - SP", "A depois")
+        tjpr = db.buscar_registro("TJPR")
+        assert (tjpr["id"], tjpr["nome"], tjpr["status"]) == (2, "TJPR", "B antes")
 
 
 # Linhas do banco anterior a abertura da unicidade, escritas a mao com todos os
