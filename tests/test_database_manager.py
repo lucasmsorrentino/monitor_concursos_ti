@@ -903,6 +903,58 @@ class TestIdentidadePeloPciId:
         assert registro is not None, "o pci_id gravado se perdeu"
         assert (registro["id"], registro["status"]) == (1, "novo")
 
+    @pytest.mark.parametrize("fallback", ["link", "nome", "entidade"])
+    def test_pci_id_legado_nao_vazio_recusa_outro_pci_id_nos_tres_fallbacks(self, db, fallback):
+        """Nulo e so NULL ou '': qualquer outro valor gravado e chave de outro edital.
+
+        A linha legada tem pci_id " " (gravado antes de a escrita normalizar).
+        Nao e vazio, entao e chave, e um item com outro pci_id nao casa com ela
+        por nenhum fallback. Um criterio de nulidade na busca e outro na fusao
+        e o que permitia descartar uma chave canonica valida.
+        """
+        conn = sqlite3.connect(db.db_path)
+        conn.execute(
+            "INSERT INTO editais (area, nome, status, link, fonte, pci_id) "
+            "VALUES ('TI', ?, 'legado', ?, 'pci', ' ')",
+            (IFSP_NOME, IFSP_SUBSTITUTO_LINK),
+        )
+        conn.commit()
+        conn.close()
+        busca = {
+            "link": dict(nome="Outro nome", link=IFSP_SUBSTITUTO_LINK, url_indice=URL_INDICE_PCI),
+            "nome": dict(nome=IFSP_NOME.upper()),
+            "entidade": dict(nome=IFSP_NOME_SEM_UF),
+        }[fallback]
+
+        assert db.buscar_registro(**busca, pci_id=IFSP_TECNICO_PCI) is None
+
+    def test_atualizacao_sem_pci_id_preserva_as_duas_linhas_e_as_duas_chaves(self, db):
+        """A linha legada de pci_id " " nao absorve a linha de outro pci_id.
+
+        "IFSP" (pci_id " ", casada pelo link) assume o nome "IFSP - SP", que e
+        o da linha do 296044. Sao o mesmo orgao, mas as chaves discordam: sao
+        dois editais, e os dois sobrevivem com id e pci_id intactos.
+        """
+        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
+        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
+        conn = sqlite3.connect(db.db_path)
+        conn.executemany(
+            "INSERT INTO editais (area, nome, status, link, fonte, pci_id) "
+            "VALUES ('TI', ?, ?, ?, ?, ?)",
+            [("IFSP", "legado", link_gran, "gran", " "),
+             ("IFSP - SP", "substituto", None, "pci_mcp", IFSP_SUBSTITUTO_PCI)],
+        )
+        conn.commit()
+        conn.close()
+
+        assert db.atualizar_concurso("IFSP - SP", "novo", link_gran, url_indice=url_gran) == 1
+
+        substituto = db.buscar_registro("", pci_id=IFSP_SUBSTITUTO_PCI)
+        assert substituto is not None, "o pci_id gravado se perdeu"
+        assert (substituto["id"], substituto["status"]) == (2, "substituto")
+        legada = db.buscar_registro("", link=link_gran, url_indice=url_gran)
+        assert (legada["id"], legada["pci_id"], legada["status"]) == (1, " ", "novo")
+
     def test_colisao_irresolvivel_vira_erro_no_log_nao_silencio(self, db, caplog):
         """R-86: a escrita que bate na unicidade sai no log como erro nomeado.
 
