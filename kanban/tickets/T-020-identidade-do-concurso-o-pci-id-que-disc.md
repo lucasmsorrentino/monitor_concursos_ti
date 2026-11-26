@@ -3,24 +3,25 @@ id: T-020
 titulo: Identidade do concurso: o pci_id que discorda vence o nome
 tipo: codigo
 nivel: G-
-status: entregue
+status: aprovado
 repo: principal
 spec: [SPEC-003, R-80, R-81, R-82, R-83, R-84, R-85, R-86, R-99]
 depende_de: []
 toca: [src/database/manager.py, tests/test_database_manager.py, docs/adr/0005-identidade-do-concurso.md, CLAUDE.md]
 recursos: []
 afinidade:
-retornos: 3
-atualizado: 2026-11-26T15:16-03:00
+retornos: 4
+atualizado: 2026-11-26T15:50-03:00
 branch: t/T-020-identidade-do-concurso-o-pci-id-que-disc
-executor: opus
+executor: agy-neon
 executor_impl: opus
-corpo_lancado: 69f146c81ebe
-sessao: bc4ba1f0-32be-4761-806b-45676cc9808d
+corpo_lancado: ae831e2e9bac
+sessao: 3d026aad-88ae-4b7f-99e6-27fe4626e820
 fora_do_toca: []
-ponta: 34e75d3b72051455bdeb3ae25a569273a67ccb09
-executor_rev: codex
-motivo: escopo reduzido por decisao do dono em 26/11/2026: a regra de nome e fusao saiu para o T-028 (R-100) e o R-99 conservador entra no lugar
+ponta: 45fc002909fdfa6d24e549494f61a9f1462531b5
+executor_rev: agy-neon
+motivo: 4a reprovacao sem defeito de comportamento: as tres exigencias sao de valor de teste (mutacoes sobreviventes no criterio de nulidade), com a mutacao de cada uma ja medida pelo revisor
+forcado: []
 ---
 # T-020 · Identidade do concurso: o pci_id que discorda vence o nome
 
@@ -149,7 +150,7 @@ isso. O backup do arquivo do banco e passo de producao, nao deste ticket.
 **Nao reescreva o `_buscar_por_entidade`.** Ele existe para o mesmo orgao escrito de formas diferentes entre
 o Gran e o PCI, e continua necessario. O que muda e so que um `pci_id` discordante passa a bloquea-lo.
 
-**Decisão do arquiteto (2026-11-25 15:21):** Decisao do dono, 25/11/2026, no chat: «Recria a tabela». O caminho e o indice unico por expressao (area, nome, COALESCE(pci_id, '')), substituindo o UNIQUE(area, nome) de tabela, pelo procedimento documentado do SQLite: criar a nova, copiar, trocar os nomes, dentro de uma transacao. O _migrate_to_v3 do proprio arquivo e o molde. A excecao a regra «nunca recriar tabela com dado dentro» foi aberta por escrito no kanban/REGRAS.md, com escopo: vale para a unicidade da tabela editais, neste ticket, e nada mais. O que esta decidido e o CAMINHO. O gate de integracao (a linha «OK do Lucas:») segue em aberto de proposito: migracao de schema sobre 1.700 linhas de producao e porta de mao unica, e o dono olha o diff antes de ela entrar.
+**Decisão do arquiteto (2026-11-25 15:21):** Decisao do dono, 25/11/2026, no chat: «Recria a tabela». O caminho e o indice unico por expressao (area, nome, COALESCE(pci_id, '')), substituindo o UNIQUE(area, nome) de tabela, pelo procedimento documentado do SQLite: criar a nova, copiar, trocar os nomes, dentro de uma transacao. O _migrate_to_v3 do proprio arquivo e o molde. A excecao a regra «nunca recriar tabela com dado dentro» foi aberta por escrito no kanban/REGRAS.md, com escopo: vale para a unicidade da tabela editais, neste ticket, e nada mais. O que esta decidido e o CAMINHO. O gate de integracao (a linha «OK do dono») segue em aberto de proposito: migracao de schema sobre 1.700 linhas de producao e porta de mao unica, e o dono olha o diff antes de ela entrar.
 
 **Decisão do arquiteto (2026-11-25 17:16):** Veredito do revisor (Codex, G- high): BLOQUEADO, e com razao nos tres achados. Decisao do arquiteto, 25/11/2026.
 
@@ -172,7 +173,7 @@ O que o parecer acertou: achou a regressao por experimento diferencial em copias
 
 ACHADO 4, o alerta do dia do R-86: e decisao de escopo, do dono, nao do arquiteto. Perguntei ao Lucas. Nao toque em `src/core/bot.py` ate a resposta entrar aqui como segunda nota.
 
-O gate de integracao (a linha «OK do Lucas:») segue em aberto, como desde o inicio.
+O gate de integracao (a linha «OK do dono») segue em aberto, como desde o inicio.
 
 **Decisão do arquiteto (2026-11-25 18:31):** ACHADO 4 decidido, 25/11/2026: o dono respondeu «Ticket separado». O alerta do dia saiu deste ticket e virou o T-026, com o requisito partido em R-86 (log, aqui) e R-97 (alerta, la), registrado na SPEC-003 secao 4 item 5. Portanto: NAO toque em src/core/bot.py nesta rodada. O log nomeado que voce ja entregou e exatamente o escopo do R-86 e esta aceito. A segunda rodada e so os tres achados confirmados da nota anterior, mais os tres itens menores. O parecer completo do revisor esta em kanban/relatorios/T-020-revisor-1.md, no repo: leia antes de comecar, ele tem os numeros das linhas e os cenarios exatos que ele reproduziu. O CLAUDE.md entrou no toca deste ticket.
 
@@ -191,7 +192,7 @@ Do parecer, duas coisas ficam registradas como acerto. O revisor achou os dois d
 
 Aviso de processo, para voce saber onde pisa: esta foi a PRIMEIRA reprovacao. Uma segunda bloqueia o ticket, e ai eu o quebro ou subo o nivel. Se chegar nisso, o corte ja esta pensado e nao e pelo meio: a migracao em si esta provada (R-84, R-85, idempotencia, preserva id e `sqlite_sequence`, arquivo igual na segunda abertura), e todos os defeitos das duas rodadas vivem na logica de identidade conversando com linha legada. O corte seria migracao e schema de um lado, determinismo dos fallbacks legados do outro.
 
-O gate de integracao (a linha «OK do Lucas:») segue em aberto.
+O gate de integracao (a linha «OK do dono») segue em aberto.
 
 **Decisão do arquiteto (2026-11-26 13:11):** Plumbing, correcao de detalhe da nota anterior: o --atualizar-base so vale para o revisor, entao trouxe a main para esta branch por merge, a mao, em 26/11/2026. O merge foi limpo, sem conflito, inclusive no CLAUDE.md que o T-021 tambem havia tocado, e rodei a suite depois para descartar conflito semantico: 603 passed. Portanto a base desta rodada NAO e mais o d5fdae7: e o merge, com 603 testes, que ja inclui o T-021, o T-025 e a spec normativa. Medir contra 582 ou 569 agora da numero errado.
 
@@ -214,7 +215,7 @@ DECISAO, e ela REVOGA o que a nota 3 dizia sobre o `ORDER BY id`:
 
 Nao e preciso mais nada do notebook. Nao me pergunte de novo sobre a forma do banco: o que esta acima e a medida, nao a estimativa.
 
-O gate de integracao (a linha «OK do Lucas:») segue em aberto.
+O gate de integracao (a linha «OK do dono») segue em aberto.
 
 **Decisão do arquiteto (2026-11-26 13:41):** Quinta rodada. Decisao do arquiteto sobre a SEGUNDA reprovacao, 26/11/2026. Pelas regras eu podia quebrar o ticket ou subir o nivel. Fiz nenhum dos dois, e explico por que, porque isso tambem e informacao para quem ler o historico depois.
 
@@ -231,7 +232,7 @@ ESCOPO DESTA RODADA: so o ACHADO 2. Nao toque em concorrencia, nao ligue WAL, na
 POR QUE NAO SUBI O NIVEL NEM QUEBREI: as quatro rodadas nao foram o implementador errando o alvo. Cada rodada consertou o que foi pedido, e o revisor achou uma camada mais funda. A superficie encolheu a cada volta: migracao provada, ordem de identidade provada, desempate provado, e agora sobra UMA ordenacao dentro da fusao. Isso e convergencia, nao patinacao. Subir para G+ por uma ordem de operacoes seria exagero, e quebrar criaria dois tickets com revisao dobrada para um conserto de uma funcao.
 O que eu reconheco como meu erro, e vai para a retro da fase: a spec nao enumerou os estados NOVOS que abrir a unicidade passa a permitir. Se tivesse, o ACHADO 2 estaria no plano de testes da primeira rodada. Mudanca de unicidade cria estados alcancaveis novos, e o ticket tem de listar quais.
 
-O gate de integracao (a linha «OK do Lucas:») segue em aberto.
+O gate de integracao (a linha «OK do dono») segue em aberto.
 
 **Decisão do arquiteto (2026-11-26 14:07):** TERCEIRA REPROVACAO. Analise do arquiteto, 26/11/2026. Nao e para a proxima rodada: e o diagnostico do ticket, e a decisao de escopo esta com o dono.
 
@@ -272,13 +273,78 @@ O QUE FAZER NESTA RODADA, concretamente: reduzir a branch que ja existe (18 comm
 
 E OBRIGATORIO entregar o teste test_nome_nao_vira_de_outro_orgao_o_caso_do_parecer_5, com o cenario exato do parecer 5 (id=1 IFSP - SP chave 296538 link /a; id=2 TJPR chave 296044 link /b; atualizar com nome TJPR, link /a e sem pci_id), afirmando que id=1 continua IFSP - SP e que buscar_registro de TJPR devolve id=2. Ele e a prova de que o corte fecha o quarto defeito, e nao so o esconde.
 
-O gate de integracao (a linha «OK do Lucas:») segue em aberto, de proposito: migracao de schema sobre 1.758 linhas de producao e porta de mao unica.
+O gate de integracao (a linha «OK do dono») segue em aberto, de proposito: migracao de schema sobre 1.758 linhas de producao e porta de mao unica.
 
 **Decisão do arquiteto (2026-11-26 15:01):** LEIA ISTO ANTES DO PARECER. O prompt desta rodada traz o parecer da rodada 5, porque o ticket esta em retorno 3. ELE NAO E A SUA TAREFA. O parecer pede um conserto de uma linha: mover a checagem de mesmo orgao para antes da discordancia de chave. O arquiteto RECUSOU esse conserto, e a razao esta na nota de 26/11 acima: seria a quinta emenda na mesma sequencia de guardas.
 
 O parecer serve para duas coisas, e so duas: (1) o cenario dele e o teste de regressao obrigatorio desta rodada (test_nome_nao_vira_de_outro_orgao_o_caso_do_parecer_5); (2) ele prova que a logica de nome tem de sair, nao ser emendada.
 
 Em caso de conflito entre o parecer e o Criterio de aceite deste ticket, vale o Criterio de aceite. Se achar que o corte esta errado, nao implemente nenhum dos dois: devolva BLOQUEADO com a pergunta.
+
+**Decisão do arquiteto (2026-11-26 15:18):** RODADA 6 ENTREGUE. Tres julgamentos do arquiteto antes da revisao, para o revisor nao gastar rodada neles.
+
+1) O NIVEL DO LOG DO CONFLITO DE NOME: ACEITO como WARNING, com o nome proprio «COLISAO DE NOME». O raciocinio da entrega esta certo e eu o endosso: o R-86 fala de colisao que o codigo NAO consegue resolver, e por isso ela e ERROR («COLISAO DE IDENTIDADE», escrita perdida). Conflito de nome e colisao RESOLVIDA: a escrita acontece, so o nome nao muda, e medi 109 ocorrencias na historia do bot. ERROR ali seria ruido que treina o dono a ignorar ERROR, que e o oposto de fail-open. Os dois nomes distintos tambem importam para o ticket do alerta do dia (R-97): o gatilho dele e «COLISAO DE IDENTIDADE», e so ele. Nao suba para ERROR.
+
+2) A ADR REMETER AO REQUISITO E NAO AO TICKET: ACEITO, e a regra do projeto manda mais que o meu aceite, como a entrega disse. Mais do que isso: ela estava certa e eu estava errado no mesmo ponto. A SPEC-003 citava nove IDs do quadro, todos escritos por mim, e o kanban/REGRAS.md proibe ID do quadro em doc do repo. Corrigi na main (commit ce24615) e esta rodada do revisor ja le a spec corrigida. Spec sobrevive ao quadro; ID do quadro, nao.
+
+3) O UPDATE COM COALESCE DO pci_id: NAO e julgamento meu, e e trabalho do revisor. A entrega pediu que olhassem, e esta certa em pedir. REVISOR, OLHE ISTO COM CUIDADO: o defeito 3 (rodada 5) era exatamente a chave entrando com o nome antigo e colidindo num estado intermediario. O argumento da entrega e que, com um escritor so, a linha casada recebe so o nome atual ou um nome livre, e recebe chave nova so na rechave, caso em que a busca por chave teria achado a outra linha antes. Verifique esse argumento voce mesmo, com teste, nao por leitura. Se ele cair, cai o conserto do defeito 3 junto.
+
+ESCOPO DA REVISAO: esta rodada e de ESCOPO NOVO, nao a sexta tentativa do alvo antigo. O que se julga e o criterio de aceite de hoje, com o R-99 no lugar da regra de nome. Fusao de linha NAO e mais requisito deste ticket: se faltar, esta correto. O que nao pode faltar e o test_nome_nao_vira_de_outro_orgao_o_caso_do_parecer_5 verde, porque ele e a prova de que o corte fecha o quarto defeito em vez de escondê-lo. Quatro testes de fusao foram apagados e um teve a expectativa trocada; todos nasceram nesta branch, nenhum vem da main, e a entrega os lista pelo nome. Confira essa lista contra o diff.
+
+**Decisão do arquiteto (2026-11-26 15:30):** QUARTA REPROVACAO, E ELA E DE OUTRA NATUREZA. Analise do arquiteto, 26/11/2026. Leia antes de qualquer coisa.
+
+O PARECER 6 NAO ACHOU DEFEITO DE COMPORTAMENTO. Nenhum. Ele conferiu R-80, R-81, R-82, R-83, R-84, R-85, R-86, R-99, a migracao, a idempotencia, o desempate, a rechave e os quatro cenarios de escritor unico, e todos passaram, inclusive o teste obrigatorio do parecer 5, que ele verificou vermelho no commit test e verde na ponta. O que ele reprovou foi PROVA: duas mutacoes do criterio de nulidade atravessaram os 83 testes do banco e mudaram o resultado de chamada publica. Ele aplicou as mutacoes ele mesmo e mostrou os numeros.
+
+ISSO E O SINAL DE QUE O CORTE FUNCIONOU. Cinco revisoes acharam defeito de comportamento na logica de nome. Tirada a logica de nome, a sexta nao achou nenhum. A superficie que sobra e a qualidade do teste, nao a corretude do codigo.
+
+E ISSO NAO CONTRADIZ O QUE EU RECUSEI NA RODADA 5. Eu recusei a QUINTA emenda numa sequencia de guardas, porque cada emenda era uma aposta sobre o caso seguinte. Aqui nao ha guarda a mover e nao ha aposta: o revisor diz exatamente qual teste escrever, com qual mutacao ele tem de falhar, e ja mediu as duas pontas. Compromisso meu, mantido.
+
+ACHADO DE PROCESSO QUE EXPLICA AS MUTACOES, e vai para a retro: o commit test 0dda815 (criterio unico de nulidade) NASCEU VERDE nos quatro casos. Teste que nasce verde nao e prova de nada, e e por isso que as duas mutacoes passaram. A regra para a retro e checavel: todo commit test tem de ter pelo menos um teste vermelho, e o relatorio tem de mostrar qual.
+
+ESCOPO DA RODADA 7, e e so isto:
+(1) Exigencia 1 do parecer: provar o criterio de nulidade NO INDICE, pela escrita publica. Dois editais de mesmo nome com chave «296538» e «296538 » (com espaco no fim) sao DUAS linhas, porque so NULL e vazio contam como ausencia. Com TRIM no indice elas colidem e a escrita se perde.
+(2) Exigencia 2 do parecer: isolar o fallback de nome no caso [nome]. O achado e fino e esta certo: IFSP_NOME.upper() tambem muda letra acentuada, e o COLLATE NOCASE do SQLite so dobra ASCII, entao hoje aquele caso nao testa o fallback de nome, ele escorrega para o de entidade. Use o caso ASCII minimo que o parecer da.
+(3) Exigencia 3 do parecer: a rejeicao da unicidade passa a ser observada por atualizar_concurso, nao por INSERT que o proprio teste faz no SQLite. Prepare o cenario com SQL, observe pela interface publica, e cubra a combinacao NULL com vazio.
+(4) O comentario do src/database/manager.py (perto da definicao do indice) ainda diz que o resolvedor existe para «matar» a duplicata. Hoje ele conserva as duas linhas. Corrija as linhas de comentario e a docstring que ficaram contando a historia antiga. Isto entra aqui, e nao em ticket P, porque e a documentacao do comportamento que ESTA rodada mudou, no arquivo que ja esta no toca.
+
+COMO PROVAR, e sem isto a rodada volta: para cada um dos tres testes novos, aplique a mutacao que o parecer descreve, rode o teste e mostre a saida VERMELHA; depois desfaca a mutacao e mostre a saida VERDE. O relatorio traz as duas saidas, por teste. Verde na ponta nao e prova: foi exatamente assim que estas duas mutacoes entraram.
+
+O QUE NAO FAZER: nao mexa em comportamento. Nenhuma linha de logica de identidade, de nome, de fusao, de desempate ou de migracao muda nesta rodada. Se alguma exigencia parecer pedir mudanca de comportamento, PARE e devolva BLOQUEADO com a pergunta: significa que o revisor achou defeito vestido de lacuna de teste, e isso e decisao minha, nao sua.
+
+O gate de integracao («OK do dono») segue em aberto.
+
+**Decisão do arquiteto (2026-11-26 15:51):** APROVADO COM RESSALVAS na rodada 7, pelo Gemini 4 Neon (G- high), porque o Codex caiu por cota do ChatGPT no meio da fila. Destino das ressalvas decidido pelo arquiteto, 26/11/2026.
+
+AS DUAS RESSALVAS VAO PARA O T-029 (P+), e nao para uma oitava rodada. Sao as duas no arquivo de teste e nenhuma de comportamento: a constante URL_INDICE_GRAN definida duas vezes, e o passo por nome do test_item_sem_pci_id_mantem_a_ordem_de_hoje usando .upper() em nome acentuado, o que faz a busca escorregar para o fallback de entidade. O R-82 segue provado sem esse conserto, porque a busca por nome sem chave esta coberta em ASCII em outros dois lugares, e foi por isso que o revisor nao bloqueou.
+
+A SEGUNDA RESSALVA MERECE UMA OBSERVACAO, porque ela e o MESMO defeito em outro lugar: o parecer anterior apontou exatamente isso no caso [nome] de outro teste, a rodada 7 consertou aquele, e este ficou. Nao e falha da rodada 7, que fez o escopo que eu dei. E informacao sobre o arquivo: «.upper() em nome acentuado dentro de teste que depende de COLLATE NOCASE» tem dois casos conhecidos, e isso e checagem automatica para a retro, nao vigilancia.
+
+O QUE DUAS FAMILIAS INDEPENDENTES CONCORDARAM, e e por isso que eu considero a entrega provada: o Codex (parecer 5) e o Gemini (parecer 6) rodaram os quatro cenarios de escritor unico separadamente e chegaram aos mesmos quatro resultados, inclusive o retorno 1 com a chave nula preservada e a estrela preservada na rechave. O Gemini rodou NOVE mutacoes, as tres que eu exigi e seis proprias, incluindo _DESEMPATE vazio, _buscar_por_entidade ignorando o pci_id, _resolver_nome_sem_colisao ignorando o conflito e a migracao sem restaurar o sqlite_sequence. Todas as nove foram pegas pela suite. Isso e o que faltava nas rodadas 1 a 6.
+
+ESTADO: aprovado, esperando o gate. O «OK do dono» NAO esta dado e eu nao o escrevo sozinho. Quando ele vier, o integrador pode seguir; o backup do data/concursos.db e a primeira rodada em producao sao passo separado, depois da integracao, e nao dependem deste ticket.
+
+**Decisão do arquiteto (2026-11-26 15:53):** ACHADO DE SEGURANCA DO QUADRO, 26/11/2026, e e meu erro: o gate humano deste ticket estava ABERTO sem o Lucas ter dado OK nenhum.
+
+A regra do esteira.json (aprovacao_humana) procura a marca de aprovacao do dono (a que esta no esteira.json) por SUBSTRING no corpo inteiro do ticket. As minhas proprias notas de arquiteto citavam a marca literal oito vezes, sempre para dizer que o gate seguia em aberto. Resultado: o proximos oferecia «integrar T-020» como se o dono tivesse aprovado, e um rodar --integrar sem ninguem olhando teria mesclado a migracao de schema.
+
+MEDIDO, nao suposto: antes do conserto o proximos dizia «integrar T-020 → script (sem modelo)»; depois de eu tirar a marca literal das minhas notas, ele passou a dizer que o T-020 ESPERA, e que falta a linha de revisao humana nas notas. As oito mencoes viraram «OK do dono», que nao casa com a marca.
+
+CONFERI OS OUTROS DOIS TICKETS G DO QUADRO, para saber se o gate ja havia sido furado antes: NAO foi. O T-003 e o T-010 tem a marca legitima, cada um com a autorizacao do Lucas citada do chat («Pode integrar» em 23/11, «Dou o OK» em 24/11). O gate funcionou as duas vezes. Este ticket foi o primeiro caso, e ele nao integrou.
+
+PARA A RETRO, e vale para todo projeto que usa a esteira: nota de arquiteto nao cita a marca do gate. Dizer «o gate segue em aberto» abre o gate. A correcao estrutural seria o script exigir a marca no COMECO de uma linha, como ele ja faz com a marca de recurso do dono (_marca_do_dono usa regex ancorada em ^). Isso e mudanca na skill do Lucas, nao neste projeto, e fica como recomendacao dele decidir.
+E UM POSFACIO QUE E A PROVA DO PROPRIO ACHADO: a primeira versao desta nota citava a marca literal duas
+vezes, para explicar o problema, e com isso REABRIU o gate na hora. Medi de novo e o proximos voltou a
+oferecer «integrar T-020». Por isso nenhuma linha deste ticket escreve a marca: nem para documentar. Quem
+precisar do formato exato le o `esteira.json` ou o T-003 e o T-010, que a tem preenchida de verdade.
+
+
+## Notas do Lucas
+<!-- Para liberar a integracao deste ticket, escreva aqui, no comeco de uma linha, a marca de aprovacao do
+     dono seguida da data, mais a frase que autorizou. O formato exato da marca esta no `esteira.json`, em
+     `aprovacao_humana.marca`; os tickets T-003 e T-010 tem o exemplo ja preenchido.
+     NAO cite essa marca em nenhum outro lugar do corpo: o script a procura por substring no ticket inteiro,
+     entao mencionar a marca em texto corrido abre o gate sem ninguem notar. Foi o que aconteceu neste
+     ticket em 26/11/2026, achado e corrigido antes de qualquer integracao. -->
 
 ## Histórico
 - 2026-11-25 16:48 backlog → pronto · liberado: Lucas liberou no chat em 25/11/2026
@@ -306,3 +372,12 @@ Em caso de conflito entre o parecer e o Criterio de aceite deste ticket, vale o 
 - 2026-11-26 14:57 bloqueado → pronto · manual: escopo reduzido por decisao do dono em 26/11/2026: a regra de nome e fusao saiu para o T-028 (R-100) e o R-99 conservador entra no lugar
 - 2026-11-26 15:02 pronto → fazendo · implementador · opus G- high
 - 2026-11-26 15:16 fazendo → entregue · implementador: ENTREGUE · relatório T-020-implementador-6.md · 14 min
+- 2026-11-26 15:18 entregue → revisando · revisor · codex G- high · base atualizada: main mesclada em t/T-020-identidade-do-concurso-o-pci-id-que-disc
+- 2026-11-26 15:29 revisando → bloqueado · revisor: REPROVADO · relatório T-020-revisor-5.md · 11 min
+- 2026-11-26 15:31 bloqueado → pronto · manual: 4a reprovacao sem defeito de comportamento: as tres exigencias sao de valor de teste (mutacoes sobreviventes no criterio de nulidade), com a mutacao de cada uma ja medida pelo revisor
+- 2026-11-26 15:31 pronto → fazendo · implementador · opus G- high
+- 2026-11-26 15:40 fazendo → entregue · implementador: ENTREGUE · relatório T-020-implementador-7.md · 9 min
+- 2026-11-26 15:40 entregue → revisando · revisor · codex G- high
+- 2026-11-26 15:41 revisando → entregue · relançado: cota do ChatGPT esgotada: o codex saiu com «usage limit», volta as 18:00
+- 2026-11-26 15:41 entregue → revisando · revisor · agy-neon G- high
+- 2026-11-26 15:50 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-020-revisor-6.md · 9 min
