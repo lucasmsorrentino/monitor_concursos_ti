@@ -358,6 +358,7 @@ class DatabaseManager:
         de sempre.
         """
         cursor = self.conn.cursor()
+        pci_id = _pci_id_ou_none(pci_id)
 
         if pci_id:
             row = cursor.execute(
@@ -386,7 +387,7 @@ class DatabaseManager:
         if row:
             return dict(row)
 
-        return self._buscar_por_entidade(cursor, nome, pci_id=pci_id)
+        return self._buscar_por_entidade(cursor, nome, pci_id=pci_id or "")
 
     def _buscar_por_entidade(
         self, cursor: sqlite3.Cursor, nome: str, pci_id: str = ""
@@ -403,7 +404,7 @@ class DatabaseManager:
         for row in cursor.execute(
             "SELECT * FROM editais WHERE area = ?", (self.area,)
         ).fetchall():
-            if pci_id and row["pci_id"]:
+            if pci_id and _pci_id_ou_none(row["pci_id"]):
                 continue
             if mesma_entidade(nome, row["nome"]):
                 self.logger.info(
@@ -498,6 +499,9 @@ class DatabaseManager:
         Returns:
             int: `id` da linha (nova ou existente), ou 0 em erro.
         """
+        # Vazio entra como NULL: gravar "" poria na linha um pci_id que a busca
+        # le como ausente, e o COALESCE do UPDATE apagaria o pci_id gravado.
+        pci_id = _pci_id_ou_none(pci_id)
         cursor = self.conn.cursor()
         try:
             existente = self.buscar_registro(
@@ -659,12 +663,13 @@ class DatabaseManager:
                    fase = COALESCE(?, fase),
                    data_fim_inscricao = COALESCE(data_fim_inscricao, ?),
                    link = COALESCE(link, ?),
-                   pci_id = COALESCE(pci_id, ?),
+                   pci_id = COALESCE(NULLIF(pci_id, ''), ?),
                    fonte = COALESCE(fonte, ?)
              WHERE id = ?
             """,
             (estado, fase_final, descarta.get("data_fim_inscricao"),
-             descarta.get("link"), descarta.get("pci_id"), descarta.get("fonte"), mantem),
+             descarta.get("link"), _pci_id_ou_none(descarta.get("pci_id")),
+             descarta.get("fonte"), mantem),
         )
         cursor.execute("DELETE FROM editais WHERE id = ?", (descarta["id"],))
         self.logger.info(
