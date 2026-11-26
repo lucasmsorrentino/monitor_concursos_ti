@@ -1,6 +1,6 @@
 """Persistencia SQLite para o monitor de concursos.
 
-Schema v6 (atual):
+Schema v7 (atual):
     editais(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         area TEXT NOT NULL,
@@ -20,9 +20,10 @@ Schema v6 (atual):
         salario_teto REAL,             -- teto do concurso, o maior salario do edital (v6)
         elegibilidade TEXT,            -- decisao do bot: 'filtrado' | 'elegivel' | NULL = pre-v6 (v6)
         motivo_filtro TEXT,            -- motivo do corte, conjunto fechado (v6)
-        ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(area, nome)
+        ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+    UNIQUE INDEX idx_editais_identidade ON editais(area, nome, COALESCE(pci_id, ''))
+    INDEX idx_editais_pci ON editais(area, pci_id)
 
 Historico de migracoes:
     v1: PK em `nome` apenas (modo single-area).
@@ -41,14 +42,35 @@ Historico de migracoes:
         `elegibilidade` e `motivo_filtro`. Aditiva e SEM backfill: linha
         anterior ao v6 fica com `elegibilidade` NULL e conta como elegivel —
         ja foi notificada, nao se renotifica, nao se reavalia e nao se apaga.
+    v7: a unicidade sai do UNIQUE(area, nome) de tabela para o indice unico
+        (area, nome, COALESCE(pci_id, '')), para que dois editais do mesmo
+        orgao na mesma area coexistam. Unica migracao que recria a tabela
+        (decisao do dono, ADR-0005): uma transacao, todas as colunas copiadas
+        com o `id`, `sqlite_sequence` preservado, nenhuma linha apagada,
+        fundida ou dividida. O COALESCE mantem barrado o nome repetido entre
+        linhas sem `pci_id` (Gran e portas de HTML).
 
-Ordem de identidade (do mais forte pro mais fraco):
+Ordem de identidade (do mais forte pro mais fraco, ADR-0005):
     1. `pci_id` — id da noticia no PCI, estavel entre rodadas.
     2. link especifico (diferente da URL-indice do scraper).
     3. `(area, nome)` COLLATE NOCASE.
     4. `mesma_entidade` sobre os tokens do nome — e o unico passo que cruza
        fontes, porque Gran e PCI escrevem o mesmo orgao de formas diferentes
        ("Prefeitura de Ponta Grossa - PR" x "Concurso Prefeitura Ponta Grossa").
+
+A chave canonica que discorda vence o nome: item com `pci_id` so casa nos
+passos 2 a 4 com linha SEM `pci_id` (e a rechaveia); linha com outro `pci_id`
+e outro edital, ainda que do mesmo orgao e com o mesmo nome. Item sem
+`pci_id` segue a ordem acima sem restricao. `pci_id` vazio conta como nulo em
+toda parte (busca, escrita, indice) e e gravado como NULL.
+
+Na troca de nome, o nome novo so vence quando nenhuma outra linha da area o
+ocupa (sem diferenca de caixa); havendo conflito, a linha mantem o nome atual
+e o conflito e logado como `COLISAO DE NOME`. Nenhum caminho funde ou apaga
+linha (SPEC-003, R-99): a regra de fusao espera a tabela de decisao do R-100
+na ADR-0005. Escrita que, mesmo assim, bate na unicidade (uma linha gravada
+por outro escritor entre a busca e a escrita) e logada como
+`COLISAO DE IDENTIDADE`, nunca engolida.
 
 Preservar o `id` importa: ele vai no `callback_data` dos botoes do Telegram,
 entao trocar de id invalida os botoes de mensagens ja enviadas.
@@ -57,14 +79,44 @@ import logging
 import os
 import sqlite3
 
-from src.utils.fases import fase_mais_avancada
 from src.utils.text import mesma_entidade
 
 _ESTADOS_VALIDOS = ("ativo", "ignorado", "seguindo")
 
-# Prioridade ao fundir duas linhas do mesmo orgao: o que o Lucas marcou a mao
-# nunca pode ser perdido por causa de uma fusao automatica.
-_PRIORIDADE_ESTADO = {"seguindo": 2, "ignorado": 1, "ativo": 0}
+# Unicidade da tabela editais desde o v7: (area, nome, COALESCE(pci_id, '')).
+_INDICE_IDENTIDADE = "idx_editais_identidade"
+
+# O criterio unico de nulidade do `pci_id`: nulo e so NULL ou ''. Qualquer
+# outro valor, mesmo so de espacos, e chave. Ele tem uma forma em Python
+# (`_pci_id_ou_none`) e uma em SQL (`_PCI_ID_SQL`), e o indice de unicidade
+# (`COALESCE(pci_id, '')`) e a imagem dele. As tres tem de concordar em todo
+# valor: quando uma camada le um valor como ausente e a outra como presente, o
+# que uma autoriza a outra barra, e uma chave canonica valida se perde (foi o
+# que aconteceu com a fusao, antes de ela sair). Nao acrescente `strip()` so
+# num lado.
+_PCI_ID_SQL = "NULLIF(pci_id, '')"
+
+
+# Desempate de toda busca de identidade: quando mais de uma linha da area casa,
+# vence a de menor id. A linha mais antiga e a de historia mais longa, e por
+# isso a que provavelmente carrega a estrela do Lucas. E, sobretudo, o
+# resultado fica explicito: sem ORDER BY, a "primeira linha" e a primeira do
+# indice que o planejador escolheu, e trocar de indice (como a migracao do v7
+# fez) muda em silencio o edital que recebe a escrita. O banco de producao nao
+# tem empate hoje (medido em 26/11/2026); a regra e garantia, nao
+# compatibilidade. Nao tire.
+_DESEMPATE = " ORDER BY id"
+
+
+def _pci_id_ou_none(valor: str | None) -> str | None:
+    """`pci_id` nulo (None ou '') vira None; qualquer outro valor e chave.
+
+    Linha legada com `pci_id` vazio e linha SEM chave canonica, rechaveavel.
+    """
+    if valor is None or str(valor) == "":
+        return None
+    return valor
+
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH_PADRAO = os.path.join(REPO_DIR, "data", "concursos.db")
@@ -94,7 +146,14 @@ class DatabaseManager:
         self._ensure_schema()
 
     def _ensure_schema(self):
-        """Cria a tabela atual ou migra esquemas antigos, sempre de forma aditiva e idempotente."""
+        """Cria a tabela atual ou migra esquemas antigos, de forma idempotente.
+
+        As migracoes de coluna sao aditivas (`ALTER TABLE ... ADD COLUMN`
+        guardado por `PRAGMA table_info`). A unica excecao e o v7, em
+        `_abrir_unicidade`, que recria a tabela uma vez para trocar a
+        unicidade: excecao aberta pelo dono em `kanban/REGRAS.md`, com escopo
+        de um caso so, e registrada na ADR-0005.
+        """
         try:
             cursor = self.conn.cursor()
 
@@ -160,15 +219,92 @@ class DatabaseManager:
                 cursor.execute("ALTER TABLE editais ADD COLUMN motivo_filtro TEXT")
 
             self.conn.commit()
+            self._abrir_unicidade(cursor)
         except sqlite3.Error as e:
             self.conn.rollback()
             self.logger.error(f"Erro ao criar/migrar tabela: {e}")
 
+    def _abrir_unicidade(self, cursor: sqlite3.Cursor) -> None:
+        """Troca o UNIQUE(area, nome) de tabela pelo indice com o pci_id (v7).
+
+        O UNIQUE de tabela impedia dois editais do mesmo orgao na mesma area.
+        Em SQLite ele so sai recriando a tabela: criar a nova, copiar, trocar
+        os nomes, tudo numa transacao so. Copia coluna a coluna, com o `id`, e
+        devolve ao `sqlite_sequence` o maior id ja emitido, para que um id de
+        linha apagada (que pode estar num botao do Telegram) nao volte.
+
+        Idempotente: sem o UNIQUE de tabela nao recria nada, e o indice so e
+        criado se ainda nao existe.
+        """
+        unique_de_tabela = any(
+            row["origin"] == "u"
+            for row in cursor.execute("PRAGMA index_list(editais)").fetchall()
+        )
+        if unique_de_tabela:
+            cursor.execute("BEGIN")
+            seq = cursor.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'editais'"
+            ).fetchone()
+            colunas = ", ".join(
+                row["name"] for row in cursor.execute("PRAGMA table_info(editais)").fetchall()
+            )
+            self._criar_tabela_editais(cursor, "editais_v7")
+            cursor.execute(
+                f"INSERT INTO editais_v7 ({colunas}) SELECT {colunas} FROM editais"
+            )
+            cursor.execute("DROP TABLE editais")
+            cursor.execute("ALTER TABLE editais_v7 RENAME TO editais")
+            if seq is not None:
+                cursor.execute(
+                    "UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'editais'",
+                    (seq["seq"],),
+                )
+                if cursor.rowcount == 0:
+                    cursor.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) VALUES ('editais', ?)",
+                        (seq["seq"],),
+                    )
+
+        if not self.conn.in_transaction:
+            existe = cursor.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+                (_INDICE_IDENTIDADE,),
+            ).fetchone()
+            if existe:
+                return
+            cursor.execute("BEGIN")
+        self._criar_indices(cursor)
+        self.conn.commit()
+
+    @staticmethod
+    def _criar_indices(cursor: sqlite3.Cursor) -> None:
+        # COALESCE: em SQLite NULL nao colide com NULL numa chave unica. Sem ele
+        # duas linhas do Gran com o mesmo nome passariam, e nascia uma
+        # duplicata nova. O indice e o que barra essa duplicata; o
+        # _resolver_nome_sem_colisao nao funde nem apaga linha: ele so evita
+        # dar a uma linha um nome que outra ja ocupa, e as duas linhas ficam
+        # como estao. `COALESCE(pci_id, '')` e o criterio de nulidade de
+        # `_PCI_ID_SQL` visto pelo indice: so NULL e '' sao ausencia de chave
+        # (sem TRIM: "296538 " e outra chave, como e na busca).
+        cursor.execute(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS {_INDICE_IDENTIDADE} "
+            "ON editais(area, nome, COALESCE(pci_id, ''))"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_editais_pci ON editais(area, pci_id)"
+        )
+
     @staticmethod
     def _create_v3_table(cursor: sqlite3.Cursor) -> None:
+        DatabaseManager._criar_tabela_editais(cursor, "editais")
+        DatabaseManager._criar_indices(cursor)
+
+    @staticmethod
+    def _criar_tabela_editais(cursor: sqlite3.Cursor, nome_tabela: str) -> None:
+        """Tabela no formato atual. A unicidade fica no indice, nao aqui."""
         cursor.execute(
-            """
-            CREATE TABLE editais (
+            f"""
+            CREATE TABLE {nome_tabela} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 area TEXT NOT NULL,
                 nome TEXT NOT NULL,
@@ -187,8 +323,7 @@ class DatabaseManager:
                 salario_teto REAL,
                 elegibilidade TEXT,
                 motivo_filtro TEXT,
-                ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(area, nome)
+                ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
@@ -250,20 +385,32 @@ class DatabaseManager:
         Aplica a ordem de identidade documentada no topo do modulo: pci_id,
         link especifico, (area, nome) e por fim casamento de entidade entre
         fontes.
+
+        A chave canonica que discorda vence o nome: item com `pci_id` que nao
+        achou a sua linha so casa, pelos fallbacks, com linha SEM `pci_id` (a
+        rechave da ADR-0001). Linha com outro `pci_id` e outro edital, ainda
+        que do mesmo orgao e com o mesmo nome. Item sem `pci_id` segue a ordem
+        de sempre.
+
+        Empate dentro de um passo (duas linhas casam): vence a de menor `id`
+        (ver `_DESEMPATE`).
         """
         cursor = self.conn.cursor()
+        pci_id = _pci_id_ou_none(pci_id)
 
         if pci_id:
             row = cursor.execute(
-                "SELECT * FROM editais WHERE area = ? AND pci_id = ?",
+                "SELECT * FROM editais WHERE area = ? AND pci_id = ?" + _DESEMPATE,
                 (self.area, pci_id),
             ).fetchone()
             if row:
                 return dict(row)
 
+        so_sem_pci_id = f" AND {_PCI_ID_SQL} IS NULL" if pci_id else ""
+
         if self._link_e_especifico(link, url_indice):
             row = cursor.execute(
-                "SELECT * FROM editais WHERE area = ? AND link = ?",
+                "SELECT * FROM editais WHERE area = ? AND link = ?" + so_sem_pci_id + _DESEMPATE,
                 (self.area, link),
             ).fetchone()
             if row:
@@ -272,26 +419,32 @@ class DatabaseManager:
         # COLLATE NOCASE: o LLM varia capitalizacao entre execucoes
         # ("SEDUC AL" vs "Seduc AL") — nao pode virar concurso "novo".
         row = cursor.execute(
-            "SELECT * FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE",
+            "SELECT * FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE"
+            + so_sem_pci_id + _DESEMPATE,
             (self.area, nome),
         ).fetchone()
         if row:
             return dict(row)
 
-        return self._buscar_por_entidade(cursor, nome)
+        return self._buscar_por_entidade(cursor, nome, pci_id=pci_id or "")
 
-    def _buscar_por_entidade(self, cursor: sqlite3.Cursor, nome: str) -> dict | None:
+    def _buscar_por_entidade(
+        self, cursor: sqlite3.Cursor, nome: str, pci_id: str = ""
+    ) -> dict | None:
         """Ultimo recurso: casa o mesmo orgao escrito de formas diferentes.
 
         E o passo que evita que um concurso ja conhecido pelo Gran entre de novo
         como "novo" quando o PCI o traz com outra grafia. Varre so a area atual;
-        sao dezenas de linhas por area, entao o custo e irrelevante.
+        sao dezenas de linhas por area, entao o custo e irrelevante. Com
+        `pci_id`, pula linha que ja tem outro: mesmo orgao nao e mesmo edital.
         """
         if not nome:
             return None
         for row in cursor.execute(
-            "SELECT * FROM editais WHERE area = ?", (self.area,)
+            "SELECT * FROM editais WHERE area = ?" + _DESEMPATE, (self.area,)
         ).fetchall():
+            if pci_id and _pci_id_ou_none(row["pci_id"]):
+                continue
             if mesma_entidade(nome, row["nome"]):
                 self.logger.info(
                     f"Casou por entidade: {nome!r} = {row['nome']!r} (id={row['id']})."
@@ -385,6 +538,9 @@ class DatabaseManager:
         Returns:
             int: `id` da linha (nova ou existente), ou 0 em erro.
         """
+        # Vazio entra como NULL: gravar "" poria na linha um pci_id que a busca
+        # le como ausente, e o COALESCE do UPDATE apagaria o pci_id gravado.
+        pci_id = _pci_id_ou_none(pci_id)
         cursor = self.conn.cursor()
         try:
             existente = self.buscar_registro(
@@ -445,85 +601,62 @@ class DatabaseManager:
             )
             self.conn.commit()
             return cursor.lastrowid
+        except sqlite3.IntegrityError as e:
+            # A regra de identidade escolheu uma linha (ou nenhuma) e a escrita
+            # ainda assim bateu na unicidade: o codigo nao soube resolver. Erro
+            # com nome proprio, para nao se confundir com falha de disco.
+            self.conn.rollback()
+            self.logger.error(
+                f"COLISAO DE IDENTIDADE nao resolvida na area {self.area}: "
+                f"nome={nome!r} pci_id={pci_id!r} link={link!r}. "
+                f"O concurso NAO foi gravado nesta rodada. ({e})"
+            )
+            return 0
         except sqlite3.Error as e:
             self.conn.rollback()
             self.logger.error(f"Erro ao salvar dados no banco ({nome!r}): {e}")
             return 0
 
     def _resolver_nome_sem_colisao(
-        self, cursor: sqlite3.Cursor, id_existente: int, nome_atual: str, nome_novo: str
+        self,
+        cursor: sqlite3.Cursor,
+        id_existente: int,
+        nome_atual: str,
+        nome_novo: str,
     ) -> str:
-        """Decide o `nome` da linha, FUNDINDO duplicatas do mesmo orgao.
+        """Decide o `nome` da linha casada, sem fundir nem apagar linha nenhuma.
 
-        Antes esta funcao so desistia do nome novo quando ele colidia, e as duas
-        linhas duplicadas ficavam no banco pra sempre. A varredura de 08/08
-        logou quatro casos assim (SEFIN RO, Seduc AL, IFFar, UEAP): o mesmo
-        orgao ocupando dois ids, cada um com metade da historia.
+        Conservadora de proposito (SPEC-003, R-99): o nome novo so vence quando
+        nenhuma outra linha da area o ocupa, sem diferenca de caixa. Havendo
+        qualquer conflito, a linha fica com o nome atual e o conflito vai para
+        o log, seja a outra linha o mesmo orgao, outro edital do mesmo orgao ou
+        outro orgao. Decidir entre esses casos (fundir, herdar chave, trocar o
+        nome) exige a tabela de decisao do R-100, que ainda nao existe: sem
+        ela, cada guarda acrescentada aqui errou um caso diferente.
 
-        Agora, quando a colisao e o MESMO orgao, as linhas sao fundidas na que
-        foi casada por identidade forte (pci_id ou link), nao na de menor id: e
-        ela que representa este concurso na varredura corrente. Quando sao
-        orgaos de fato distintos que por acaso disputam o nome, mantem o
-        comportamento antigo de preservar o nome atual.
+        O custo e conhecido: duplicata legada do mesmo orgao continua no banco,
+        que e o estado de producao desde 15/09/2026, a ultima fusao do log.
+
+        Returns:
+            O nome final da linha.
         """
         if not nome_novo or nome_novo == nome_atual:
             return nome_atual
 
         conflito = cursor.execute(
-            "SELECT * FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE AND id != ?",
+            "SELECT id, nome FROM editais"
+            " WHERE area = ? AND nome = ? COLLATE NOCASE AND id != ?" + _DESEMPATE,
             (self.area, nome_novo, id_existente),
         ).fetchone()
-        if not conflito:
+        if conflito is None:
             return nome_novo
 
-        if not mesma_entidade(nome_novo, nome_atual):
-            self.logger.warning(
-                f"Nome {nome_novo!r} colide com id={conflito['id']} e nao e o mesmo orgao; "
-                f"mantendo {nome_atual!r} em id={id_existente}."
-            )
-            return nome_atual
-
-        self._fundir(cursor, mantem=id_existente, descarta=dict(conflito))
-        return nome_novo
-
-    def _fundir(self, cursor: sqlite3.Cursor, mantem: int, descarta: dict) -> None:
-        """Funde a linha `descarta` na linha `mantem` e remove a duplicata.
-
-        O estado marcado pelo Lucas (seguindo/ignorado) tem prioridade sobre
-        'ativo' e sobrevive a fusao, venha de qual das duas linhas vier. Perder
-        um "seguindo" numa fusao automatica seria destruir dado do usuario.
-        """
-        atual = cursor.execute(
-            "SELECT * FROM editais WHERE id = ?", (mantem,)
-        ).fetchone()
-        if not atual:
-            return
-
-        estado = max(
-            (atual["estado_usuario"] or "ativo", descarta.get("estado_usuario") or "ativo"),
-            key=lambda e: _PRIORIDADE_ESTADO.get(e, 0),
+        self.logger.warning(
+            f"COLISAO DE NOME na area {self.area}: {nome_novo!r} ja e o nome de "
+            f"id={conflito['id']} ({conflito['nome']!r}); mantendo {nome_atual!r} "
+            f"em id={id_existente}. Nenhuma linha foi fundida."
         )
-        fase_final = fase_mais_avancada(atual["fase"], descarta.get("fase"))
-
-        cursor.execute(
-            """
-            UPDATE editais
-               SET estado_usuario = ?,
-                   fase = COALESCE(?, fase),
-                   data_fim_inscricao = COALESCE(data_fim_inscricao, ?),
-                   link = COALESCE(link, ?),
-                   pci_id = COALESCE(pci_id, ?),
-                   fonte = COALESCE(fonte, ?)
-             WHERE id = ?
-            """,
-            (estado, fase_final, descarta.get("data_fim_inscricao"),
-             descarta.get("link"), descarta.get("pci_id"), descarta.get("fonte"), mantem),
-        )
-        cursor.execute("DELETE FROM editais WHERE id = ?", (descarta["id"],))
-        self.logger.info(
-            f"Fundido id={descarta['id']} ({descarta.get('nome')!r}) em id={mantem}; "
-            f"estado preservado: {estado}."
-        )
+        return nome_atual
 
     def atualizar_estado_usuario(self, id_: int, estado: str) -> bool:
         """Marca o concurso com um dos tres estados validos.
