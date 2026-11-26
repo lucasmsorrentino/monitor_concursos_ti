@@ -21,7 +21,10 @@
 
 set -u
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# REPO_DIR pode vir do ambiente (os testes montam uma arvore falsa e apontam
+# para ela, como MONITOR_ENV_FILE abaixo). Sem a variavel, vale o diretorio
+# pai do script, como sempre.
+REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 LOG_DIR="$REPO_DIR/logs"
 HOJE="$(date +%Y%m%d)"
 LOG_FILE="$LOG_DIR/run_$HOJE.log"
