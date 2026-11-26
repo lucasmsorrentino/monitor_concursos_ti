@@ -181,6 +181,7 @@ filtrado nunca chega à matriz e nunca notifica.
 | LLM apenas reescreveu o resumo ou regrediu a fase | Atualiza em silêncio preservando a `fase_mais_avancada` |
 | Concurso marcado com **⭐ Seguir** pelo usuário | Notifica qualquer transição real, mesmo após o encerramento das inscrições |
 | Concurso marcado com **❌ Não tenho interesse** | Ignora completamente em todas as rodadas futuras |
+| Cota da LLM esgotada, com a hora de volta na mensagem do provedor | Para de chamar a LLM na rodada, dispara alerta **⏳ Cota da IA esgotada** com a hora de volta (1x por dia, para todas as áreas) e retorna exit code `1` |
 | Perda de ≥ 20% dos blocos na extração via IA | Dispara alerta **🚨 Extração Degradada** e retorna exit code `1` (para retry horário) |
 | Varredura sem candidatos válidos (em alvo não filtrado) | Dispara alerta **⚠️ Varredura Cega** (rate-limited a 1x/dia) |
 | Uma porta específica não retornou itens ou está congelada há >21 dias | Dispara alerta **🕳️ Porta sem retorno** ou **🧊 Porta parada** apontando a URL exata |
@@ -344,7 +345,7 @@ pytest
 | `test_resumo_filtrados.py` | Montagem do texto do resumo (contagem por motivo, limite de 30 linhas) e marcador de semana ISO |
 | `test_saude_fontes.py` | Detecção de porta vazia (`🕳️`), porta congelada por dias (`🧊`), insensibilidade à ordem dos blocos |
 | `test_database_manager.py` | Criação e migração automática aditiva de schema `v1 → v6`, resolução de identidade em 4 níveis, fusão automática de órgãos duplicados (`_fundir`), `listar_filtrados` |
-| `test_intelligence_unit.py` | Roteamento entre Ollama, LiteLLM e Claude CLI, sanitização de datas/fases, retry, sinalização de erro (`erro: True`) e falha de credencial |
+| `test_intelligence_unit.py` | Roteamento entre Ollama, LiteLLM e Claude CLI, sanitização de datas/fases, retry, sinalização de erro (`erro: True`), falha de credencial e cota esgotada |
 | `test_gran_scraper.py` | Fatiamento HTML por `<h3>`, páginas de carreira e filtros de ruído |
 | `test_telegram_notifier.py` | Roteamento multi-chat, botões inline (`⭐`/`❌`), resiliência HTTP e modo `dry_run` |
 | `test_telegram_callbacks.py` | Polling de `getUpdates`, transição de `estado_usuario` no banco e persistência de offset |

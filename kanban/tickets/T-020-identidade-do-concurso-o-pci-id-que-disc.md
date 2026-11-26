@@ -3,14 +3,24 @@ id: T-020
 titulo: Identidade do concurso: o pci_id que discorda vence o nome
 tipo: codigo
 nivel: G-
-status: backlog
+status: pronto
 repo: principal
 spec: [SPEC-003, R-80, R-81, R-82, R-83, R-84, R-85, R-86]
 depende_de: []
-toca: [src/database/manager.py, tests/test_database_manager.py, docs/adr/0005-identidade-do-concurso.md]
+toca: [src/database/manager.py, tests/test_database_manager.py, docs/adr/0005-identidade-do-concurso.md, CLAUDE.md]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-25T18:31-03:00
+branch: t/T-020-identidade-do-concurso-o-pci-id-que-disc
+executor: codex
+executor_impl: opus
+corpo_lancado: 86a87b70ce09
+sessao: 32da4d18-7b91-4540-a447-23376e479efe
+fora_do_toca: []
+ponta: 17537ba8e91e9c9f07beeed3a512472fb6184c68
+executor_rev: codex
+motivo: arquiteto julgou o BLOQUEADO: tres achados confirmados viram 2a rodada; o alerta do R-86 saiu para o T-026 por decisao do dono
 ---
 # T-020 · Identidade do concurso: o pci_id que discorda vence o nome
 
@@ -112,3 +122,36 @@ isso. O backup do arquivo do banco e passo de producao, nao deste ticket.
 o Gran e o PCI, e continua necessario. O que muda e so que um `pci_id` discordante passa a bloquea-lo.
 
 **Decisão do arquiteto (2026-11-25 15:21):** Decisao do dono, 25/11/2026, no chat: «Recria a tabela». O caminho e o indice unico por expressao (area, nome, COALESCE(pci_id, '')), substituindo o UNIQUE(area, nome) de tabela, pelo procedimento documentado do SQLite: criar a nova, copiar, trocar os nomes, dentro de uma transacao. O _migrate_to_v3 do proprio arquivo e o molde. A excecao a regra «nunca recriar tabela com dado dentro» foi aberta por escrito no kanban/REGRAS.md, com escopo: vale para a unicidade da tabela editais, neste ticket, e nada mais. O que esta decidido e o CAMINHO. O gate de integracao (a linha «OK do Lucas:») segue em aberto de proposito: migracao de schema sobre 1.700 linhas de producao e porta de mao unica, e o dono olha o diff antes de ela entrar.
+
+**Decisão do arquiteto (2026-11-25 17:16):** Veredito do revisor (Codex, G- high): BLOQUEADO, e com razao nos tres achados. Decisao do arquiteto, 25/11/2026.
+
+ACHADO 1, a regressao do R-82: CONFIRMADA, e a causa raiz e mais funda do que o parecer diz. O parecer diz que `_resolver_nome_sem_colisao` escolhe o candidato de menor id. E verdade, mas o defeito real e que ela resolve UM conflito quando pode haver VARIOS. O `fetchall` passou a trazer a lista inteira e o `next(...)` continua levando um so; qualquer duplicata do mesmo orgao que sobrar ainda ocupa o nome, o UPDATE seguinte bate na unicidade, da rollback e devolve 0.
+O `ORDER BY id` que a entrega acrescentou e o que trocou o resultado na pratica. Sem ele, o plano do SQLite varria o indice `(area, nome)` em ordem BINARY, e maiuscula vem antes de minuscula em ASCII: com `IFSP`, `IFSP - SP` e `ifsp` no banco, o primeiro candidato era o de nome exato, que fundia e nao deixava colisao para tras. Com `ORDER BY id`, vem o de menor id, que pode ser a variante de caixa, e o de nome exato fica no banco.
+Isso nao e cenario de laboratorio: sao exatamente as linhas legadas que o T-023 existe para reparar, e elas vao estar no banco na primeira varredura depois da migracao.
+Conserto pedido: funda TODOS os conflitos que sao o mesmo orgao e nao sao outro edital (`pci_id` nao nulo e diferente), em vez do primeiro. Se sobrar conflito que nao e o mesmo orgao, mantenha o nome atual, como hoje. Teste pela interface publica com as tres linhas (`IFSP`, `IFSP - SP`, `ifsp`), atualizando pelo link especifico da primeira, e afirme: retorno igual ao id da linha casada, status novo gravado, uma linha so no fim.
+
+ACHADO 2, string vazia contra nulo (R-80/R-81): CONFIRMADO. A busca trata `""` como ausente (linhas 358 e 392) e a escrita persiste `""` (linha 544). Normalize na escrita, com `pci_id` vazio entrando como NULL, e use na resolucao de conflito o mesmo critario de nulidade da SPEC-003 linha 134. O bot ja normaliza na entrada, entao isto protege linha legada e chamada direta da API, nao o fluxo de hoje.
+
+ACHADO 3, lacuna de rechave: CONFIRMADO por mutacao sobrevivente, que e a prova que vale. Acrescente os dois testes que o parecer pede: rechave pelo link com nomes de entidade distintos, e rechave por entidade com nomes diferentes e sem link especifico. Nos dois, afirme pela interface publica o id original e o `pci_id` novo.
+
+Mais tres, menores, do mesmo parecer:
+- O teste da linha 918 escreve pelo SQLite e observa a excecao dessa API, fora da costura declarada do ticket. Mova para a interface publica.
+- A docstring de `_ensure_schema` (linha 114) ainda diz que toda migracao e aditiva. Corrija, citando a excecao da `kanban/REGRAS.md`.
+- `CLAUDE.md` linhas 150 e 156 ainda descrevem v6 com `UNIQUE(area, nome)`. Passa a fazer parte do `toca` deste ticket: a verdade do schema anda junto com a mudanca do schema.
+
+O que a entrega acertou e fica registrado: preservar a sequencia de ids na migracao, que ninguem pediu por escrito, evita que um id reciclado faca um botao antigo do Telegram apontar para outro concurso. E seguir a SPEC-003 contra o criterio do ticket no `test_area_nome_is_unique` foi a hierarquia certa, declarada em vez de escondida.
+O que o parecer acertou: achou a regressao por experimento diferencial em copias do banco, nao por leitura, e achou a lacuna de rechave por mutacao. Verde nenhum pegaria os dois.
+
+ACHADO 4, o alerta do dia do R-86: e decisao de escopo, do dono, nao do arquiteto. Perguntei ao Lucas. Nao toque em `src/core/bot.py` ate a resposta entrar aqui como segunda nota.
+
+O gate de integracao (a linha «OK do Lucas:») segue em aberto, como desde o inicio.
+
+**Decisão do arquiteto (2026-11-25 18:31):** ACHADO 4 decidido, 25/11/2026: o dono respondeu «Ticket separado». O alerta do dia saiu deste ticket e virou o T-026, com o requisito partido em R-86 (log, aqui) e R-97 (alerta, la), registrado na SPEC-003 secao 4 item 5. Portanto: NAO toque em src/core/bot.py nesta rodada. O log nomeado que voce ja entregou e exatamente o escopo do R-86 e esta aceito. A segunda rodada e so os tres achados confirmados da nota anterior, mais os tres itens menores. O parecer completo do revisor esta em kanban/relatorios/T-020-revisor-1.md, no repo: leia antes de comecar, ele tem os numeros das linhas e os cenarios exatos que ele reproduziu. O CLAUDE.md entrou no toca deste ticket.
+
+## Histórico
+- 2026-11-25 16:48 backlog → pronto · liberado: Lucas liberou no chat em 25/11/2026
+- 2026-11-25 16:49 pronto → fazendo · implementador · opus G- high
+- 2026-11-25 17:05 fazendo → entregue · implementador: ENTREGUE · relatório T-020-implementador-1.md · 17 min
+- 2026-11-25 17:05 entregue → revisando · revisor · codex G- high
+- 2026-11-25 17:15 revisando → bloqueado · revisor: BLOQUEADO · relatório T-020-revisor-1.md · 11 min
+- 2026-11-25 18:31 bloqueado → pronto · manual: arquiteto julgou o BLOQUEADO: tres achados confirmados viram 2a rodada; o alerta do R-86 saiu para o T-026 por decisao do dono

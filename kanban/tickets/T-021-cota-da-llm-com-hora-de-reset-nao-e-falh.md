@@ -3,7 +3,7 @@ id: T-021
 titulo: Cota da LLM com hora de reset nao e falha generica
 tipo: codigo
 nivel: M-
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-003, R-87, R-88]
 depende_de: []
@@ -11,6 +11,16 @@ toca: [src/intelligence/langchain_unit.py, src/core/bot.py, tests/test_intellige
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-25T17:13-03:00
+branch: t/T-021-cota-da-llm-com-hora-de-reset-nao-e-falh
+executor: script
+executor_impl: sonnet
+corpo_lancado: 9c1e6f3950f7
+sessao: e3abf92d-d6de-4803-9761-87a907c4b9a0
+fora_do_toca: [CLAUDE.md, README.md]
+ponta: 12362ca36c84d488ba2c2af7b7670a28c84963cb
+executor_rev: agy-neon
+executor_int: script
 ---
 # T-021 · Cota da LLM com hora de reset nao e falha generica
 
@@ -73,3 +83,12 @@ instante legivel, caia no caminho de hoje. **Nunca levante excecao a partir do p
 
 **O fuso do instante nao vem declarado pelo provedor.** Nao tente adivinhar aqui: devolva o que a mensagem
 diz e deixe a decisao de fuso para quem usa o valor, que a trata como advisory.
+
+## Histórico
+- 2026-11-25 16:48 backlog → pronto · liberado: Lucas liberou no chat em 25/11/2026
+- 2026-11-25 16:49 pronto → fazendo · implementador · sonnet M-
+- 2026-11-25 17:02 fazendo → entregue · implementador: ENTREGUE · relatório T-021-implementador-1.md · 13 min · fora do toca: 2 arquivo(s)
+- 2026-11-25 17:02 entregue → revisando · revisor · agy-neon M+ high
+- 2026-11-25 17:11 revisando → aprovado · revisor: APROVADO · relatório T-021-revisor-1.md · 10 min
+- 2026-11-25 17:11 aprovado → integrando · integrador · script
+- 2026-11-25 17:13 integrando → integrado · integrador: INTEGRADO · relatório T-021-integrador-1.md · 2 min

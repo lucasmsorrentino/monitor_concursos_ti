@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from src.core.bot import ConcursoBot
+from src.intelligence.langchain_unit import IntelligenceUnit
 from src.scrapers.pci_mcp_scraper import URL_SERVIDOR
 from src.utils import saude_fontes
 
@@ -34,6 +35,7 @@ def mock_deps(mocker, tmp_path):
     scraper.url = "https://example.com"
     # Default: LLM autenticada. Num MagicMock o atributo seria truthy.
     ai.falha_autenticacao = None
+    ai.cota_volta_em = None
     ai.instrucao_login = "no notebook, <code>claude setup-token</code>"
     # Default: concurso nao existe no DB.
     db.buscar_registro.return_value = None
@@ -743,6 +745,109 @@ class TestLlmSemLogin:
 
         mensagens = [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
         assert sum(1 for m in mensagens if "sem acesso" in m) == 1
+
+
+class TestCotaDaLlmEsgotada:
+    """25/11/2026: a cota semanal acabou e o aviso foi so "Varredura incompleta".
+
+    A ``IntelligenceUnit`` aqui e a de verdade; so a chamada a LLM e dublada.
+    """
+
+    # Mensagem real do provedor, copiada do log de producao de 25/11/2026.
+    MENSAGEM = (
+        "litellm.RateLimitError: RateLimitError: ZaiException - Weekly/Monthly Limit "
+        "Exhausted. Your limit will reset at 2026-11-26 08:11:28"
+    )
+
+    def _bot(self, mocker, config, respostas=None):
+        """Bot cuja LLM esgota a cota depois de entregar as ``respostas``."""
+        mocker.patch.object(IntelligenceUnit, "_create_ollama", return_value=mocker.MagicMock())
+        ai = IntelligenceUnit(model_name="llama3.1", retries=2, retry_delay_s=0)
+        ai.chain_extracao = mocker.MagicMock()
+        ai.chain_extracao.invoke.side_effect = (
+            list(respostas or []) + [RuntimeError(self.MENSAGEM)] * 100
+        )
+        bot = ConcursoBot(config)
+        bot.ai = ai
+        return bot
+
+    def _preparar(self, mock_deps, blocos=2):
+        mock_deps["scraper"].capturar_concursos.return_value = ["<h3>bloco</h3>"] * blocos
+        mock_deps["notifier"].notificar.return_value = True
+
+    def _mensagens(self, mock_deps):
+        return [c.args[0] for c in mock_deps["notifier"].notificar.call_args_list]
+
+    def test_alerta_de_cota_nomeia_a_causa_e_a_hora_de_volta(
+        self, mock_deps, base_config, mocker
+    ):
+        self._preparar(mock_deps)
+
+        self._bot(mocker, base_config).executar()
+
+        mensagens = self._mensagens(mock_deps)
+        assert len(mensagens) == 1
+        assert "cota" in mensagens[0].lower()
+        assert "26/11/2026" in mensagens[0]
+        assert "08:11:28" in mensagens[0]
+        assert "sem fuso" in mensagens[0]
+        assert "incompleta" not in mensagens[0].lower()
+        # Cota nao e credencial: nada de mandar relogar.
+        assert "setup-token" not in mensagens[0]
+        assert "credencial" not in mensagens[0].lower()
+
+    def test_alerta_de_cota_sai_uma_vez_por_dia(self, mock_deps, base_config, mocker):
+        """A cota e uma so para as tres areas e o catch-up repete de hora em hora."""
+        self._preparar(mock_deps)
+        educacao = {**base_config, "area": "EDUCACAO", "display_name": "Educação"}
+
+        self._bot(mocker, base_config).executar()
+        self._bot(mocker, educacao).executar()
+        repetida = self._bot(mocker, base_config)
+        repetida.executar()
+
+        mensagens = self._mensagens(mock_deps)
+        assert sum(1 for m in mensagens if "cota" in m.lower()) == 1
+        assert len(mensagens) == 1
+        # Silenciar o aviso nao pode silenciar a falha: o catch-up depende dela.
+        assert repetida.falhou is True
+
+    def test_alerta_de_cota_nao_e_calado_pelo_alerta_de_login_do_mesmo_dia(
+        self, mock_deps, base_config, mocker
+    ):
+        self._preparar(mock_deps)
+        mock_deps["ai"].extrair_dados.return_value = {"ignorar": True, "erro": True}
+        mock_deps["ai"].falha_autenticacao = "claude -p sem autenticacao: OAuth expirado"
+        ConcursoBot(base_config).executar()
+
+        self._bot(mocker, base_config).executar()
+
+        mensagens = self._mensagens(mock_deps)
+        assert sum(1 for m in mensagens if "sem acesso" in m) == 1
+        assert sum(1 for m in mensagens if "cota" in m.lower()) == 1
+
+    def test_cota_marca_falha_mesmo_com_perda_abaixo_do_limite(
+        self, mock_deps, base_config, mocker
+    ):
+        """A cota acaba no ultimo bloco: 1 perdido em 20 ficaria abaixo dos 20%."""
+        self._preparar(mock_deps, blocos=20)
+        valido = (
+            '{"ignorar": false, "nome": "Orgao", "status": "s", '
+            '"link": "https://example.com/x", "fase": "edital_publicado"}'
+        )
+        # Ja conhecido e sem mudanca: os 19 validos nao geram card.
+        mock_deps["db"].buscar_registro.return_value = {
+            "id": 1, "fase": "edital_publicado", "estado_usuario": "ativo",
+            "data_fim_inscricao": None, "nome": "Orgao",
+        }
+
+        bot = self._bot(mocker, base_config, respostas=[valido] * 19)
+        bot.executar()
+
+        assert bot.falhou is True
+        mensagens = self._mensagens(mock_deps)
+        assert len(mensagens) == 1
+        assert "cota" in mensagens[0].lower()
 
 
 class TestPrimeiraCargaPci:
