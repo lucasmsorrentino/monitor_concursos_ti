@@ -2,7 +2,7 @@
 
 **Data:** 25/11/2026
 **Estado:** aceita
-**Spec:** `docs/specs/SPEC-003-identidade-do-concurso-e-cota-da-llm.md`, secoes 2.1, 2.2, 3.1 e 4 item 1
+**Spec:** `docs/specs/SPEC-003-identidade-do-concurso-e-cota-da-llm.md`, secoes 2.1, 2.2, 3.1 e 4 itens 1 e 6
 
 ## Contexto
 
@@ -34,27 +34,13 @@ e nenhum fallback mais fraco pode dizer que e. Vale nos tres fallbacks.
 - Linha candidata com `pci_id` **nulo** continua casando pelas regras de antes, e recebe o `pci_id` (a
   rechave da ADR-0001, que rechaveou 59 linhas em 24/11 sem perder nenhuma).
 - Item **sem** `pci_id` (blog do Gran, portas de HTML de reserva) segue a ordem de sempre, sem restricao.
-- `pci_id` vazio e nulo, com um criterio so na escrita, na busca, na fusao e no indice
+- `pci_id` vazio e nulo, com um criterio so na escrita, na busca e no indice
   (`COALESCE(pci_id, '')`), e entra no banco como `NULL`. Gravar `""` deixava na linha um valor que a busca
   lia como ausente, e o `COALESCE` do `UPDATE` trocava por ele o `pci_id` ja gravado.
 - Nulo e **so** `NULL` ou `''`. Qualquer outro valor, mesmo so de espacos, e chave. O que importa nao e o
-  espaco, e que as camadas concordem: quando o Python tirava espacos e o SQL nao, a fusao autorizada pelo
-  Python descartava a chave valida da outra linha, e o SQL deixava de herda-la. O criterio vive em
-  `_pci_id_ou_none` (Python) e `_PCI_ID_SQL` (SQL), e o indice e a imagem dele.
-- Na troca de nome (`_resolver_nome_sem_colisao`), a linha que disputa o nome e tem outro `pci_id` e o
-  terceiro caso, mesmo orgao com dois concursos: nao se funde. Os dois primeiros casos (mesmo orgao escrito
-  de duas formas, que se funde; orgaos distintos que disputam o nome, que mantem o nome antigo) seguem como
-  eram, com uma correcao: podem ser **varias** as linhas que disputam o nome (grafias que so diferem na
-  caixa, aceitas pela unicidade, que compara byte a byte), e **todas** as do mesmo orgao que nao sao outro
-  edital se fundem. Fundir so a primeira deixava a outra ocupando o nome, e o `UPDATE` batia na unicidade.
-  A de nome exato vem primeiro; o `pci_id` que a linha herda numa fusao passa a barrar as seguintes, entao
-  uma linha nunca absorve dois editais.
-- O nome e a chave finais da linha casada entram no **mesmo** `UPDATE`, depois das fusoes. A fusao so mexe
-  em colunas fora da unicidade (estado, fase, prazo, link, fonte); a chave herdada nao e aplicada com o nome
-  antigo. Abrir a unicidade tornou alcancavel o estado `(1, "IFSP - SP", sem chave)`,
-  `(2, "IFSP - SP", 296538)`, `(3, "IFSP", 296538)`: se a linha 1 herdasse o 296538 da linha 3 ainda chamada
-  "IFSP - SP", empataria com a linha 2 no meio da fusao, e a escrita inteira se perdia, embora o estado final
-  `("IFSP", 296538)` estivesse livre.
+  espaco, e que as camadas concordem: quando o Python tirava espacos e o SQL nao, uma camada autorizava o
+  que a outra barrava, e uma chave valida se perdia. O criterio vive em `_pci_id_ou_none` (Python) e
+  `_PCI_ID_SQL` (SQL), e o indice e a imagem dele.
 - Quando mais de uma linha da area casa no mesmo passo (pelo `pci_id`, pelo link, pelo nome ou pela
   entidade), vence a de **menor `id`**, com `ORDER BY id` explicito em toda busca. A linha mais antiga e a
   de historia mais longa, e a que provavelmente carrega a estrela do usuario. Sem a ordem explicita, a
@@ -68,6 +54,35 @@ e nenhum fallback mais fraco pode dizer que e. Vale nos tres fallbacks.
   colisao que enxerga; a que sobra e a linha gravada por outro escritor entre a busca e a escrita. O alerta
   do dia para esse erro, a outra metade do requisito na SPEC-003, sai em entrega separada, no `bot.py`.
 
+### Nome da linha casada: conservador, sem fusao (R-99)
+
+A troca de nome (`_resolver_nome_sem_colisao`) **nao funde e nao apaga linha**, em nenhum caminho. O nome
+novo so vence quando nenhuma outra linha da area o ocupa (`COLLATE NOCASE`). Havendo qualquer conflito,
+seja do mesmo orgao, de outro edital do mesmo orgao ou de outro orgao, a linha fica com o nome atual e o
+conflito vai para o log como `COLISAO DE NOME`, com os dois ids. Como so a linha casada e escrita, e com o
+nome que ela ja tinha ou com um nome livre, o `UPDATE` nao passa por estado intermediario que colida.
+
+Por que conservador, e nao uma regra mais esperta: a versao anterior decidia tres coisas ao mesmo tempo
+(qual nome fica, se funde, se herda a chave) por uma sequencia de guardas, e cada revisao achou um caso em
+que a ordem das guardas estava errada (fundir um conflito quando havia varios; herdar a chave com o nome
+antigo e colidir no meio da fusao; aceitar o nome de outro orgao quando as chaves discordavam, e com isso a
+busca sem chave por esse orgao passava a achar a linha errada). A causa comum e que a regra nunca foi
+escrita como regra. Ela sera escrita como **tabela de decisao enumerada** nesta ADR (SPEC-003, R-100),
+antes de qualquer codigo de fusao, com uma linha por estado (ha conflito pelo nome ou nao; a chave do
+conflito e nula, igual ou diferente; e o mesmo orgao ou nao) e um teste por linha.
+
+O custo foi medido no log de producao em 26/11/2026: o caminho conservador disparou 109 vezes na historia
+do bot; a fusao, 7 vezes, a ultima em 15/09/2026. O que se deixa de fazer e fundir duplicata legada do mesmo
+orgao, que fica no banco como ja esta hoje. A razao que antes obrigava a fundir (a duplicata ocupando o
+nome fazia o `UPDATE` bater no `UNIQUE(area, nome)`) acabou com a unicidade nova.
+
+**O que a regra de fusao futura tem de preservar.** A fusao que saiu carregava uma regra do usuario, que nao
+pode viver so no historico do git: ao fundir duas linhas, o `estado_usuario` final e o de **maior
+prioridade entre as duas**, `seguindo` > `ignorado` > `ativo`, venha de qual linha vier. A estrela e o
+"nao tenho interesse" sao marcados a mao pelo Lucas, e uma fusao automatica nunca pode descarta-los. A
+fusao tambem preservava a fase mais avancada (`fase_mais_avancada`) e completava prazo, link e fonte da
+linha mantida com os da linha descartada quando os dela eram nulos.
+
 ### Unicidade: as duas opcoes e a escolha do dono
 
 A SPEC-003, secao 4 item 1, pos duas opcoes:
@@ -76,7 +91,7 @@ A SPEC-003, secao 4 item 1, pos duas opcoes:
    tabela. Em SQLite um `UNIQUE` de tabela so sai recriando a tabela, o que colide com a regra «migracao e
    aditiva, nunca recriar tabela com dado dentro». O `COALESCE` e necessario: em SQLite `NULL` nao colide com
    `NULL` numa chave unica, e sem ele duas linhas do Gran com o mesmo nome passariam a ser aceitas, que e a
-   duplicata que o `_resolver_nome_sem_colisao` existe para matar.
+   duplicata que o `_resolver_nome_sem_colisao` existe para nao criar.
 2. **Desambiguar o `nome`** na escrita, acrescentando ao nome da segunda linha algo do proprio edital. Nao
    mexe no schema, mas polui o campo que o Lucas le no card, e e o campo pelo qual o Gran e as portas de HTML
    casam.
@@ -94,7 +109,7 @@ Em `DatabaseManager._abrir_unicidade`, chamada por `_ensure_schema` depois das c
 - Uma transacao so, pelo procedimento documentado do SQLite, com o `_migrate_to_v3` como molde: cria
   `editais_v7` sem o `UNIQUE`, copia **todas** as colunas, `id` inclusive, troca os nomes e cria o indice.
 - Devolve ao `sqlite_sequence` o maior `id` ja emitido. Sem isso, o `id` de uma linha apagada numa fusao
-  voltaria a circular, e um botao antigo do Telegram passaria a apontar para outro concurso.
+  antiga voltaria a circular, e um botao antigo do Telegram passaria a apontar para outro concurso.
 - Nenhuma linha e apagada, fundida ou dividida (R-84, R-85). A troca de unicidade nao pode falhar por dado:
   todo banco que cumpria `UNIQUE(area, nome)` cumpre `(area, nome, COALESCE(pci_id, ''))`, que e mais frouxa.
 - Se algo falhar, a transacao volta inteira e o banco fica no formato anterior, com o erro no log.
@@ -122,3 +137,5 @@ O backup do arquivo do banco antes da primeira execucao em producao e passo do d
 - Usar `UNIQUE(area, nome, pci_id)` cru, sem `COALESCE`: deixaria passar nome repetido entre linhas sem
   `pci_id`.
 - Recriar outra tabela, ou recriar esta de novo, apoiado nesta excecao.
+- Fundir linhas pelo nome antes de a tabela de decisao do R-100 estar escrita nesta ADR, nem
+  «so para o caso obvio».

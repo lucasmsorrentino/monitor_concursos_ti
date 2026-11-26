@@ -62,15 +62,15 @@ A chave canonica que discorda vence o nome: item com `pci_id` so casa nos
 passos 2 a 4 com linha SEM `pci_id` (e a rechaveia); linha com outro `pci_id`
 e outro edital, ainda que do mesmo orgao e com o mesmo nome. Item sem
 `pci_id` segue a ordem acima sem restricao. `pci_id` vazio conta como nulo em
-toda parte (busca, fusao, indice) e e gravado como NULL.
+toda parte (busca, escrita, indice) e e gravado como NULL.
 
-Na troca de nome, todas as linhas do mesmo orgao que disputam o nome novo e
-nao sao outro edital se fundem na linha casada, a de nome exato primeiro; o
-`pci_id` herdado numa fusao barra as seguintes, entao uma linha nunca absorve
-dois editais. O nome e a chave finais entram juntos no mesmo `UPDATE`, depois
-das fusoes: a chave herdada nunca e aplicada com o nome antigo. Escrita que,
-mesmo assim, bate na unicidade (uma linha gravada por outro escritor entre a
-busca e a escrita) e logada como `COLISAO DE IDENTIDADE`, nunca engolida.
+Na troca de nome, o nome novo so vence quando nenhuma outra linha da area o
+ocupa (sem diferenca de caixa); havendo conflito, a linha mantem o nome atual
+e o conflito e logado como `COLISAO DE NOME`. Nenhum caminho funde ou apaga
+linha (SPEC-003, R-99): a regra de fusao espera a tabela de decisao do R-100
+na ADR-0005. Escrita que, mesmo assim, bate na unicidade (uma linha gravada
+por outro escritor entre a busca e a escrita) e logada como
+`COLISAO DE IDENTIDADE`, nunca engolida.
 
 Preservar o `id` importa: ele vai no `callback_data` dos botoes do Telegram,
 entao trocar de id invalida os botoes de mensagens ja enviadas.
@@ -90,9 +90,10 @@ _INDICE_IDENTIDADE = "idx_editais_identidade"
 # outro valor, mesmo so de espacos, e chave. Ele tem uma forma em Python
 # (`_pci_id_ou_none`) e uma em SQL (`_PCI_ID_SQL`), e o indice de unicidade
 # (`COALESCE(pci_id, '')`) e a imagem dele. As tres tem de concordar em todo
-# valor: quando a busca le um valor como ausente e a fusao como presente (ou o
-# contrario), a fusao autorizada por uma camada descarta a chave canonica que a
-# outra preservaria. Nao acrescente `strip()` so num lado.
+# valor: quando uma camada le um valor como ausente e a outra como presente, o
+# que uma autoriza a outra barra, e uma chave canonica valida se perde (foi o
+# que aconteceu com a fusao, antes de ela sair). Nao acrescente `strip()` so
+# num lado.
 _PCI_ID_SQL = "NULLIF(pci_id, '')"
 
 
