@@ -3,7 +3,7 @@ id: T-020
 titulo: Identidade do concurso: o pci_id que discorda vence o nome
 tipo: codigo
 nivel: G-
-status: aprovado
+status: integrado
 repo: principal
 spec: [SPEC-003, R-80, R-81, R-82, R-83, R-84, R-85, R-86, R-99]
 depende_de: []
@@ -11,9 +11,9 @@ toca: [src/database/manager.py, tests/test_database_manager.py, docs/adr/0005-id
 recursos: []
 afinidade:
 retornos: 4
-atualizado: 2026-11-26T15:50-03:00
+atualizado: 2026-11-26T17:00-03:00
 branch: t/T-020-identidade-do-concurso-o-pci-id-que-disc
-executor: agy-neon
+executor: script
 executor_impl: opus
 corpo_lancado: ae831e2e9bac
 sessao: 3d026aad-88ae-4b7f-99e6-27fe4626e820
@@ -22,6 +22,7 @@ ponta: 45fc002909fdfa6d24e549494f61a9f1462531b5
 executor_rev: agy-neon
 motivo: 4a reprovacao sem defeito de comportamento: as tres exigencias sao de valor de teste (mutacoes sobreviventes no criterio de nulidade), com a mutacao de cada uma ja medida pelo revisor
 forcado: []
+executor_int: script
 ---
 # T-020 · Identidade do concurso: o pci_id que discorda vence o nome
 
@@ -337,6 +338,17 @@ vezes, para explicar o problema, e com isso REABRIU o gate na hora. Medi de novo
 oferecer «integrar T-020». Por isso nenhuma linha deste ticket escreve a marca: nem para documentar. Quem
 precisar do formato exato le o `esteira.json` ou o T-003 e o T-010, que a tem preenchida de verdade.
 
+**Decisão do arquiteto (2026-11-26 16:57):** BACKUP DO BANCO DE PRODUCAO FEITO, 26/11/2026 16:56, autorizado pelo Lucas no chat («Faz o backup»). Este e o guarda do passo irreversivel, e agora ele existe.
+
+Caminho: ~/monitor_concursos_ti/data/concursos.db.bak-pre-v7-20261126165631, no notebook de producao.
+Conferido, nao suposto: sha256 identico ao do banco vivo (b22ddc2f6be6ff3df67ed2921d4f0cce4f063683cd5acea782e60db5aaa23a71), 909.312 bytes nos dois, e a copia abre como SQLite valido com 1.758 linhas em editais.
+Estado do usuario no momento do backup: 1.757 «ativo» e 1 «ignorado», nenhum «seguindo».
+
+DUAS COISAS QUE EU MEDI E QUE MUDAM O DESENHO DO DEPLOY:
+1. O run_daily.sh NAO faz backup do banco em nenhuma linha, e o unico backup que existia em data/ era de 12/06/2026, com 65 KB contra os 909 KB de hoje. Ou seja: antes de agora, nao havia rede. Se a migracao vai ser rotina em outros ambientes um dia, backup antes de migracao e candidato a entrar no script, e isso e ticket proprio, nao este.
+2. O run_daily.sh NAO faz git pull, e producao esta na main em d578245, que e o deploy da fase anterior. Logo, integrar aqui nao muda producao: a migracao so roda la depois de push, pull no notebook e a primeira varredura. Sao tres passos deliberados, e o backup acima cobre o terceiro.
+
+O QUE AINDA NAO EXISTE: ticket de deploy desta fase. A fase anterior teve o T-012 para isso. Enquanto o deploy nao acontecer, o defeito de identidade continua vivo em producao e a renotificacao continua. Recomendacao ao dono: fechar a fase primeiro (as ondas seguintes dependem desta integracao) e deployar a fase inteira de uma vez, com o ritual de fechar-fase, em vez de deployar so este ticket. Decisao dele.
 
 ## Notas do Lucas
 <!-- Para liberar a integracao deste ticket, escreva aqui, no comeco de uma linha, a marca de aprovacao do
@@ -345,6 +357,9 @@ precisar do formato exato le o `esteira.json` ou o T-003 e o T-010, que a tem pr
      NAO cite essa marca em nenhum outro lugar do corpo: o script a procura por substring no ticket inteiro,
      entao mencionar a marca em texto corrido abre o gate sem ninguem notar. Foi o que aconteceu neste
      ticket em 26/11/2026, achado e corrigido antes de qualquer integracao. -->
+
+OK do Lucas: 2026-11-26 (autorizado no chat: «Dou o OK», depois de eu mostrar o parecer, as
+nove mutacoes, as duas ressalvas e o achado do gate aberto)
 
 ## Histórico
 - 2026-11-25 16:48 backlog → pronto · liberado: Lucas liberou no chat em 25/11/2026
@@ -381,3 +396,5 @@ precisar do formato exato le o `esteira.json` ou o T-003 e o T-010, que a tem pr
 - 2026-11-26 15:41 revisando → entregue · relançado: cota do ChatGPT esgotada: o codex saiu com «usage limit», volta as 18:00
 - 2026-11-26 15:41 entregue → revisando · revisor · agy-neon G- high
 - 2026-11-26 15:50 revisando → aprovado · revisor: APROVADO COM RESSALVAS · relatório T-020-revisor-6.md · 9 min
+- 2026-11-26 16:53 aprovado → integrando · integrador · script
+- 2026-11-26 17:00 integrando → integrado · integrador: INTEGRADO · relatório T-020-integrador-1.md · 6 min
