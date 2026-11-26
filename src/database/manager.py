@@ -101,6 +101,17 @@ _PRIORIDADE_ESTADO = {"seguindo": 2, "ignorado": 1, "ativo": 0}
 _PCI_ID_SQL = "NULLIF(pci_id, '')"
 
 
+# Desempate de toda busca de identidade: quando mais de uma linha da area casa,
+# vence a de menor id. A linha mais antiga e a de historia mais longa, e por
+# isso a que provavelmente carrega a estrela do Lucas. E, sobretudo, o
+# resultado fica explicito: sem ORDER BY, a "primeira linha" e a primeira do
+# indice que o planejador escolheu, e trocar de indice (como a migracao do v7
+# fez) muda em silencio o edital que recebe a escrita. O banco de producao nao
+# tem empate hoje (medido em 26/11/2026); a regra e garantia, nao
+# compatibilidade. Nao tire.
+_DESEMPATE = " ORDER BY id"
+
+
 def _pci_id_ou_none(valor: str | None) -> str | None:
     """`pci_id` nulo (None ou '') vira None; qualquer outro valor e chave.
 
@@ -386,7 +397,7 @@ class DatabaseManager:
 
         if pci_id:
             row = cursor.execute(
-                "SELECT * FROM editais WHERE area = ? AND pci_id = ?",
+                "SELECT * FROM editais WHERE area = ? AND pci_id = ?" + _DESEMPATE,
                 (self.area, pci_id),
             ).fetchone()
             if row:
@@ -396,7 +407,7 @@ class DatabaseManager:
 
         if self._link_e_especifico(link, url_indice):
             row = cursor.execute(
-                "SELECT * FROM editais WHERE area = ? AND link = ?" + so_sem_pci_id,
+                "SELECT * FROM editais WHERE area = ? AND link = ?" + so_sem_pci_id + _DESEMPATE,
                 (self.area, link),
             ).fetchone()
             if row:
@@ -405,7 +416,8 @@ class DatabaseManager:
         # COLLATE NOCASE: o LLM varia capitalizacao entre execucoes
         # ("SEDUC AL" vs "Seduc AL") — nao pode virar concurso "novo".
         row = cursor.execute(
-            "SELECT * FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE" + so_sem_pci_id,
+            "SELECT * FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE"
+            + so_sem_pci_id + _DESEMPATE,
             (self.area, nome),
         ).fetchone()
         if row:
@@ -426,7 +438,7 @@ class DatabaseManager:
         if not nome:
             return None
         for row in cursor.execute(
-            "SELECT * FROM editais WHERE area = ?", (self.area,)
+            "SELECT * FROM editais WHERE area = ?" + _DESEMPATE, (self.area,)
         ).fetchall():
             if pci_id and _pci_id_ou_none(row["pci_id"]):
                 continue
