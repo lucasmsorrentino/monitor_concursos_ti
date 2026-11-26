@@ -1,10 +1,10 @@
 # Mapa de trabalho — monitor-concursos
 
-> Gerado por `esteira.py mapa` em 2026-11-26 14:57. Não edite à mão: mude os tickets e gere de novo.
+> Gerado por `esteira.py mapa` em 2026-11-26 15:16. Não edite à mão: mude os tickets e gere de novo.
 
 ## Resumo
 
-- 28 tickets: 6 backlog, 1 pronto, 21 integrado
+- 28 tickets: 6 backlog, 1 entregue, 21 integrado
 - Caminho crítico restante (peso 22): T-020 → T-026 → T-028 → T-027
 - Ondas: 5; paralelismo máximo: 17 tickets numa onda
 - Validação: 0 erro(s), 2 aviso(s)
@@ -31,7 +31,7 @@ Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependênc
 | T-016 | P- | glm-flash | principal | integrado | A porta do MCP e o filtro no retrato do diagnostico |
 | T-017 | M- | glm | principal | integrado | Conferir que a rechave de fonte nao perdeu concurso |
 | T-018 | P- | glm-flash | principal | integrado | ADR do fuso: banco em UTC, log em hora local |
-| T-020 ★ | G- | opus (high) | principal | pronto | Identidade do concurso: o pci_id que discorda vence o nome |
+| T-020 ★ | G- | opus (high) | principal | entregue | Identidade do concurso: o pci_id que discorda vence o nome |
 | T-021 | M- | glm | principal | integrado | Cota da LLM com hora de reset nao e falha generica |
 | T-025 | P- | glm-flash | principal | integrado | Secao 8 do DIAGNOSTICO.md defasada desde a porta do MCP |
 

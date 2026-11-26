@@ -43,8 +43,8 @@
   },
   "opus": {
     "ok": true,
-    "quando": "2026-11-26T15:46:53+00:00",
-    "segundos": 4.9,
+    "quando": "2026-11-26T17:59:08+00:00",
+    "segundos": 37.3,
     "motivo": ""
   },
   "sonnet": {
@@ -55,8 +55,8 @@
   },
   "codex": {
     "ok": true,
-    "quando": "2026-11-25T19:49:06+00:00",
-    "segundos": 9.8,
+    "quando": "2026-11-26T17:59:25+00:00",
+    "segundos": 17.4,
     "motivo": ""
   }
 }

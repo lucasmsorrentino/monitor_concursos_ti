@@ -3,7 +3,7 @@ id: T-020
 titulo: Identidade do concurso: o pci_id que discorda vence o nome
 tipo: codigo
 nivel: G-
-status: pronto
+status: entregue
 repo: principal
 spec: [SPEC-003, R-80, R-81, R-82, R-83, R-84, R-85, R-86, R-99]
 depende_de: []
@@ -11,14 +11,14 @@ toca: [src/database/manager.py, tests/test_database_manager.py, docs/adr/0005-id
 recursos: []
 afinidade:
 retornos: 3
-atualizado: 2026-11-26T14:57-03:00
+atualizado: 2026-11-26T15:16-03:00
 branch: t/T-020-identidade-do-concurso-o-pci-id-que-disc
-executor: codex
+executor: opus
 executor_impl: opus
-corpo_lancado: 34d74ae4a9e8
-sessao: 69c0b69e-cc45-4604-ad92-873be6a2fdf3
+corpo_lancado: 69f146c81ebe
+sessao: bc4ba1f0-32be-4761-806b-45676cc9808d
 fora_do_toca: []
-ponta: 09b4d0a0a12e7419e95f446aab99f8b600ff81db
+ponta: 34e75d3b72051455bdeb3ae25a569273a67ccb09
 executor_rev: codex
 motivo: escopo reduzido por decisao do dono em 26/11/2026: a regra de nome e fusao saiu para o T-028 (R-100) e o R-99 conservador entra no lugar
 ---
@@ -274,6 +274,12 @@ E OBRIGATORIO entregar o teste test_nome_nao_vira_de_outro_orgao_o_caso_do_parec
 
 O gate de integracao (a linha «OK do Lucas:») segue em aberto, de proposito: migracao de schema sobre 1.758 linhas de producao e porta de mao unica.
 
+**Decisão do arquiteto (2026-11-26 15:01):** LEIA ISTO ANTES DO PARECER. O prompt desta rodada traz o parecer da rodada 5, porque o ticket esta em retorno 3. ELE NAO E A SUA TAREFA. O parecer pede um conserto de uma linha: mover a checagem de mesmo orgao para antes da discordancia de chave. O arquiteto RECUSOU esse conserto, e a razao esta na nota de 26/11 acima: seria a quinta emenda na mesma sequencia de guardas.
+
+O parecer serve para duas coisas, e so duas: (1) o cenario dele e o teste de regressao obrigatorio desta rodada (test_nome_nao_vira_de_outro_orgao_o_caso_do_parecer_5); (2) ele prova que a logica de nome tem de sair, nao ser emendada.
+
+Em caso de conflito entre o parecer e o Criterio de aceite deste ticket, vale o Criterio de aceite. Se achar que o corte esta errado, nao implemente nenhum dos dois: devolva BLOQUEADO com a pergunta.
+
 ## Histórico
 - 2026-11-25 16:48 backlog → pronto · liberado: Lucas liberou no chat em 25/11/2026
 - 2026-11-25 16:49 pronto → fazendo · implementador · opus G- high
@@ -298,3 +304,5 @@ O gate de integracao (a linha «OK do Lucas:») segue em aberto, de proposito: m
 - 2026-11-26 13:56 entregue → revisando · revisor · codex G- high
 - 2026-11-26 14:06 revisando → bloqueado · revisor: REPROVADO · relatório T-020-revisor-4.md · 11 min
 - 2026-11-26 14:57 bloqueado → pronto · manual: escopo reduzido por decisao do dono em 26/11/2026: a regra de nome e fusao saiu para o T-028 (R-100) e o R-99 conservador entra no lugar
+- 2026-11-26 15:02 pronto → fazendo · implementador · opus G- high
+- 2026-11-26 15:16 fazendo → entregue · implementador: ENTREGUE · relatório T-020-implementador-6.md · 14 min
