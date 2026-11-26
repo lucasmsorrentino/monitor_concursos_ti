@@ -97,33 +97,67 @@ class TestSchemaCreation:
 
         assert pk_cols == ["id"]
 
-    def test_area_nome_is_unique(self, db_path):
+    def test_area_nome_is_unique(self, db_path, caplog):
         """(area, nome) e unico entre linhas SEM pci_id; o pci_id separa editais.
 
         Ate a SPEC-003 a unicidade era o UNIQUE(area, nome) de tabela, que
         impedia dois editais do mesmo orgao. Agora e o indice unico
         (area, nome, COALESCE(pci_id, '')): o nome repetido sem pci_id continua
         barrado, e dois pci_id distintos com o mesmo nome coexistem.
+
+        A rejeicao e observada pela escrita publica. A busca de identidade ja
+        evita a colisao que ela enxerga, entao o cenario a planta com um
+        gatilho: o "outro escritor" grava a linha repetida entre a busca e o
+        INSERT. O que se afirma e o que o indice faz com ela: NULL com NULL,
+        NULL com '' (os dois sao ausencia de chave) e a mesma chave colidem;
+        chaves distintas coexistem.
         """
         DatabaseManager(area="TI", db_path=db_path).fechar_conexao()
-
         conn = sqlite3.connect(db_path)
+        # Cada gatilho dispara so para o seu nome e planta a linha repetida com
+        # a chave do caso. Ele nao dispara para a propria linha plantada (o
+        # status dela e outro), e o SQLite nao tem gatilho recursivo por padrao.
+        for nome, chave_plantada in (
+            ("TRF1", "NULL"), ("TRF2", "''"), ("IFSP", "NEW.pci_id"),
+        ):
+            conn.execute(
+                f"""
+                CREATE TRIGGER outro_escritor_{nome} BEFORE INSERT ON editais
+                WHEN NEW.nome = '{nome}' AND NEW.status = 'repetido'
+                BEGIN
+                    INSERT INTO editais (area, nome, status, pci_id)
+                    VALUES (NEW.area, NEW.nome, 'outro escritor', {chave_plantada});
+                END
+                """
+            )
+        conn.commit()
+        conn.close()
+
+        db = DatabaseManager(area="TI", db_path=db_path)
         try:
-            conn.execute(
-                "INSERT INTO editais (area, nome, status, pci_id) VALUES ('TI', 'IFSP', 'a', '296044')"
-            )
-            conn.execute(
-                "INSERT INTO editais (area, nome, status, pci_id) VALUES ('TI', 'IFSP', 'b', '296538')"
-            )
-            conn.execute("INSERT INTO editais (area, nome, status) VALUES ('TI', 'TRF1', 'a')")
-            with pytest.raises(sqlite3.IntegrityError):
-                conn.execute("INSERT INTO editais (area, nome, status) VALUES ('TI', 'TRF1', 'b')")
-            with pytest.raises(sqlite3.IntegrityError):
-                conn.execute(
-                    "INSERT INTO editais (area, nome, status, pci_id) VALUES ('TI', 'IFSP', 'c', '296044')"
-                )
+            id_a = db.atualizar_concurso("IFSP", "a", pci_id="296044")
+            id_b = db.atualizar_concurso("IFSP", "b", pci_id="296538")
+            assert id_a > 0 and id_b > 0 and id_a != id_b
+
+            with caplog.at_level("ERROR", logger="DatabaseManager"):
+                rejeitados = {
+                    "NULL com NULL": db.atualizar_concurso("TRF1", "repetido"),
+                    "NULL com ''": db.atualizar_concurso("TRF2", "repetido", pci_id=""),
+                    "mesma chave": db.atualizar_concurso("IFSP", "repetido", pci_id="297000"),
+                }
+
+            assert rejeitados == {"NULL com NULL": 0, "NULL com ''": 0, "mesma chave": 0}
+            erros = [r.getMessage().lower() for r in caplog.records if r.levelname == "ERROR"]
+            assert len([m for m in erros if "colisao de identidade" in m]) == 3
+            assert db.buscar_registro("TRF1") is None
+            assert db.buscar_registro("TRF2") is None
+            assert db.buscar_registro("", pci_id="297000") is None
+            a = db.buscar_registro("", pci_id="296044")
+            b = db.buscar_registro("", pci_id="296538")
+            assert (a["id"], a["status"]) == (id_a, "a")
+            assert (b["id"], b["status"]) == (id_b, "b")
         finally:
-            conn.close()
+            db.fechar_conexao()
 
 
 class TestCrud:
@@ -840,22 +874,46 @@ class TestIdentidadePeloPciId:
         Nao e vazio, entao e chave, e um item com outro pci_id nao casa com ela
         por nenhum fallback. Um criterio de nulidade na busca e outro na fusao
         e o que permitia descartar uma chave canonica valida.
+
+        Cada caso alcanca o SEU fallback e nao escorrega para o seguinte. No de
+        nome, o nome e ASCII de proposito: o COLLATE NOCASE do SQLite so dobra
+        ASCII, e um nome acentuado em maiusculas nao casaria por nome, so por
+        entidade.
         """
+        nome_gravado, busca = {
+            "link": (IFSP_NOME, dict(
+                nome="Outro nome", link=IFSP_SUBSTITUTO_LINK, url_indice=URL_INDICE_PCI)),
+            "nome": ("IFSP", dict(nome="ifsp")),
+            "entidade": (IFSP_NOME, dict(nome=IFSP_NOME_SEM_UF)),
+        }[fallback]
         conn = sqlite3.connect(db.db_path)
         conn.execute(
             "INSERT INTO editais (area, nome, status, link, fonte, pci_id) "
             "VALUES ('TI', ?, 'legado', ?, 'pci', ' ')",
-            (IFSP_NOME, IFSP_SUBSTITUTO_LINK),
+            (nome_gravado, IFSP_SUBSTITUTO_LINK),
         )
         conn.commit()
         conn.close()
-        busca = {
-            "link": dict(nome="Outro nome", link=IFSP_SUBSTITUTO_LINK, url_indice=URL_INDICE_PCI),
-            "nome": dict(nome=IFSP_NOME.upper()),
-            "entidade": dict(nome=IFSP_NOME_SEM_UF),
-        }[fallback]
 
         assert db.buscar_registro(**busca, pci_id=IFSP_TECNICO_PCI) is None
+        legada = db.buscar_registro("", pci_id=" ")
+        assert (legada["id"], legada["nome"], legada["status"]) == (1, nome_gravado, "legado")
+
+    def test_chave_com_espaco_no_fim_e_outro_edital_na_unicidade(self, db):
+        """So NULL e '' contam como ausencia de chave, tambem para o indice.
+
+        "296538 " (espaco no fim) nao e nula nem e "296538": e outra chave, e
+        os dois editais de mesmo nome coexistem. Um indice que tirasse o espaco
+        os faria colidir, e a segunda escrita se perderia.
+        """
+        id_limpa = db.atualizar_concurso(IFSP_NOME, "chave limpa", pci_id="296538")
+        id_espaco = db.atualizar_concurso(IFSP_NOME, "chave com espaco", pci_id="296538 ")
+
+        assert id_limpa > 0 and id_espaco > 0 and id_limpa != id_espaco
+        limpa = db.buscar_registro("", pci_id="296538")
+        espaco = db.buscar_registro("", pci_id="296538 ")
+        assert (limpa["id"], limpa["status"]) == (id_limpa, "chave limpa")
+        assert (espaco["id"], espaco["status"]) == (id_espaco, "chave com espaco")
 
     def test_atualizacao_sem_pci_id_preserva_as_duas_linhas_e_as_duas_chaves(self, db):
         """A linha legada de pci_id " " nao absorve a linha de outro pci_id.
