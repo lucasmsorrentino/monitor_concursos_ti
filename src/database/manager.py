@@ -79,18 +79,12 @@ import logging
 import os
 import sqlite3
 
-from src.utils.fases import fase_mais_avancada
 from src.utils.text import mesma_entidade
 
 _ESTADOS_VALIDOS = ("ativo", "ignorado", "seguindo")
 
 # Unicidade da tabela editais desde o v7: (area, nome, COALESCE(pci_id, '')).
 _INDICE_IDENTIDADE = "idx_editais_identidade"
-
-# Prioridade ao fundir duas linhas do mesmo orgao: o que o Lucas marcou a mao
-# nunca pode ser perdido por causa de uma fusao automatica.
-_PRIORIDADE_ESTADO = {"seguindo": 2, "ignorado": 1, "ativo": 0}
-
 
 # O criterio unico de nulidade do `pci_id`: nulo e so NULL ou ''. Qualquer
 # outro valor, mesmo so de espacos, e chave. Ele tem uma forma em Python
@@ -550,13 +544,9 @@ class DatabaseManager:
 
             if existente:
                 id_ = existente["id"]
-                nome_final, pci_id_final = self._resolver_nome_sem_colisao(
-                    cursor, id_, existente["nome"], nome,
-                    pci_id=pci_id or existente["pci_id"],
+                nome_final = self._resolver_nome_sem_colisao(
+                    cursor, id_, existente["nome"], nome
                 )
-                # Nome e chave finais entram no MESMO UPDATE: a chave herdada
-                # numa fusao, aplicada com o nome antigo, podia empatar com
-                # outra linha na unicidade e perder a escrita inteira.
                 # COALESCE em todo campo opcional: uma fonte que nao conhece o
                 # prazo (PCI de concurso so previsto) nao pode apagar o prazo
                 # que a outra ja tinha descoberto.
@@ -584,7 +574,7 @@ class DatabaseManager:
                      WHERE id = ?
                     """,
                     (nome_final, status, link, status_hash, data_fim_inscricao,
-                     fase, fonte, pci_id_final, uf, regiao, esfera, cargos_total,
+                     fase, fonte, pci_id, uf, regiao, esfera, cargos_total,
                      salario_teto, elegibilidade, motivo_filtro, id_),
                 )
                 self.conn.commit()
@@ -628,110 +618,40 @@ class DatabaseManager:
         id_existente: int,
         nome_atual: str,
         nome_novo: str,
-        pci_id: str | None = None,
-    ) -> tuple[str, str | None]:
-        """Decide o `nome` e o `pci_id` da linha, FUNDINDO duplicatas do mesmo orgao.
+    ) -> str:
+        """Decide o `nome` da linha casada, sem fundir nem apagar linha nenhuma.
 
-        Antes esta funcao so desistia do nome novo quando ele colidia, e as duas
-        linhas duplicadas ficavam no banco pra sempre. A varredura de 08/08
-        logou quatro casos assim (SEFIN RO, Seduc AL, IFFar, UEAP): o mesmo
-        orgao ocupando dois ids, cada um com metade da historia.
+        Conservadora de proposito (SPEC-003, R-99): o nome novo so vence quando
+        nenhuma outra linha da area o ocupa, sem diferenca de caixa. Havendo
+        qualquer conflito, a linha fica com o nome atual e o conflito vai para
+        o log, seja a outra linha o mesmo orgao, outro edital do mesmo orgao ou
+        outro orgao. Decidir entre esses casos (fundir, herdar chave, trocar o
+        nome) exige a tabela de decisao do R-100, que ainda nao existe: sem
+        ela, cada guarda acrescentada aqui errou um caso diferente.
 
-        Agora, quando a colisao e o MESMO orgao, as linhas sao fundidas na que
-        foi casada por identidade forte (pci_id ou link), nao na de menor id: e
-        ela que representa este concurso na varredura corrente. Quando sao
-        orgaos de fato distintos que por acaso disputam o nome, mantem o
-        comportamento antigo de preservar o nome atual.
-
-        O terceiro caso e o mesmo orgao com dois concursos: a linha que disputa
-        o nome tem `pci_id` e ele difere do `pci_id` desta. E outro edital, nao
-        se funde, e o nome pode ser o mesmo, porque a unicidade da tabela inclui
-        o `pci_id`.
-
-        Pode haver VARIAS linhas disputando o nome (grafias que so diferem na
-        caixa). Todas as que sao o mesmo orgao e nao sao outro edital se fundem;
-        fundir so uma deixava a outra ocupando o nome. A de nome exato vem
-        primeiro, porque e ela que a unicidade compara byte a byte. Cada fusao
-        pode dar o `pci_id` a esta linha, e a partir dai uma grafia com outro
-        `pci_id` passa a ser outro edital: uma linha nunca absorve dois.
-
-        A chave herdada NAO e gravada aqui: ela volta junto com o nome, e quem
-        chama grava os dois no mesmo UPDATE. Com o nome antigo, a chave herdada
-        podia empatar com uma terceira linha de mesmo nome e mesmo `pci_id`
-        (estado que a unicidade com o `pci_id` admite), e a escrita inteira
-        se perdia.
+        O custo e conhecido: duplicata legada do mesmo orgao continua no banco,
+        que e o estado de producao desde 15/09/2026, a ultima fusao do log.
 
         Returns:
-            (nome, pci_id) finais da linha; `pci_id` None quando nao ha chave.
+            O nome final da linha.
         """
-        pci_id_da_linha = _pci_id_ou_none(pci_id)
         if not nome_novo or nome_novo == nome_atual:
-            return nome_atual, pci_id_da_linha
+            return nome_atual
 
-        conflitos = cursor.execute(
-            "SELECT * FROM editais WHERE area = ? AND nome = ? COLLATE NOCASE AND id != ?"
-            " ORDER BY nome != ?, id",
-            (self.area, nome_novo, id_existente, nome_novo),
-        ).fetchall()
-
-        mesmo_orgao = mesma_entidade(nome_novo, nome_atual)
-        for conflito in conflitos:
-            pci_id_do_conflito = _pci_id_ou_none(conflito["pci_id"])
-            if pci_id_da_linha and pci_id_do_conflito and pci_id_do_conflito != pci_id_da_linha:
-                continue
-            if not mesmo_orgao:
-                # `mesmo_orgao` nao muda no laco: este retorno so acontece
-                # antes de qualquer fusao, entao nao ha chave herdada a perder.
-                self.logger.warning(
-                    f"Nome {nome_novo!r} colide com id={conflito['id']} e nao e o mesmo orgao; "
-                    f"mantendo {nome_atual!r} em id={id_existente}."
-                )
-                return nome_atual, pci_id_da_linha
-            self._fundir(cursor, mantem=id_existente, descarta=dict(conflito))
-            pci_id_da_linha = pci_id_da_linha or pci_id_do_conflito
-        return nome_novo, pci_id_da_linha
-
-    def _fundir(self, cursor: sqlite3.Cursor, mantem: int, descarta: dict) -> None:
-        """Funde a linha `descarta` na linha `mantem` e remove a duplicata.
-
-        O estado marcado pelo Lucas (seguindo/ignorado) tem prioridade sobre
-        'ativo' e sobrevive a fusao, venha de qual das duas linhas vier. Perder
-        um "seguindo" numa fusao automatica seria destruir dado do usuario.
-
-        Nao toca em `nome` nem em `pci_id`, as colunas da unicidade: o
-        `pci_id` de `descarta` e herdado pelo chamador, que o grava junto com o
-        nome final (ver :meth:`_resolver_nome_sem_colisao`).
-        """
-        atual = cursor.execute(
-            "SELECT * FROM editais WHERE id = ?", (mantem,)
+        conflito = cursor.execute(
+            "SELECT id, nome FROM editais"
+            " WHERE area = ? AND nome = ? COLLATE NOCASE AND id != ?" + _DESEMPATE,
+            (self.area, nome_novo, id_existente),
         ).fetchone()
-        if not atual:
-            return
+        if conflito is None:
+            return nome_novo
 
-        estado = max(
-            (atual["estado_usuario"] or "ativo", descarta.get("estado_usuario") or "ativo"),
-            key=lambda e: _PRIORIDADE_ESTADO.get(e, 0),
+        self.logger.warning(
+            f"COLISAO DE NOME na area {self.area}: {nome_novo!r} ja e o nome de "
+            f"id={conflito['id']} ({conflito['nome']!r}); mantendo {nome_atual!r} "
+            f"em id={id_existente}. Nenhuma linha foi fundida."
         )
-        fase_final = fase_mais_avancada(atual["fase"], descarta.get("fase"))
-
-        cursor.execute(
-            """
-            UPDATE editais
-               SET estado_usuario = ?,
-                   fase = COALESCE(?, fase),
-                   data_fim_inscricao = COALESCE(data_fim_inscricao, ?),
-                   link = COALESCE(link, ?),
-                   fonte = COALESCE(fonte, ?)
-             WHERE id = ?
-            """,
-            (estado, fase_final, descarta.get("data_fim_inscricao"),
-             descarta.get("link"), descarta.get("fonte"), mantem),
-        )
-        cursor.execute("DELETE FROM editais WHERE id = ?", (descarta["id"],))
-        self.logger.info(
-            f"Fundido id={descarta['id']} ({descarta.get('nome')!r}) em id={mantem}; "
-            f"estado preservado: {estado}."
-        )
+        return nome_atual
 
     def atualizar_estado_usuario(self, id_: int, estado: str) -> bool:
         """Marca o concurso com um dos tres estados validos.

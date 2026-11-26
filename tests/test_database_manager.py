@@ -774,96 +774,6 @@ class TestIdentidadePeloPciId:
         tecnico = db.buscar_registro(IFSP_NOME, pci_id=IFSP_TECNICO_PCI)
         assert (tecnico["id"], tecnico["nome"]) == (id_tecnico, IFSP_NOME_SEM_UF)
 
-    def test_item_sem_pci_id_funde_todas_as_grafias_do_nome_novo(self, db):
-        """R-82: linhas legadas do mesmo orgao em varias grafias viram uma so.
-
-        Tres linhas do Gran sem pci_id: "IFSP - SP" (casada pelo link),
-        "ifsp" e "IFSP" (a unicidade compara byte a byte e aceita as duas). A
-        atualizacao pelo link assume o nome "IFSP": todas sao o mesmo orgao e
-        nenhuma e outro edital, entao todas se fundem na linha casada. Fundir so
-        uma deixava a outra ocupando o nome e a escrita batia na unicidade.
-        """
-        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
-        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
-        conn = sqlite3.connect(db.db_path)
-        conn.executemany(
-            "INSERT INTO editais (area, nome, status, link, fonte) VALUES ('TI', ?, 'x', ?, 'gran')",
-            [("IFSP - SP", link_gran), ("ifsp", None), ("IFSP", None)],
-        )
-        conn.commit()
-        conn.close()
-
-        id_ = db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran)
-
-        assert id_ == 1
-        registro = db.buscar_registro("IFSP")
-        assert (registro["id"], registro["nome"], registro["status"]) == (1, "IFSP", "novo")
-        assert db.contar_por_fonte("gran") == 1
-
-    def test_fusao_pelo_nome_nao_junta_dois_editais_de_pci_id_distintos(self, db):
-        """A linha sem pci_id que assume o nome absorve UM edital, nunca dois.
-
-        "IFSP" (296044) e "ifsp" (296538) sao dois editais. A linha do Gran,
-        casada pelo link, assume o nome "IFSP": funde-se com o de nome exato e
-        herda o pci_id dele; o outro, agora de pci_id diferente, fica.
-        """
-        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
-        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
-        conn = sqlite3.connect(db.db_path)
-        conn.executemany(
-            "INSERT INTO editais (area, nome, status, link, fonte, pci_id) "
-            "VALUES ('TI', ?, 'x', ?, ?, ?)",
-            [("IFSP - SP", link_gran, "gran", None),
-             ("ifsp", None, "pci_mcp", IFSP_TECNICO_PCI),
-             ("IFSP", None, "pci_mcp", IFSP_SUBSTITUTO_PCI)],
-        )
-        conn.commit()
-        conn.close()
-
-        assert db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran) == 1
-
-        substituto = db.buscar_registro("", pci_id=IFSP_SUBSTITUTO_PCI)
-        tecnico = db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)
-        assert (substituto["id"], substituto["nome"], substituto["status"]) == (1, "IFSP", "novo")
-        assert (tecnico["id"], tecnico["nome"]) == (2, "ifsp")
-
-    def test_fusao_grava_nome_e_chave_finais_juntos_sem_colidir_no_meio(self, db):
-        """A chave herdada na fusao nunca e aplicada com o nome antigo.
-
-        Tres linhas validas desde que a unicidade inclui o pci_id: a do Gran
-        "IFSP - SP" sem chave (casada pelo link), "IFSP - SP" do 296538 e
-        "IFSP" do 296538 com estrela. A atualizacao assume o nome "IFSP" e
-        funde a linha 3. Se a linha 1 herdasse o 296538 ainda chamada
-        "IFSP - SP", ela empataria com a linha 2 na unicidade e a escrita
-        inteira se perderia. O estado final ("IFSP", 296538) e livre assim que
-        a linha 3 e incorporada.
-        """
-        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
-        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
-        conn = sqlite3.connect(db.db_path)
-        conn.executemany(
-            "INSERT INTO editais (id, area, nome, status, link, fonte, pci_id, estado_usuario) "
-            "VALUES (?, 'TI', ?, ?, ?, ?, ?, ?)",
-            [(1, "IFSP - SP", "gran", link_gran, "gran", None, "ativo"),
-             (2, "IFSP - SP", "tecnico com outro nome", None, "pci_mcp", IFSP_TECNICO_PCI, "ativo"),
-             (3, "IFSP", "tecnico", None, "pci_mcp", IFSP_TECNICO_PCI, "seguindo")],
-        )
-        conn.commit()
-        conn.close()
-
-        assert db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran) == 1
-
-        casada = db.buscar_registro("", link=link_gran, url_indice=url_gran)
-        assert (casada["id"], casada["nome"], casada["status"]) == (1, "IFSP", "novo")
-        assert casada["pci_id"] == IFSP_TECNICO_PCI
-        assert casada["estado_usuario"] == "seguindo"
-        intacta = db.buscar_registro("IFSP - SP")
-        assert (intacta["id"], intacta["nome"], intacta["status"], intacta["pci_id"]) == (
-            2, "IFSP - SP", "tecnico com outro nome", IFSP_TECNICO_PCI
-        )
-        assert db.contar_por_fonte("pci_mcp") == 1
-        assert db.contar_por_fonte("gran") == 1
-
     def test_pci_id_rechaveia_pelo_link_com_nome_de_outra_entidade(self, db):
         """R-81 pelo link: o nome legado nao casaria nem por nome nem por entidade."""
         id_legado = db.atualizar_concurso(
@@ -921,26 +831,6 @@ class TestIdentidadePeloPciId:
 
         assert _gravar_tecnico(db, link="") == 1
         assert db.buscar_registro("", pci_id=IFSP_TECNICO_PCI)["id"] == 1
-
-    def test_linha_legada_com_pci_id_vazio_herda_o_pci_id_na_fusao(self, db):
-        """A linha de pci_id vazio que absorve um edital fica com o pci_id dele."""
-        link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
-        url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
-        conn = sqlite3.connect(db.db_path)
-        conn.executemany(
-            "INSERT INTO editais (area, nome, status, link, fonte, pci_id) "
-            "VALUES ('TI', ?, 'x', ?, ?, ?)",
-            [("IFSP - SP", link_gran, "gran", ""),
-             ("IFSP", None, "pci_mcp", IFSP_SUBSTITUTO_PCI)],
-        )
-        conn.commit()
-        conn.close()
-
-        assert db.atualizar_concurso("IFSP", "novo", link_gran, url_indice=url_gran) == 1
-
-        registro = db.buscar_registro("", pci_id=IFSP_SUBSTITUTO_PCI)
-        assert registro is not None, "o pci_id gravado se perdeu"
-        assert (registro["id"], registro["status"]) == (1, "novo")
 
     @pytest.mark.parametrize("fallback", ["link", "nome", "entidade"])
     def test_pci_id_legado_nao_vazio_recusa_outro_pci_id_nos_tres_fallbacks(self, db, fallback):
@@ -1025,13 +915,13 @@ class TestIdentidadePeloPciId:
             "colisao de identidade" in m.lower() and IFSP_TECNICO_PCI in m for m in erros
         )
 
-    def test_colisao_depois_de_uma_fusao_desfaz_a_fusao(self, db, caplog):
-        """R-86: escrita perdida nao leva junto as linhas que a fusao apagou.
+    def test_colisao_na_escrita_deixa_as_duas_linhas_como_estavam(self, db, caplog):
+        """R-86: a escrita perdida sai nomeada e nao deixa o banco pela metade.
 
-        Duas grafias do Gran do mesmo orgao. A atualizacao pelo link funde
-        "IFSP" na linha casada e entao a escrita final falha (o gatilho faz o
-        papel da colisao que o codigo nao previu). O erro sai nomeado e o banco
-        volta a ter as duas linhas como estavam.
+        Duas grafias do Gran do mesmo orgao. A atualizacao pelo link disputa o
+        nome "IFSP" e a escrita final falha (o gatilho faz o papel da colisao
+        que o codigo nao previu). O erro sai nomeado e o banco continua com as
+        duas linhas como estavam.
         """
         link_gran = "https://blog.grancursosonline.com.br/concurso-ifsp/"
         url_gran = "https://blog.grancursosonline.com.br/concursos-ti/"
