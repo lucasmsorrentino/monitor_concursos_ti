@@ -91,13 +91,22 @@ _INDICE_IDENTIDADE = "idx_editais_identidade"
 _PRIORIDADE_ESTADO = {"seguindo": 2, "ignorado": 1, "ativo": 0}
 
 
-def _pci_id_ou_none(valor: str | None) -> str | None:
-    """O criterio unico de nulidade do `pci_id`: vazio conta como nulo.
+# O criterio unico de nulidade do `pci_id`: nulo e so NULL ou ''. Qualquer
+# outro valor, mesmo so de espacos, e chave. Ele tem uma forma em Python
+# (`_pci_id_ou_none`) e uma em SQL (`_PCI_ID_SQL`), e o indice de unicidade
+# (`COALESCE(pci_id, '')`) e a imagem dele. As tres tem de concordar em todo
+# valor: quando a busca le um valor como ausente e a fusao como presente (ou o
+# contrario), a fusao autorizada por uma camada descarta a chave canonica que a
+# outra preservaria. Nao acrescente `strip()` so num lado.
+_PCI_ID_SQL = "NULLIF(pci_id, '')"
 
-    E o mesmo do indice de unicidade (`COALESCE(pci_id, '')`) e o da busca:
-    linha legada com `pci_id` vazio e linha SEM chave canonica, rechaveavel.
+
+def _pci_id_ou_none(valor: str | None) -> str | None:
+    """`pci_id` nulo (None ou '') vira None; qualquer outro valor e chave.
+
+    Linha legada com `pci_id` vazio e linha SEM chave canonica, rechaveavel.
     """
-    if valor is None or not str(valor).strip():
+    if valor is None or str(valor) == "":
         return None
     return valor
 
@@ -264,7 +273,8 @@ class DatabaseManager:
     def _criar_indices(cursor: sqlite3.Cursor) -> None:
         # COALESCE: em SQLite NULL nao colide com NULL numa chave unica. Sem ele
         # duas linhas do Gran com o mesmo nome passariam, que e a duplicata que
-        # o _resolver_nome_sem_colisao existe para matar.
+        # o _resolver_nome_sem_colisao existe para matar. `COALESCE(pci_id, '')`
+        # e o criterio de nulidade de `_PCI_ID_SQL` visto pelo indice.
         cursor.execute(
             f"CREATE UNIQUE INDEX IF NOT EXISTS {_INDICE_IDENTIDADE} "
             "ON editais(area, nome, COALESCE(pci_id, ''))"
@@ -382,7 +392,7 @@ class DatabaseManager:
             if row:
                 return dict(row)
 
-        so_sem_pci_id = " AND COALESCE(pci_id, '') = ''" if pci_id else ""
+        so_sem_pci_id = f" AND {_PCI_ID_SQL} IS NULL" if pci_id else ""
 
         if self._link_e_especifico(link, url_indice):
             row = cursor.execute(
@@ -671,13 +681,13 @@ class DatabaseManager:
         fase_final = fase_mais_avancada(atual["fase"], descarta.get("fase"))
 
         cursor.execute(
-            """
+            f"""
             UPDATE editais
                SET estado_usuario = ?,
                    fase = COALESCE(?, fase),
                    data_fim_inscricao = COALESCE(data_fim_inscricao, ?),
                    link = COALESCE(link, ?),
-                   pci_id = COALESCE(NULLIF(pci_id, ''), ?),
+                   pci_id = COALESCE({_PCI_ID_SQL}, ?),
                    fonte = COALESCE(fonte, ?)
              WHERE id = ?
             """,
