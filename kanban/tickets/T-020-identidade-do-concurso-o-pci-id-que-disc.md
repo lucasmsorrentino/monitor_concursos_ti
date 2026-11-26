@@ -350,6 +350,25 @@ DUAS COISAS QUE EU MEDI E QUE MUDAM O DESENHO DO DEPLOY:
 
 O QUE AINDA NAO EXISTE: ticket de deploy desta fase. A fase anterior teve o T-012 para isso. Enquanto o deploy nao acontecer, o defeito de identidade continua vivo em producao e a renotificacao continua. Recomendacao ao dono: fechar a fase primeiro (as ondas seguintes dependem desta integracao) e deployar a fase inteira de uma vez, com o ritual de fechar-fase, em vez de deployar so este ticket. Decisao dele.
 
+**Decisão do arquiteto (2026-11-26 17:05):** ENSAIO DA MIGRACAO SOBRE DADO REAL DE PRODUCAO, 26/11/2026 17:05, depois da integracao. Nenhum dos dois revisores podia ter feito isto: teste cria a tabela do zero, e so um banco de producao de verdade mostra o que a recriacao faz com uma tabela que ja existe.
+
+METODO: baixei o backup de hoje (sha256 conferido igual ao do banco vivo, 909.312 bytes) para fora do repo, copiei, e abri a copia com o codigo ja integrado, o que dispara o _ensure_schema. Producao nao foi tocada em nenhum momento: tudo em copia, no scratchpad, e a copia de trabalho foi apagada.
+
+RESULTADO, com 1.758 linhas e tres areas:
+- 19 colunas antes, 19 depois. Nenhuma acrescentada, nenhuma removida.
+- As 1.758 linhas IDENTICAS em todas as 19 colunas, comparadas por NOME. Zero linhas diferentes.
+- id preservado (min, max e soma iguais), sqlite_sequence preservado em 1770, contagem por area igual.
+- Nenhuma tabela sobrando: antes e depois, so editais e sqlite_sequence. A recriacao nao deixa lixo.
+- Indices depois: idx_editais_identidade (o novo) e idx_editais_pci. O autoindex do UNIQUE(area, nome) de tabela saiu.
+- PRAGMA integrity_check: ok. PRAGMA foreign_key_check: vazio.
+- Idempotente de verdade: a segunda abertura deixa o arquivo com o MESMO sha256 (4f724da5...). Nao e «nao muda nada de util», e byte por byte.
+
+UMA COISA MUDA, E EU CONFERI QUE E INOFENSIVA: a ORDEM das colunas. O fase sobe da posicao 10 para a 8, o estado_usuario vai da 8 para a 9 e o ultima_atualizacao vai da 9 para a ultima. Isso e consequencia normal de recriar a tabela com o CREATE novo. Por que nao quebra nada aqui, conferido linha por linha e nao por suposicao: a conexao usa sqlite3.Row, isto e, acesso por nome; nao existe nenhum INSERT INTO editais sem lista de colunas em src/ nem em scripts/; os quatro SELECT * do manager viram dict por nome; e o unico acesso posicional do projeto, no scripts/dedupe_db.py, e sobre a projecao explicita dele (area, nome, status, link, ultima_atualizacao), nao sobre SELECT *. Fica registrado porque qualquer consumidor NOVO que leia por posicao vai se surpreender.
+
+CORRECAO DE UM ERRO MEU, para quem ler o historico: a primeira versao do meu script de ensaio acusou duas falhas, «colunas preservadas» e «conteudo de todas as linhas identico». As duas eram do MEU script, que comparava por POSICAO. Refeita a comparacao por nome, zero diferencas. O codigo estava certo e a minha medida estava errada; medi de novo antes de dizer qualquer coisa.
+
+CONCLUSAO PARA O DEPLOY: a migracao esta ensaiada sobre o dado real, com backup fresco ao lado. O que falta e passo de operacao, nao de codigo: push para o origin (decisao do dono), atualizar o notebook e a primeira varredura. Enquanto isso nao acontecer, o defeito de identidade segue vivo em producao.
+
 ## Notas do Lucas
 <!-- Para liberar a integracao deste ticket, escreva aqui, no comeco de uma linha, a marca de aprovacao do
      dono seguida da data, mais a frase que autorizou. O formato exato da marca esta no `esteira.json`, em
