@@ -1,9 +1,9 @@
 {
   "glm": {
-    "ok": false,
-    "quando": "2026-11-25T18:22:24+00:00",
-    "segundos": 6.4,
-    "motivo": "saiu com 1: Error: Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-11-26 08:11:28"
+    "ok": true,
+    "quando": "2026-11-26T15:46:40+00:00",
+    "segundos": 5.7,
+    "motivo": ""
   },
   "agy-hydrogen": {
     "ok": true,
@@ -24,10 +24,10 @@
     "motivo": "cota: saiu com 1: ERROR: You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 25th, 2026 3:24 PM."
   },
   "glm-flash": {
-    "ok": false,
-    "quando": "2026-11-25T02:45:09+00:00",
-    "segundos": 4.3,
-    "motivo": "saiu com 1: Error: Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-11-26 08:11:28"
+    "ok": true,
+    "quando": "2026-11-26T15:46:48+00:00",
+    "segundos": 7.3,
+    "motivo": ""
   },
   "codex-terra": {
     "ok": false,
@@ -43,8 +43,8 @@
   },
   "opus": {
     "ok": true,
-    "quando": "2026-11-25T19:48:38+00:00",
-    "segundos": 6.5,
+    "quando": "2026-11-26T15:46:53+00:00",
+    "segundos": 4.9,
     "motivo": ""
   },
   "sonnet": {

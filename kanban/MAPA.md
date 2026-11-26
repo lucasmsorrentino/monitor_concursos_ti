@@ -1,11 +1,11 @@
 # Mapa de trabalho — monitor-concursos
 
-> Gerado por `esteira.py mapa` em 2026-11-25 18:31. Não edite à mão: mude os tickets e gere de novo.
+> Gerado por `esteira.py mapa` em 2026-11-26 14:57. Não edite à mão: mude os tickets e gere de novo.
 
 ## Resumo
 
-- 26 tickets: 5 backlog, 1 pronto, 20 integrado
-- Caminho crítico restante (peso 17): T-020 → T-026 → T-024 → T-019
+- 28 tickets: 6 backlog, 1 pronto, 21 integrado
+- Caminho crítico restante (peso 22): T-020 → T-026 → T-028 → T-027
 - Ondas: 5; paralelismo máximo: 17 tickets numa onda
 - Validação: 0 erro(s), 2 aviso(s)
 
@@ -40,23 +40,25 @@ Tudo numa onda pode rodar em paralelo; uma onda só começa quando as dependênc
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
 | T-009 | M+ | glm (high) | principal | integrado | Porta do MCP ligada na rodada do bot |
-| T-022 | P+ | glm-flash (high) | principal | backlog | O catch-up horario nao roda antes do reset conhecido |
+| T-022 | P+ | glm-flash (high) | principal | integrado | O catch-up horario nao roda antes do reset conhecido |
 | T-023 | M- | glm | principal | backlog | Reparar as cinco linhas de identidade colidida |
 | T-026 ★ | M- | glm | principal | backlog | Colisao de identidade tambem chega ao alerta do dia |
 
-### Onda 2 — depois de T-001, T-002, T-003, T-005, T-007, T-009, T-021, T-026 (2 em paralelo)
+### Onda 2 — depois de T-001, T-002, T-003, T-005, T-007, T-009, T-020, T-021, T-026 (3 em paralelo)
 
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
 | T-010 | G- | opus (high) | principal | integrado | Filtro ativo na matriz de decisao e resumo semanal |
-| T-024 ★ | M- | glm | principal | backlog | Freio de renotificacao por concurso e por dia |
+| T-024 | M- | glm | principal | backlog | Freio de renotificacao por concurso e por dia |
+| T-028 ★ | G- | opus (high) | principal | backlog | A regra de nome e de fusao, escrita como tabela de decisao |
 
-### Onda 3 — depois de T-010, T-015, T-024 (2 em paralelo)
+### Onda 3 — depois de T-010, T-015, T-020, T-024, T-026, T-028 (3 em paralelo)
 
 | Ticket | Nível | Executor | Repo | Status | Título |
 |---|---|---|---|---|---|
 | T-011 | P+ | glm-flash (high) | principal | integrado | Docs: README, CLAUDE.md e roteiro de deploy |
-| T-019 ★ | M- | glm | principal | backlog | O concurso filtrado pelo MCP que o Gran acha depois |
+| T-019 | M- | glm | principal | backlog | O concurso filtrado pelo MCP que o Gran acha depois |
+| T-027 ★ | M+ | glm (high) | principal | backlog | Identidade e escrita na mesma transacao protegida |
 
 ### Onda 4 — depois de T-011 (1 em paralelo)
 
@@ -74,11 +76,11 @@ Nenhum: tickets paralelos não tocam os mesmos arquivos.
 
 ## Gargalos (quem mais destrava)
 
+- T-020: 4 ticket(s) dependem dele diretamente
+- T-026: 3 ticket(s) dependem dele diretamente
 - T-021: 2 ticket(s) dependem dele diretamente
-- T-020: 2 ticket(s) dependem dele diretamente
 - T-004: 1 ticket(s) dependem dele diretamente
 - T-006: 1 ticket(s) dependem dele diretamente
-- T-001: 1 ticket(s) dependem dele diretamente
 
 ## Grafo
 
@@ -112,10 +114,12 @@ graph LR
   subgraph O2["Onda 2"]
     T010["T-010 · G- · Filtro ativo na matriz de decisao e resu"]
     T024["T-024 · M- · Freio de renotificacao por concurso e po"]
+    T028["T-028 · G- · A regra de nome e de fusao, escrita como"]
   end
   subgraph O3["Onda 3"]
     T011["T-011 · P+ · Docs: README, CLAUDE.md e roteiro de dep"]
     T019["T-019 · M- · O concurso filtrado pelo MCP que o Gran "]
+    T027["T-027 · M+ · Identidade e escrita na mesma transacao "]
   end
   subgraph O4["Onda 4"]
     T012["T-012 · P- · Deploy no notebook de producao"]
@@ -137,8 +141,13 @@ graph LR
   T021 --> T024
   T026 --> T024
   T020 --> T026
+  T020 --> T027
+  T026 --> T027
+  T028 --> T027
+  T020 --> T028
+  T026 --> T028
   classDef integrado fill:#d1fae5,stroke:#059669
-  class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011,T012,T013,T014,T015,T016,T017,T018,T021,T025 integrado
+  class T001,T002,T003,T004,T005,T006,T007,T008,T009,T010,T011,T012,T013,T014,T015,T016,T017,T018,T021,T022,T025 integrado
   classDef critico stroke-width:3px
-  class T020,T026,T024,T019 critico
+  class T020,T026,T028,T027 critico
 ```

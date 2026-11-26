@@ -3,7 +3,7 @@ id: T-022
 titulo: O catch-up horario nao roda antes do reset conhecido
 tipo: codigo
 nivel: P+
-status: backlog
+status: integrado
 repo: principal
 spec: [SPEC-003, R-89, R-90]
 depende_de: [T-021]
@@ -11,6 +11,15 @@ toca: [scripts/run_daily.sh, tests/test_run_daily.py]
 recursos: []
 afinidade:
 retornos: 0
+atualizado: 2026-11-26T13:13-03:00
+branch: t/T-022-o-catch-up-horario-nao-roda-antes-do-res
+executor: script
+executor_impl: glm-flash
+corpo_lancado: ca472aea093a
+fora_do_toca: [README.md]
+ponta: b7c7657ec8cfea7aab98a7a05015c8d50175102b
+executor_rev: agy-neon
+executor_int: script
 ---
 # T-022 · O catch-up horario nao roda antes do reset conhecido
 
@@ -67,3 +76,12 @@ Conteudo: um instante ISO numa linha.
 rodar cedo custa **uma** varredura; errar para o lado de ficar parado custa um dia de monitoramento. Entao,
 na duvida, rodar. Se o instante nao tiver fuso explicito, assuma o fuso local da maquina, que e o que o log
 usa (ADR-0004), e siga.
+
+## Histórico
+- 2026-11-26 12:52 backlog → pronto · liberado: Lucas liberou no chat em 26/11/2026
+- 2026-11-26 12:52 pronto → fazendo · implementador · glm-flash P+ high
+- 2026-11-26 13:06 fazendo → entregue · implementador: ENTREGUE · relatório T-022-implementador-1.md · 14 min · fora do toca: 1 arquivo(s)
+- 2026-11-26 13:06 entregue → revisando · revisor · agy-neon M- medium
+- 2026-11-26 13:12 revisando → aprovado · revisor: APROVADO · relatório T-022-revisor-1.md · 6 min
+- 2026-11-26 13:12 aprovado → integrando · integrador · script
+- 2026-11-26 13:13 integrando → integrado · integrador: INTEGRADO · relatório T-022-integrador-1.md · 1 min

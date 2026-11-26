@@ -146,10 +146,37 @@ custa exatamente uma varredura, nao um dia.
   porque exige julgamento sobre qual dado pertence a qual edital.
 - **R-86** Colisao de identidade que o codigo nao consiga resolver nunca vira silencio: entra no log como erro
   nomeado, pela regra de fail-open do projeto.
+- **R-98** A decisao de identidade e a escrita dela acontecem na mesma transacao protegida contra outro
+  escritor, ou a linha e revalidada na escrita e a resolucao refeita se ela mudou. **Requisito de garantia,
+  nao de defeito vivo:** medido em 26/11/2026, este sistema tem um escritor so, por construcao. O codigo nao
+  tem thread, async nem multiprocessing; o `flock -n` do `run_daily.sh` impede duas varreduras ao mesmo
+  tempo; nao ha servico residente no notebook (nenhum `systemd` e nenhum processo entre varreduras); e os
+  callbacks do Telegram sao processados DENTRO da varredura, em `ConcursoBot._processar_callbacks_telegram`.
+  O requisito existe porque qualquer uma dessas tres coisas basta para ele virar defeito vivo: um servico
+  residente de Telegram, uma varredura com thread, ou um segundo processo escrevendo no mesmo arquivo.
+
 - **R-97** A mesma colisao chega ao **alerta do dia**, uma vez por dia como os outros alertas. Requisito
   separado do R-86 por decisao do dono em 25/11/2026 (secao 4, item 5): o log e o banco, o alerta e o bot, e o
   ticket da migracao nao carrega o `src/core/bot.py`. Enquanto o R-97 nao integrar, a colisao fica registrada
   no log e nao chega ao Telegram: isso e divida declarada, com prazo de uma onda, nao requisito abandonado.
+
+- **R-99** Enquanto a regra de nome nao estiver escrita como tabela (R-100), o `_resolver_nome_sem_colisao` e
+  **conservador e nao funde**: o nome novo so vence quando nenhuma outra linha da area o ocupa (COLLATE
+  NOCASE); havendo qualquer conflito, a linha mantem o nome atual e a colisao entra no log (R-86). A funcao
+  nao funde linha e nao apaga linha, em nenhum caminho. **Divida declarada, nao requisito abandonado:** quem
+  a escreve como regra e o R-100. O custo desta escolha foi medido no log de producao em 26/11/2026, e nao e
+  suposicao: o caminho conservador disparou **109 vezes**, a fusao disparou **7 vezes em toda a historia do
+  bot** e a ultima foi em **15/09/2026**. Ate o R-100 integrar, duplicata do mesmo orgao continua no banco,
+  que e exatamente o estado de hoje em producao.
+- **R-100** A regra de nome e de fusao e escrita como **tabela de decisao enumerada** na ADR-0005, **antes**
+  do codigo. As linhas da tabela sao os estados que a unicidade nova passa a permitir, pelo produto de tres
+  eixos: existe conflito pelo nome ou nao; a chave da linha em conflito e nula, igual a do item ou diferente;
+  e o nome em conflito e do mesmo orgao ou nao. Cada linha diz tres coisas: o nome final, se funde e o que
+  vai para o log. Nenhum estado fica sem linha, e cada linha tem um teste. A tabela tem de satisfazer um
+  invariante, e ele e o criterio de aceite mais importante: **a funcao nunca devolve o nome novo deixando
+  atras de si um conflito que ela nao fundiu.** Os quatro defeitos achados nas cinco revisoes do T-020 sao,
+  dois deles, violacoes deste invariante; os outros dois sao o empate sem ordem e a escrita do nome separada
+  da escrita da chave, ambos ja resolvidos no T-020.
 
 ### 3.2. Cota da LLM
 
@@ -180,7 +207,8 @@ custa exatamente uma varredura, nao um dia.
 
 ## 4. Decisoes do dono
 
-> A primeira e a quinta foram decididas em 25/11/2026; as outras tres seguem em aberto.
+> A primeira e a quinta foram decididas em 25/11/2026, e a sexta em 26/11/2026; as outras tres seguem
+> em aberto.
 
 1. **Como abrir a unicidade (R-83) — DECIDIDA em 25/11/2026: recriar a tabela.** O dono respondeu
    «Recria a tabela» no chat, e a excecao a regra de migracao aditiva foi aberta por escrito no
@@ -209,6 +237,20 @@ custa exatamente uma varredura, nao um dia.
    que o dono le pessoalmente antes de uma migracao irreversivel sobre ~1.700 linhas, e inflar esse diff com
    o `src/core/bot.py` — o arquivo mais disputado da fase, que o T-019 e o T-024 tambem querem — encareceria
    a unica revisao humana que a fase tem. A alternativa era ampliar o T-020, que o revisor recomendava.
+
+6. **O escopo do T-020 depois da terceira reprovacao - DECIDIDA em 26/11/2026: reduzir ao que esta
+   provado.** A quinta revisao achou o **quarto** defeito distinto na mesma funcao, e todos os quatro moram
+   em `_resolver_nome_sem_colisao`, `_fundir` e nas buscas de fallback. O arquiteto recusou o conserto de uma
+   linha que estava disponivel, porque seria a quinta emenda na mesma sequencia de guardas, e levou ao dono
+   duas opcoes: reduzir o ticket ou tentar uma sexta rodada. O dono respondeu «pode fazer o que recomendou»
+   no chat. Decisao: o T-020 fica com a migracao, a ordem de identidade, o desempate explicito e o criterio
+   unico de nulidade, nenhum deles contestado em cinco revisoes, e passa a cumprir o R-99 no lugar da logica
+   de nome e fusao; a regra de nome vira o T-028, cuja primeira entrega e a tabela do R-100, nao codigo.
+   Causa raiz registrada: **a regra nunca foi escrita como regra.** Nao ha, em nenhuma versao desta spec,
+   requisito que diga o que a funcao deve fazer em cada estado; R-80 a R-86 falam de casamento, de migracao e
+   de log, e nunca do nome. Quatro rodadas de implementacao foram gastas em comportamento que requisito
+   nenhum pediu. A alternativa, a sexta rodada, era apostar que o quinto caso nao existe depois de quatro
+   apostas perdidas.
 
 ## 5. Fora de escopo
 
